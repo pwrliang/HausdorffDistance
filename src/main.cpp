@@ -24,6 +24,7 @@ int main(int argc, char* argv[]) {
   config.exec_path = exec_path.substr(0, exec_path.find_last_of("/"));
   config.input_file1 = FLAGS_input1;
   config.input_file2 = FLAGS_input2;
+  config.serialize_folder = FLAGS_serialize;
   config.n_dims = FLAGS_n_dims;
   config.is_double = FLAGS_is_double;
 

@@ -20,26 +20,23 @@ extern "C" __global__ void __intersection__nn_2d() {
   const auto& point_a = params.points_a[point_a_id];
   const auto& point_b = params.points_b[point_b_id];
 
-  if(point_a.x >= aabb.minX && point_a.x <= aabb.maxX &&
-      point_a.y >= aabb.minY && point_a.y <= aabb.maxY) {
-    auto dist2 = hd::EuclideanDistance2(point_a, point_b);
-    uint2 cmin2_storage{optixGetPayload_1(), optixGetPayload_2()};
-    double cmin2;
+  auto dist2 = hd::EuclideanDistance2(point_a, point_b);
+  uint2 cmin2_storage{optixGetPayload_1(), optixGetPayload_2()};
+  double cmin2;
 
-    hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
+  hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
 
-    if (dist2 < cmin2) {
-      cmin2 = dist2;
-      hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
-      optixSetPayload_1(cmin2_storage.x);
-      optixSetPayload_2(cmin2_storage.y);
-    }
-    volatile auto *p_cmax2 = params.cmax2;
-//    auto cmax2 = atomicMax(params.cmax2, 0);
+  if (dist2 < cmin2) {
+    cmin2 = dist2;
+    hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
+    optixSetPayload_1(cmin2_storage.x);
+    optixSetPayload_2(cmin2_storage.y);
+  }
+//    volatile auto *p_cmax2 = params.cmax2;
+  auto cmax2 = atomicMax(params.cmax2, 0);
 
-    if (cmin2 < *p_cmax2) {
-      optixReportIntersection(0, 0);
-    }
+  if (cmin2 < cmax2) {
+    optixReportIntersection(0, 0);
   }
 }
 

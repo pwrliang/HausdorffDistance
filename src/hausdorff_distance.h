@@ -2,6 +2,8 @@
 #define HAUSDORFF_DISTANCE_H
 #include <glog/logging.h>
 #include <thrust/device_vector.h>
+#include <thrust/random.h>
+#include <thrust/shuffle.h>
 
 #include "distance.h"
 #include "rt/reusable_buffer.h"
@@ -11,10 +13,10 @@
 #include "utils/derived_atomic_functions.h"
 #include "utils/helpers.h"
 #include "utils/queue.h"
+#include "utils/stopwatch.h"
 #include "utils/stream.h"
 #include "utils/type_traits.h"
 #include "utils/util.h"
-#include "utils/stopwatch.h"
 
 namespace hd {
 namespace details {
@@ -116,6 +118,9 @@ class HausdorffDistance {
   void SetPointsTo(const Stream& stream, IT begin, IT end) {
     points_b_.assign(begin, end);
 
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                    points_b_.begin(), points_b_.end(), g_);
+
     auto n_points = points_b_.size();
     auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
         n_points, config_.fast_build, config_.compact);
@@ -127,6 +132,10 @@ class HausdorffDistance {
   template <typename IT>
   COORD_T CalculateDistanceFrom(const Stream& stream, IT begin, IT end) {
     points_a_.assign(begin, end);
+
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                    points_a_.begin(), points_a_.end(), g_);
+
     Stopwatch sw;
     sw.start();
     auto radius = CalculateInitialRadius(stream);
@@ -189,14 +198,17 @@ class HausdorffDistance {
       }
 
       dim3 dims{1, 1, 1};
-
+      Stopwatch sw;
+      sw.start();
       dims.x = in_size;
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), launch_params);
       rt_engine_.Render(stream.cuda_stream(), mod, dims);
+      stream.Sync();
+      sw.stop();
 
-      // buffer_.SetTail(tail);
-      // LOG(INFO) << "radius: " << radius << " in_size: " << in_size
-                // << " out_size: " << out_queue_.size(stream.cuda_stream());
+      LOG(INFO) << "radius: " << radius << " in_size: " << in_size
+                << " out_size: " << out_queue_.size(stream.cuda_stream())
+                << " Time: " << sw.ms() << " ms";
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
       radius *= 2;
@@ -276,6 +288,7 @@ class HausdorffDistance {
 
  private:
   HausdorffDistanceConfig config_;
+  thrust::default_random_engine g_;
   thrust::device_vector<point_t> points_a_;
   thrust::device_vector<point_t> points_b_;
   thrust::device_vector<OptixAabb> aabbs_;
