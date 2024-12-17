@@ -1,13 +1,16 @@
 #include <algorithm>  // For std::shuffle
-#include <random>     // For random number generators
+#include <cstdio>
+#include <random>  // For random number generators
 
 #include "flags.h"
 #include "hausdorff_distance.h"
+#include "move_points.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
 #include "utils/stopwatch.h"
 #include "utils/type_traits.h"
 #include "wkt_loader.h"
+
 namespace hd {
 template <typename COORD_T, int N_DIMS>
 COORD_T RunAllHausdorffDistance(const std::string& ptx_root,
@@ -131,21 +134,24 @@ COORD_T RunAllHausdorffDistance(const std::string& ptx_root,
                                 const std::string& input_file1,
                                 const std::string& input_file2,
                                 const std::string& serialize_folder) {
+  using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   auto points_a =
       LoadPoints<COORD_T, N_DIMS>(input_file1, serialize_folder, FLAGS_limit);
   auto points_b =
       LoadPoints<COORD_T, N_DIMS>(input_file2, serialize_folder, FLAGS_limit);
 
+  MovePoints(points_a, points_b, FLAGS_move_offset);
+
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
-  // {
-  //   Stopwatch sw;
-  //   sw.start();
-  //   auto answer = CalculateHausdorffDistance(points_a, points_b);
-  //   sw.stop();
-  //   LOG(INFO) << "CPU HausdorffDistance " << answer << " Time: " << sw.ms()
-  //             << " ms";
-  // }
+  {
+    Stopwatch sw;
+    sw.start();
+    auto answer = CalculateHausdorffDistance(points_a, points_b);
+    sw.stop();
+    LOG(INFO) << "CPU HausdorffDistance " << answer << " Time: " << sw.ms()
+              << " ms";
+  }
 
   {
     Stopwatch sw;
@@ -156,9 +162,22 @@ COORD_T RunAllHausdorffDistance(const std::string& ptx_root,
               << " Time: " << sw.ms() << " ms";
   }
 
+  Stream stream;
+
+  {
+    thrust::device_vector<point_t> d_points_a = points_a;
+    thrust::device_vector<point_t> d_points_b = points_b;
+    Stopwatch sw;
+    sw.start();
+    auto answer =
+        CalculateHausdorffDistanceGPU<point_t>(stream, d_points_a, d_points_b);
+    sw.stop();
+    LOG(INFO) << "GPU Parallel HausdorffDistance " << answer
+              << " Time: " << sw.ms() << " ms";
+  }
+
   HausdorffDistanceConfig config;
   HausdorffDistance<COORD_T, N_DIMS> hdist;
-  Stream stream;
 
   config.ptx_root = ptx_root.c_str();
   hdist.Init(config);

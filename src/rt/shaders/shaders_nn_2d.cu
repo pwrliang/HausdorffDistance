@@ -26,6 +26,8 @@ extern "C" __global__ void __intersection__nn_2d() {
 
   hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
 
+  atomicAdd(params.total_hits, 1);
+
   if (dist2 < cmin2) {
     cmin2 = dist2;
     hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
@@ -33,8 +35,8 @@ extern "C" __global__ void __intersection__nn_2d() {
     optixSetPayload_2(cmin2_storage.y);
   }
 //    volatile auto *p_cmax2 = params.cmax2;
-  auto cmax2 = atomicMax(params.cmax2, 0);
-
+  auto cmax2 = atomicMax(params.cmax2, static_cast<FLOAT_TYPE>(0));
+//  auto cmax2 = *p_cmax2;
   if (cmin2 < cmax2) {
     optixReportIntersection(0, 0);
   }

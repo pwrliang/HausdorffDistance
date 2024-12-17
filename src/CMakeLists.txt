@@ -45,7 +45,7 @@ install(FILES "${PROJECT_SOURCE_DIR}/cmake/FindOptiX.cmake"
 OPTIX_COMPILE_SHADERS("${MODULE_TARGET_DIR}/ptx" PROGRAM_MODULES)
 
 message("PROGRAM_MODULES: ${PROGRAM_MODULES}")
-
+message("ENABLED_ARCHS: ${ENABLED_ARCHS}")
 add_executable(hd_exec
         main.cpp
         flags.cc

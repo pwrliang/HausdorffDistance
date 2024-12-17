@@ -18,7 +18,58 @@
 #include "utils/type_traits.h"
 #include "utils/util.h"
 
+__device__ __forceinline__ double atomicMaxDouble(double* address, double val) {
+  unsigned long long ret = __double_as_longlong(*address);
+  while (val > __longlong_as_double(ret)) {
+    unsigned long long old = ret;
+    if ((ret = atomicCAS((unsigned long long*) address, old,
+                         __double_as_longlong(val))) == old)
+      break;
+  }
+  return __longlong_as_double(ret);
+}
+
 namespace hd {
+
+template <typename POINT_T>
+double CalculateHausdorffDistanceGPU(const Stream& stream,
+                                     thrust::device_vector<POINT_T>& points_a,
+                                     thrust::device_vector<POINT_T>& points_b) {
+  thrust::default_random_engine g;
+  SharedValue<float> cmax;
+  auto* p_cmax = cmax.data();
+  ArrayView<POINT_T> v_points_b(points_b);
+
+  cmax.set(stream.cuda_stream(), 0);
+
+  thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()), points_a.begin(),
+                  points_a.end(), g);
+
+  thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()), points_b.begin(),
+                  points_b.end(), g);
+
+  thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points_a.begin(),
+                   points_a.end(),
+                   [=] __device__(const POINT_T& point_a) mutable {
+                     float cmin = FLT_MAX;
+
+                     for (uint32_t j = 0; j < v_points_b.size(); j++) {
+                       auto d = EuclideanDistance2(point_a, v_points_b[j]);
+                       if (d < cmin) {
+                         cmin = d;
+                       }
+                       if (cmin < atomicMax(p_cmax, 0.0f)) {
+                         break;
+                       }
+                     }
+                     if (cmin != FLT_MAX) {
+                       atomicMax(p_cmax, cmin);
+                     }
+                   });
+
+  return sqrt(cmax.get(stream.cuda_stream()));
+}
+
 namespace details {
 
 DEV_HOST_INLINE OptixAabb GetOptixAABB(float2 p, float radius) {
@@ -168,60 +219,104 @@ class HausdorffDistance {
     sw.stop();
 
     LOG(INFO) << "Init BVH Time: " << sw.ms() << " ms";
+    int i = 0;
 
     sw.start();
     while (in_size > 0) {
-      details::LaunchParamsNN<COORD_T, N_DIMS> launch_params;
+      i++;
+      if (i > 5 && false) {
+        Stopwatch sw;
+        sw.start();
+        ContinueCompute(stream, cmax2_.data(),
+                        ArrayView<uint32_t>(in_queue_.data(), in_size));
+        stream.Sync();
+        sw.stop();
+        LOG(INFO) << "Brute force time: " << sw.ms() << " ms";
+        break;
+      } else {
+        details::LaunchParamsNN<COORD_T, N_DIMS> launch_params;
+        SharedValue<uint32_t> total_hits;
 
-      launch_params.in_queue = in_queue_.DeviceObject();
-      launch_params.out_queue = out_queue_.DeviceObject();
-      launch_params.points_a = ArrayView<point_t>(points_a_);
-      launch_params.points_b = ArrayView<point_t>(points_b_);
-      launch_params.handle = gas_handle;
-      launch_params.aabbs = ArrayView<OptixAabb>(aabbs_);
-      launch_params.cmax2 = cmax2_.data();
+        total_hits.set(stream.cuda_stream(), 0);
 
-      details::ModuleIdentifier mod = details::NUM_MODULE_IDENTIFIERS;
+        launch_params.in_queue = in_queue_.DeviceObject();
+        launch_params.out_queue = out_queue_.DeviceObject();
+        launch_params.points_a = ArrayView<point_t>(points_a_);
+        launch_params.points_b = ArrayView<point_t>(points_b_);
+        launch_params.handle = gas_handle;
+        launch_params.aabbs = ArrayView<OptixAabb>(aabbs_);
+        launch_params.cmax2 = cmax2_.data();
+        launch_params.total_hits = total_hits.data();
 
-      if (typeid(COORD_T) == typeid(float)) {
-        if (N_DIMS == 2) {
-          mod = details::MODULE_ID_FLOAT_NN_2D;
-        } else if (N_DIMS == 3) {
-          mod = details::MODULE_ID_FLOAT_NN_3D;
+        details::ModuleIdentifier mod = details::NUM_MODULE_IDENTIFIERS;
+
+        if (typeid(COORD_T) == typeid(float)) {
+          if (N_DIMS == 2) {
+            mod = details::MODULE_ID_FLOAT_NN_2D;
+          } else if (N_DIMS == 3) {
+            mod = details::MODULE_ID_FLOAT_NN_3D;
+          }
+        } else if (typeid(COORD_T) == typeid(double)) {
+          if (N_DIMS == 2) {
+            mod = details::MODULE_ID_DOUBLE_NN_2D;
+          } else if (N_DIMS == 3) {
+            mod = details::MODULE_ID_DOUBLE_NN_3D;
+          }
         }
-      } else if (typeid(COORD_T) == typeid(double)) {
-        if (N_DIMS == 2) {
-          mod = details::MODULE_ID_DOUBLE_NN_2D;
-        } else if (N_DIMS == 3) {
-          mod = details::MODULE_ID_DOUBLE_NN_3D;
+
+        dim3 dims{1, 1, 1};
+        Stopwatch sw;
+        sw.start();
+        dims.x = in_size;
+        rt_engine_.CopyLaunchParams(stream.cuda_stream(), launch_params);
+        rt_engine_.Render(stream.cuda_stream(), mod, dims);
+        stream.Sync();
+        sw.stop();
+
+        LOG(INFO) << "radius: " << radius << " in_size: " << in_size
+                  << " out_size: " << out_queue_.size(stream.cuda_stream())
+                  << " Time: " << sw.ms() << " ms";
+        LOG(INFO) << "Avg hits "
+                  << total_hits.get(stream.cuda_stream()) / in_size;
+        in_queue_.Clear(stream.cuda_stream());
+        in_queue_.Swap(out_queue_);
+        radius *= 1.2;
+
+        in_size = in_queue_.size(stream.cuda_stream());
+        if (in_size > 0) {
+          gas_handle = UpdateBVH(stream, gas_handle, points_b_, radius);
         }
-      }
-
-      dim3 dims{1, 1, 1};
-      Stopwatch sw;
-      sw.start();
-      dims.x = in_size;
-      rt_engine_.CopyLaunchParams(stream.cuda_stream(), launch_params);
-      rt_engine_.Render(stream.cuda_stream(), mod, dims);
-      stream.Sync();
-      sw.stop();
-
-      LOG(INFO) << "radius: " << radius << " in_size: " << in_size
-                << " out_size: " << out_queue_.size(stream.cuda_stream())
-                << " Time: " << sw.ms() << " ms";
-      in_queue_.Clear(stream.cuda_stream());
-      in_queue_.Swap(out_queue_);
-      radius *= 2;
-
-      in_size = in_queue_.size(stream.cuda_stream());
-      if (in_size > 0) {
-        gas_handle = UpdateBVH(stream, gas_handle, points_b_, radius);
       }
     }
     sw.stop();
 
     LOG(INFO) << "Calculate Time " << sw.ms() << " ms";
     return sqrt(cmax2_.get(stream.cuda_stream()));
+  }
+
+  void ContinueCompute(const Stream& stream, COORD_T* cmax,
+                       ArrayView<uint32_t> point_ids) {
+    ArrayView<point_t> points_a(points_a_);
+    ArrayView<point_t> points_b(points_b_);
+
+    thrust::for_each(
+        thrust::cuda::par.on(stream.cuda_stream()), point_ids.begin(),
+        point_ids.end(), [=] __device__(uint32_t point_id) mutable {
+          double cmin = DBL_MAX;
+
+          for (uint32_t i = 0; i < points_b.size(); i++) {
+            auto d = EuclideanDistance2(points_a[point_id], points_b[i]);
+            if (d < cmin) {
+              cmin = d;
+            }
+            if (cmin < atomicMax(cmax, 0.0)) {
+              break;
+            }
+          }
+          if (cmin != DBL_MAX) {
+            atomicMax(cmax, cmin);
+          }
+        });
   }
 
   OptixTraversableHandle BuildBVH(const Stream& stream,

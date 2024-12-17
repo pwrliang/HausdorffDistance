@@ -97,24 +97,24 @@ struct vec_info {
 template <>
 struct vec_info<float2> {
   using type = float;
-  int n_dims = 2;
+  static constexpr int n_dims = 2;
 };
 
 template <>
 struct vec_info<float3> {
  using type = float;
- int n_dims = 3;
+ static constexpr int n_dims = 3;
 };
 
 template <>
 struct vec_info<double2> {
  using type = double;
- int n_dims = 2;
+ static constexpr int n_dims = 2;
 };
 
 template <>
 struct vec_info<double3> {
  using type = double;
- int n_dims = 3;
+ static constexpr int n_dims = 3;
 };
 #endif

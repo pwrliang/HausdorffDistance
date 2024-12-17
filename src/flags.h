@@ -10,4 +10,5 @@ DECLARE_string(serialize);
 DECLARE_int32(n_dims);
 DECLARE_bool(is_double);
 DECLARE_int32(limit);
+DECLARE_double(move_offset);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H
