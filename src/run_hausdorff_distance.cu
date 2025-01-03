@@ -3,7 +3,8 @@
 #include <random>  // For random number generators
 
 #include "flags.h"
-#include "hausdorff_distance.h"
+#include "hausdorff_distance_lbvh.h"
+#include "hausdorff_distance_rt.h"
 #include "move_points.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
@@ -13,37 +14,24 @@
 
 namespace hd {
 template <typename COORD_T, int N_DIMS>
-COORD_T RunAllHausdorffDistance(const std::string& ptx_root,
-                                const std::string& input_file1,
-                                const std::string& input_file2,
-                                const std::string& serialize_folder);
+COORD_T RunHausdorffDistanceImpl(const RunConfig& config);
 
 void RunHausdorffDistance(const RunConfig& config) {
-  LOG(INFO) << "RunHausdorffDistance";
   double dist;
-  std::string ptx_root = config.exec_path + "/ptx";
 
   if (config.is_double) {
     if (config.n_dims == 2) {
-      dist = RunAllHausdorffDistance<double, 2>(ptx_root, config.input_file1,
-                                                config.input_file2,
-                                                config.serialize_folder);
+      dist = RunHausdorffDistanceImpl<double, 2>(config);
     } else if (config.n_dims == 3) {
-      // dist = RunAllHausdorffDistance<double, 3>(ptx_root, config.input_file1,
-      //                                        config.input_file2);
+      // dist = RunHausdorffDistanceImpl<double, 3>(config);
     }
   } else {
     if (config.n_dims == 2) {
-      dist = RunAllHausdorffDistance<float, 2>(ptx_root, config.input_file1,
-                                               config.input_file2,
-                                               config.serialize_folder);
+      dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      // dist = RunAllHausdorffDistance<float, 3>(ptx_root, config.input_file1,
-      //                                       config.input_file2);
+      // dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
-
-  LOG(INFO) << "RunHausdorffDistance: dist = " << dist;
 }
 
 template <typename POINT_T>
@@ -83,8 +71,9 @@ void update_maximum(std::atomic<T>& maximum_value, T const& value) noexcept {
 }
 
 template <typename POINT_T>
-double CalculateHausdorffDistanceParallel(std::vector<POINT_T>& points_a,
-                                          std::vector<POINT_T>& points_b) {
+typename vec_info<POINT_T>::type CalculateHausdorffDistanceParallel(
+    std::vector<POINT_T>& points_a, std::vector<POINT_T>& points_b) {
+  using coord_t = typename vec_info<POINT_T>::type;
   std::random_device rd;  // Seed source
   std::mt19937 g(rd());   // Mersenne Twister engine seeded with rd()
 
@@ -95,9 +84,9 @@ double CalculateHausdorffDistanceParallel(std::vector<POINT_T>& points_a,
   std::vector<std::thread> threads;
   auto thread_count = std::thread::hardware_concurrency();
   auto avg_points = (points_a.size() + thread_count - 1) / thread_count;
-  std::atomic<double> cmax;
+  std::atomic<coord_t> cmax;
 
-  cmax = 0.0;
+  cmax = 0;
 
   for (int tid = 0; tid < thread_count; tid++) {
     threads.emplace_back(std::thread([&, tid]() {
@@ -105,7 +94,7 @@ double CalculateHausdorffDistanceParallel(std::vector<POINT_T>& points_a,
       auto end = std::min(begin + avg_points, points_a.size());
 
       for (int i = begin; i < end; i++) {
-        double cmin = DBL_MAX;
+        auto cmin = std::numeric_limits<coord_t>::max();
         for (size_t j = 0; j < points_b.size(); j++) {
           auto d = EuclideanDistance2(points_a[i], points_b[j]);
           if (d < cmin) {
@@ -115,7 +104,7 @@ double CalculateHausdorffDistanceParallel(std::vector<POINT_T>& points_a,
             break;
           }
         }
-        if (cmin != DBL_MAX) {
+        if (cmin != std::numeric_limits<coord_t>::max()) {
           update_maximum(cmax, cmin);
         }
       }
@@ -130,66 +119,72 @@ double CalculateHausdorffDistanceParallel(std::vector<POINT_T>& points_a,
 }
 
 template <typename COORD_T, int N_DIMS>
-COORD_T RunAllHausdorffDistance(const std::string& ptx_root,
-                                const std::string& input_file1,
-                                const std::string& input_file2,
-                                const std::string& serialize_folder) {
+COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
-  auto points_a =
-      LoadPoints<COORD_T, N_DIMS>(input_file1, serialize_folder, FLAGS_limit);
-  auto points_b =
-      LoadPoints<COORD_T, N_DIMS>(input_file2, serialize_folder, FLAGS_limit);
+  auto points_a = LoadPoints<COORD_T, N_DIMS>(
+      config.input_file1, config.serialize_folder, FLAGS_limit);
+  auto points_b = LoadPoints<COORD_T, N_DIMS>(
+      config.input_file2, config.serialize_folder, FLAGS_limit);
+  COORD_T dist;
+  int n_repeat = FLAGS_repeat;
+  Stream stream;
+  thrust::device_vector<point_t> d_points_a = points_a;
+  thrust::device_vector<point_t> d_points_b = points_b;
+  HausdorffDistanceRT<COORD_T, N_DIMS> hdist_rt;
+  HausdorffDistanceRTConfig rt_config;
+  std::string ptx_root = config.exec_path + "/ptx";
 
-  MovePoints(points_a, points_b, FLAGS_move_offset);
+  rt_config.ptx_root = ptx_root.c_str();
+  rt_config.cull = FLAGS_cull;
+  hdist_rt.Init(rt_config);
+  hdist_rt.SetPointsTo(stream, points_b.begin(), points_b.end());
 
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
-  {
-    Stopwatch sw;
-    sw.start();
-    auto answer = CalculateHausdorffDistance(points_a, points_b);
-    sw.stop();
-    LOG(INFO) << "CPU HausdorffDistance " << answer << " Time: " << sw.ms()
-              << " ms";
-  }
-
-  {
-    Stopwatch sw;
-    sw.start();
-    auto answer = CalculateHausdorffDistanceParallel(points_a, points_b);
-    sw.stop();
-    LOG(INFO) << "CPU Parallel HausdorffDistance " << answer
-              << " Time: " << sw.ms() << " ms";
-  }
-
-  Stream stream;
-
-  {
-    thrust::device_vector<point_t> d_points_a = points_a;
-    thrust::device_vector<point_t> d_points_b = points_b;
-    Stopwatch sw;
-    sw.start();
-    auto answer =
-        CalculateHausdorffDistanceGPU<point_t>(stream, d_points_a, d_points_b);
-    sw.stop();
-    LOG(INFO) << "GPU Parallel HausdorffDistance " << answer
-              << " Time: " << sw.ms() << " ms";
-  }
-
-  HausdorffDistanceConfig config;
-  HausdorffDistance<COORD_T, N_DIMS> hdist;
-
-  config.ptx_root = ptx_root.c_str();
-  hdist.Init(config);
-  hdist.SetPointsTo(stream, points_b.begin(), points_b.end());
   Stopwatch sw;
   sw.start();
-  auto dist =
-      hdist.CalculateDistanceFrom(stream, points_a.begin(), points_a.end());
+  for (int i = 0; i < n_repeat; i++) {
+    switch (config.variant) {
+    case Variant::SERIAL: {
+      dist = CalculateHausdorffDistance(points_a, points_b);
+      break;
+    }
+    case Variant::PARALLEL: {
+      dist = CalculateHausdorffDistanceParallel(points_a, points_b);
+      break;
+    }
+    case Variant::GPU: {
+      dist = CalculateHausdorffDistanceGPU<point_t>(stream, d_points_a,
+                                                    d_points_b);
+      break;
+    }
+    case Variant::RT: {
+      dist = hdist_rt.CalculateDistanceFrom(stream, points_a.begin(),
+                                            points_a.end());
+      break;
+    }
+    case Variant::LBVH: {
+      break;
+    } break;
+    }
+  }
   sw.stop();
 
-  LOG(INFO) << "GPU HausdorffDistance: " << dist << " Time: " << sw.ms()
-            << " ms";
+  LOG(INFO) << "Running Time " << sw.ms() / n_repeat << " ms, Distance "
+            << dist;
+
+  if (config.check) {
+    auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
+    auto diff = answer_dist - dist;
+
+    if (dist != answer_dist) {
+      LOG(ERROR) << "Wrong HausdorffDistance. Result: " << dist
+                 << " Answer: " << answer_dist << " Diff: " << diff;
+    } else {
+      LOG(INFO) << "HausdorffDistance is checked";
+    }
+  }
+
   return dist;
 }
 }  // namespace hd

@@ -1,5 +1,6 @@
-#ifndef HAUSDORFF_DISTANCE_H
-#define HAUSDORFF_DISTANCE_H
+#ifndef HAUSDORFF_DISTANCE_RT_H
+#define HAUSDORFF_DISTANCE_RT_H
+#include <flags.h>
 #include <glog/logging.h>
 #include <thrust/device_vector.h>
 #include <thrust/random.h>
@@ -144,22 +145,23 @@ __global__ void CalculateNNDist2(ArrayView<POINT_T> points_a,
 
 }  // namespace details
 
-struct HausdorffDistanceConfig {
+struct HausdorffDistanceRTConfig {
   const char* ptx_root;
   bool fast_build = false;
   bool compact = false;
-  float sample_rate = 0.01;
+  float sample_rate = 0.1;
+  bool cull = false;
 };
 
 template <typename COORD_T, int N_DIMS>
-class HausdorffDistance {
+class HausdorffDistanceRT {
   using coord_t = COORD_T;
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
 
  public:
-  HausdorffDistance() = default;
+  HausdorffDistanceRT() = default;
 
-  void Init(const HausdorffDistanceConfig& hd_config) {
+  void Init(const HausdorffDistanceRTConfig& hd_config) {
     config_ = hd_config;
     auto rt_config = details::get_default_rt_config(hd_config.ptx_root);
     rt_engine_.Init(rt_config);
@@ -187,12 +189,19 @@ class HausdorffDistance {
     thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
                     points_a_.begin(), points_a_.end(), g_);
 
+
     Stopwatch sw;
     sw.start();
-    auto radius = CalculateInitialRadius(stream);
+    COORD_T radius;
     sw.stop();
 
-    LOG(INFO) << "init_radius: " << radius << " Time: " << sw.ms() << " ms";
+    if (FLAGS_radius != 0) {
+      radius = FLAGS_radius;
+    } else {
+      radius = CalculateInitialRadius(stream);
+    }
+
+    // LOG(INFO) << "init_radius: " << radius << " Time: " << sw.ms() << " ms";
     std::vector<OptixTraversableHandle> handles{gas_handle_};
 
     in_queue_.Init(points_a_.size());
@@ -213,84 +222,134 @@ class HausdorffDistance {
     uint32_t in_size = points_a_.size();
     cmax2_.set(stream.cuda_stream(), 0);
 
+    buffer_.Clear();
+
     sw.start();
     auto gas_handle = BuildBVH(stream, points_b_, radius);
     stream.Sync();
     sw.stop();
 
-    LOG(INFO) << "Init BVH Time: " << sw.ms() << " ms";
-    int i = 0;
-
+    SharedValue<uint32_t> skip_count;
+    SharedValue<uint32_t> skip_total_idx;
+    // LOG(INFO) << "Init BVH Time: " << sw.ms() << " ms";
+    SharedValue<uint32_t> total_hits;
+    int iter = 0;
     sw.start();
+
     while (in_size > 0) {
-      i++;
-      if (i > 5 && false) {
-        Stopwatch sw;
-        sw.start();
-        ContinueCompute(stream, cmax2_.data(),
-                        ArrayView<uint32_t>(in_queue_.data(), in_size));
-        stream.Sync();
-        sw.stop();
-        LOG(INFO) << "Brute force time: " << sw.ms() << " ms";
-        break;
-      } else {
-        details::LaunchParamsNN<COORD_T, N_DIMS> launch_params;
-        SharedValue<uint32_t> total_hits;
+      iter++;
+      details::LaunchParamsNN<COORD_T, N_DIMS> params_nn;
 
-        total_hits.set(stream.cuda_stream(), 0);
+      total_hits.set(stream.cuda_stream(), 0);
+      skip_count.set(stream.cuda_stream(), 0);
+      skip_total_idx.set(stream.cuda_stream(), 0);
 
-        launch_params.in_queue = in_queue_.DeviceObject();
-        launch_params.out_queue = out_queue_.DeviceObject();
-        launch_params.points_a = ArrayView<point_t>(points_a_);
-        launch_params.points_b = ArrayView<point_t>(points_b_);
-        launch_params.handle = gas_handle;
-        launch_params.aabbs = ArrayView<OptixAabb>(aabbs_);
-        launch_params.cmax2 = cmax2_.data();
-        launch_params.total_hits = total_hits.data();
+      // TODO: Idea sort the queue by the distance to the center of points B
 
-        details::ModuleIdentifier mod = details::NUM_MODULE_IDENTIFIERS;
+      ArrayView<uint32_t> in(in_queue_.data(), in_size);
 
-        if (typeid(COORD_T) == typeid(float)) {
-          if (N_DIMS == 2) {
-            mod = details::MODULE_ID_FLOAT_NN_2D;
-          } else if (N_DIMS == 3) {
-            mod = details::MODULE_ID_FLOAT_NN_3D;
-          }
-        } else if (typeid(COORD_T) == typeid(double)) {
-          if (N_DIMS == 2) {
-            mod = details::MODULE_ID_DOUBLE_NN_2D;
-          } else if (N_DIMS == 3) {
-            mod = details::MODULE_ID_DOUBLE_NN_3D;
-          }
+      params_nn.in_queue = in;
+      params_nn.out_queue = out_queue_.DeviceObject();
+      params_nn.points_a = ArrayView<point_t>(points_a_);
+      params_nn.points_b = ArrayView<point_t>(points_b_);
+      params_nn.handle = gas_handle;
+      params_nn.aabbs = ArrayView<OptixAabb>(aabbs_);
+      params_nn.cmax2 = cmax2_.data();
+      params_nn.skip_count = skip_count.data();
+      params_nn.skip_total_idx = skip_total_idx.data();
+      params_nn.total_hits = total_hits.data();
+
+      details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
+      details::ModuleIdentifier mod_cull = details::NUM_MODULE_IDENTIFIERS;
+
+      if (typeid(COORD_T) == typeid(float)) {
+        if (N_DIMS == 2) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_2D;
+          mod_cull = details::MODULE_ID_FLOAT_CULL_2D;
+        } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_3D;
+          mod_cull = details::MODULE_ID_FLOAT_CULL_3D;
         }
-
-        dim3 dims{1, 1, 1};
-        Stopwatch sw;
-        sw.start();
-        dims.x = in_size;
-        rt_engine_.CopyLaunchParams(stream.cuda_stream(), launch_params);
-        rt_engine_.Render(stream.cuda_stream(), mod, dims);
-        stream.Sync();
-        sw.stop();
-
-        LOG(INFO) << "radius: " << radius << " in_size: " << in_size
-                  << " out_size: " << out_queue_.size(stream.cuda_stream())
-                  << " Time: " << sw.ms() << " ms";
-        LOG(INFO) << "Avg hits "
-                  << total_hits.get(stream.cuda_stream()) / in_size;
-        in_queue_.Clear(stream.cuda_stream());
-        in_queue_.Swap(out_queue_);
-        radius *= 1.2;
-
-        in_size = in_queue_.size(stream.cuda_stream());
-        if (in_size > 0) {
-          gas_handle = UpdateBVH(stream, gas_handle, points_b_, radius);
+      } else if (typeid(COORD_T) == typeid(double)) {
+        if (N_DIMS == 2) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
+          mod_cull = details::MODULE_ID_DOUBLE_CULL_2D;
+        } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
+          mod_cull = details::MODULE_ID_DOUBLE_CULL_3D;
         }
       }
-    }
-    sw.stop();
 
-    LOG(INFO) << "Calculate Time " << sw.ms() << " ms";
+      dim3 dims{1, 1, 1};
+      Stopwatch sw;
+      sw.start();
+      dims.x = in_size;
+      rt_engine_.CopyLaunchParams(stream.cuda_stream(), params_nn);
+      rt_engine_.Render(stream.cuda_stream(), mod_nn, dims);
+      stream.Sync();
+      sw.stop();
+
+      auto cmax = sqrt(cmax2_.get(stream.cuda_stream()));
+
+      VLOG(1) << "Iter: " << iter << " radius: " << radius << " cmax: " << cmax
+              << " in_size: " << in_size
+              << " out_size: " << out_queue_.size(stream.cuda_stream())
+              << " Avg hits "
+              << (float) total_hits.get(stream.cuda_stream()) / in_size
+              << " Skip idx: "
+              << (float) skip_total_idx.get(stream.cuda_stream()) /
+                     skip_count.get(stream.cuda_stream())
+              << " Time: " << sw.ms() << " ms";
+
+      // Cull out queue
+      if (config_.cull) {
+        auto cull_in_size = out_queue_.size(stream.cuda_stream());
+
+        if (cull_in_size > 0) {
+          Stopwatch sw;
+          sw.start();
+          details::LaunchParamsCull<COORD_T, N_DIMS> params_cull;
+          in_queue_.Clear(stream.cuda_stream());
+          // gas_handle = UpdateBVH(stream, gas_handle, points_b_, cmax);
+          gas_handle = BuildBVH(stream, points_b_, cmax);
+          params_cull.in_queue =
+              ArrayView<uint32_t>(out_queue_.data(), cull_in_size);
+          params_cull.out_queue = in_queue_.DeviceObject();
+          params_cull.points_a = ArrayView<point_t>(points_a_);
+          params_cull.points_b = ArrayView<point_t>(points_b_);
+          params_cull.handle = gas_handle;
+          params_cull.radius = cmax;
+
+          dims.x = cull_in_size;
+          rt_engine_.CopyLaunchParams(stream.cuda_stream(), params_cull);
+          rt_engine_.Render(stream.cuda_stream(), mod_cull, dims);
+          stream.Sync();
+          sw.stop();
+          auto culled_size =
+              cull_in_size - in_queue_.size(stream.cuda_stream());
+          VLOG(1) << "culled size: " << culled_size << " culled ratio: "
+                  << (float) culled_size / cull_in_size * 100
+                  << " % Cull time: " << sw.ms();
+          out_queue_.Clear(stream.cuda_stream());
+        } else {
+          break;
+        }
+      } else {
+        in_queue_.Clear(stream.cuda_stream());
+        in_queue_.Swap(out_queue_);
+      }
+
+      radius *= 2;
+
+      in_size = in_queue_.size(stream.cuda_stream());
+      if (in_size > 0) {
+        buffer_.Clear();
+        gas_handle = BuildBVH(stream, points_b_, radius);
+        // UpdateBVH(stream, gas_handle, points_b_, radius);
+      }
+      sw.stop();
+    }
+    VLOG(1) << "Calculate Time " << sw.ms() << " ms";
     return sqrt(cmax2_.get(stream.cuda_stream()));
   }
 
@@ -382,7 +441,7 @@ class HausdorffDistance {
   }
 
  private:
-  HausdorffDistanceConfig config_;
+  HausdorffDistanceRTConfig config_;
   thrust::default_random_engine g_;
   thrust::device_vector<point_t> points_a_;
   thrust::device_vector<point_t> points_b_;
@@ -396,4 +455,4 @@ class HausdorffDistance {
 };
 }  // namespace hd
 
-#endif  // HAUSDORFF_DISTANCE_H
+#endif  // HAUSDORFF_DISTANCE_RT_H

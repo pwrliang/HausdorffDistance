@@ -7,8 +7,14 @@
 DECLARE_string(input1);
 DECLARE_string(input2);
 DECLARE_string(serialize);
+DECLARE_string(variant);
+DECLARE_bool(check);
 DECLARE_int32(n_dims);
 DECLARE_bool(is_double);
 DECLARE_int32(limit);
 DECLARE_double(move_offset);
+DECLARE_double(move_factor);
+DECLARE_int32(repeat);
+DECLARE_double(radius);
+DECLARE_bool(cull);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

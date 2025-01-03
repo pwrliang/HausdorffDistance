@@ -36,13 +36,15 @@ enum ModuleIdentifier {
   MODULE_ID_DOUBLE_NN_2D,
   MODULE_ID_FLOAT_NN_3D,
   MODULE_ID_DOUBLE_NN_3D,
+  MODULE_ID_FLOAT_CULL_2D,
+  MODULE_ID_DOUBLE_CULL_2D,
+  MODULE_ID_FLOAT_CULL_3D,
+  MODULE_ID_DOUBLE_CULL_3D,
   NUM_MODULE_IDENTIFIERS
 };
 
 static const float IDENTICAL_TRANSFORMATION_MTX[12] = {
-    1.0f, 0.0f, 0.0f, 0.0f,
-  0.0f, 1.0f, 0.0f, 0.0f,
-  0.0f, 0.0f, 1.0f, 1.0f};
+    1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f};
 
 class Module {
  public:
@@ -141,7 +143,7 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     mod.set_function_suffix("nn_2d");
     mod.EnableIsIntersection();
     mod.EnableAnyHit();
-    mod.set_n_payload(3);
+    mod.set_n_payload(4);
 
     config.AddModule(mod);
 
@@ -150,22 +152,22 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     config.AddModule(mod);
   }
 
+  {
+    Module mod;
 
-  // {
-  //   Module mod;
-  //
-  //   mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_3D);
-  //   mod.set_program_path(ptx_root + "/float_shaders_nn_3d.ptx");
-  //   mod.set_function_suffix("nn_3d");
-  //   mod.EnableIsIntersection();
-  //   mod.set_n_payload(1);
-  //
-  //   config.AddModule(mod);
-  //
-  //   mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_3D);
-  //   mod.set_program_path(ptx_root + "/double_shaders_nn_3d.ptx");
-  //   config.AddModule(mod);
-  // }
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_CULL_2D);
+    mod.set_program_path(ptx_root + "/float_shaders_cull_2d.ptx");
+    mod.set_function_suffix("cull_2d");
+    mod.EnableIsIntersection();
+    mod.EnableAnyHit();
+    mod.set_n_payload(2);
+
+    config.AddModule(mod);
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_CULL_2D);
+    mod.set_program_path(ptx_root + "/double_shaders_cull_2d.ptx");
+    config.AddModule(mod);
+  }
 
 #ifndef NDEBUG
   config.opt_level = OPTIX_COMPILE_OPTIMIZATION_LEVEL_0;
