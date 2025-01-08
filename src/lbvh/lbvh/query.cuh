@@ -327,10 +327,11 @@ std::pair<unsigned int, Real> query_host(
     using aabb_type  = typename bvh_type::aabb_type;
     using node_type  = typename bvh_type::node_type;
 
-    if(!tree.query_host_enabled())
-    {
-        throw std::runtime_error("lbvh::bvh query_host is not enabled");
-    }
+    // if(!tree.query_host_enabled())
+    // {
+    //     throw std::runtime_error("lbvh::bvh query_host is not enabled");
+    // }
+    assert(tree.query_host_enabled());
 
     // pair of {node_idx, mindist}
     std::vector<std::pair<index_type, real_type>> stack = {
@@ -339,7 +340,7 @@ std::pair<unsigned int, Real> query_host(
     stack.reserve(64);
 
     unsigned int nearest = 0xFFFFFFFF;
-    real_type current_nearest_dist = infinity<real_type>();
+    real_type current_nearest_dist = std::numeric_limits<real_type>::infinity();
     do
     {
         const auto node = stack.back(); stack.pop_back();

@@ -125,12 +125,18 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       config.input_file1, config.serialize_folder, FLAGS_limit);
   auto points_b = LoadPoints<COORD_T, N_DIMS>(
       config.input_file2, config.serialize_folder, FLAGS_limit);
+
+  if (config.move_offset != 0) {
+    MovePoints(points_a, points_b, config.move_offset);
+  }
+
   COORD_T dist;
   int n_repeat = FLAGS_repeat;
   Stream stream;
   thrust::device_vector<point_t> d_points_a = points_a;
   thrust::device_vector<point_t> d_points_b = points_b;
   HausdorffDistanceRT<COORD_T, N_DIMS> hdist_rt;
+  HausdorffDistanceLBVH<COORD_T, N_DIMS> hdist_lbvh;
   HausdorffDistanceRTConfig rt_config;
   std::string ptx_root = config.exec_path + "/ptx";
 
@@ -138,6 +144,8 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   rt_config.cull = FLAGS_cull;
   hdist_rt.Init(rt_config);
   hdist_rt.SetPointsTo(stream, points_b.begin(), points_b.end());
+
+  hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
 
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
@@ -164,8 +172,10 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::LBVH: {
+      dist = hdist_lbvh.CalculateDistanceFrom(stream, points_a.begin(),
+                                              points_a.end());
       break;
-    } break;
+    }
     }
   }
   sw.stop();

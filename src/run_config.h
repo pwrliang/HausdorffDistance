@@ -12,6 +12,7 @@ struct RunConfig {
   int n_dims;
   bool is_double;
   bool check;
+  double move_offset;
 };
 
 #endif  // HAUSDORFF_DISTANCE_RUN_CONFIG_H

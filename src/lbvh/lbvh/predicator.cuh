@@ -94,6 +94,12 @@ __device__ __host__
   return query_nearest<float>(make_float4(point.x, point.y, point.z, 0.0f));
 }
 __device__ __host__
+    inline query_nearest<float> nearest(const float2& point) noexcept
+{
+  return query_nearest<float>(make_float4(point.x, point.y, 0.0f, 0.0f));
+}
+
+__device__ __host__
     inline query_nearest<double> nearest(const double4& point) noexcept
 {
   return query_nearest<double>(point);
@@ -103,6 +109,10 @@ __device__ __host__
 {
   return query_nearest<double>(make_double4(point.x, point.y, point.z, 0.0));
 }
-
+__device__ __host__
+    inline query_nearest<double> nearest(const double2& point) noexcept
+{
+  return query_nearest<double>(make_double4(point.x, point.y, 0.0, 0.0));
+}
 } // lbvh
 #endif// LBVH_PREDICATOR_CUH

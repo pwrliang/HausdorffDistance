@@ -13,7 +13,6 @@ DECLARE_int32(n_dims);
 DECLARE_bool(is_double);
 DECLARE_int32(limit);
 DECLARE_double(move_offset);
-DECLARE_double(move_factor);
 DECLARE_int32(repeat);
 DECLARE_double(radius);
 DECLARE_bool(cull);
