@@ -146,15 +146,15 @@ class HausdorffDistanceRT {
     Stopwatch sw;
     sw.start();
     COORD_T radius;
-    sw.stop();
 
     if (FLAGS_radius != 0) {
       radius = FLAGS_radius;
     } else {
       radius = CalculateInitialRadius(stream);
     }
+    sw.stop();
 
-    LOG(INFO) << "init_radius: " << radius << " Time: " << sw.ms() << " ms";
+    VLOG(1) << "init_radius: " << radius << " Time: " << sw.ms() << " ms";
     std::vector<OptixTraversableHandle> handles{gas_handle_};
 
     in_queue_.Init(points_a_.size());
