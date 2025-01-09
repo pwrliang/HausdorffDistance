@@ -34,6 +34,14 @@ class Mbr {
     return reinterpret_cast<const COORD_T*>(&upper_)[dim];
   }
 
+  DEV_HOST_INLINE bool Contains(const Mbr& mbr) const {
+    bool contains = true;
+    for (int i = 0; contains && i < N_DIMS; i++) {
+      contains &= lower(i) <= mbr.lower(i) && upper(i) >= mbr.upper(i);
+    }
+    return contains;
+  }
+
   DEV_HOST_INLINE COORD_T GetMinDist2(const Mbr& other) const {
     COORD_T dist2 = 0;
 
@@ -79,8 +87,16 @@ class Mbr {
     COORD_T dist2 = 0;
 
     for (uint32_t i = 0; i < N_DIMS; ++i) {
-      auto diff = std::max(std::abs(lower(i) - other.upper(i)),
-                           std::abs(upper(i) - other.lower(i)));
+      auto diff1 = std::abs(lower(i) - other.upper(i));
+      auto diff2 = std::abs(upper(i) - other.lower(i));
+      auto diff = std::max(diff1, diff2);
+      /*
+      printf(
+          "Dim %d, diff %.8f, diff1 %.8f, diff2 %.8f, this [%.8f, %.8f], other "
+          "[%.8f, %.8f]\n",
+          i, diff, diff1, diff2, lower(i), upper(i), other.lower(i),
+          other.upper(i));
+      */
       dist2 += diff * diff;
     }
     return dist2;

@@ -8,7 +8,6 @@
 #include <boost/mpl/print.hpp>
 #include <queue>
 #include <sstream>
-#include <strstream>
 
 #include "distance.h"
 #include "hd_bounds.h"
@@ -164,12 +163,17 @@ Real best_first_hd(
   pq.push(PQElement<Real>(0, std::numeric_limits<Real>::max()));
 
   Real cmax = 0;
+  int visited_nodes = 0;
+  int visited_leaves = 0;
 
   while (!pq.empty()) {
     PQElement<Real> e = pq.top();
     index_type curr_node_idx = e.node;
+
     pq.pop();
     if (tree_a.nodes_host()[curr_node_idx].object_idx != 0xFFFFFFFF) {
+      LOG(INFO) << "Visited Nodes " << visited_nodes << " Visited Leaves "
+                << visited_leaves;
       return e.dist;
     }
 
@@ -191,16 +195,31 @@ Real best_first_hd(
 
         if (dist2 > cmax) {
           pq.push(PQElement<Real>(node_idx, dist2));
+          cmax = dist2;
         }
-        cmax = std::max(cmax, dist2);
+        visited_leaves++;
       } else {  // internal node
         auto mbr = aabb_to_mbr(tree_a.aabbs_host()[node_idx]);
         HdBounds<Real, N_DIMS> bounds(mbr);
         auto dist2 = bounds.GetUpperBound2(mbr_b);
 
-        CHECK_LE(dist2, e.dist);
-
-        if (dist2 >= cmax) {
+        // if (dist2 > e.dist) {
+        //   auto parent_mbr = aabb_to_mbr(tree_a.aabbs_host()[curr_node_idx]);
+        //   HdBounds<Real, N_DIMS> parent_bounds(parent_mbr);
+        //   auto parent_dist2 = parent_bounds.GetUpperBound2(mbr_b);
+        //   printf(
+        //       "Parent x [%.8f, %.8f], y [%.8f, %.8f], Child x [%.8f, %.8f], y
+        //       "
+        //       "[%.8f, %.8f], MbrB x [%.8f, %.8f], y [%.8f, %.8f]\n",
+        //       parent_mbr.lower(0), parent_mbr.upper(0), parent_mbr.lower(1),
+        //       parent_mbr.upper(1), mbr.lower(0), mbr.upper(0), mbr.lower(1),
+        //       mbr.upper(1), mbr_b.lower(0), mbr_b.upper(0), mbr_b.lower(1),
+        //       mbr_b.upper(1));
+        // }
+        // A containing B does not mean HD A > HD B
+        // CHECK_LE(dist2, e.dist);
+        visited_nodes++;
+        if (dist2 > cmax) {
           pq.push(PQElement<Real>(node_idx, dist2));
         }
       }

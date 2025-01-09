@@ -79,5 +79,5 @@ function cull() {
   done
 }
 
-#vary_dist
-cull
+vary_dist
+#cull

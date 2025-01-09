@@ -142,6 +142,13 @@ class HdBounds {
       for (int j = 0; j < region_t::N_FACES; j++) {
         auto face2 = other_region.GetFace(j);
         auto dist2 = face1.GetMaxDist2(face2);
+        /*
+        printf("face %d->%d, dist2 %.6f, dist %.6f\n", i, j, dist2,
+               sqrt(dist2));
+        */
+        if (dist2 <= max_dist2) {
+          break;
+        }
         min_dist2 = std::min(min_dist2, dist2);
       }
       max_dist2 = std::max(max_dist2, min_dist2);

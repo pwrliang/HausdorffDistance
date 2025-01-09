@@ -3,6 +3,7 @@
 #include <random>  // For random number generators
 
 #include "flags.h"
+#include "hausdorff_distance_gpu.h"
 #include "hausdorff_distance_lbvh.h"
 #include "hausdorff_distance_rt.h"
 #include "move_points.h"
@@ -17,7 +18,7 @@ template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(const RunConfig& config);
 
 void RunHausdorffDistance(const RunConfig& config) {
-  double dist;
+  double dist = -1;
 
   if (config.is_double) {
     if (config.n_dims == 2) {
@@ -32,6 +33,7 @@ void RunHausdorffDistance(const RunConfig& config) {
       // dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
+  LOG(INFO) << "HausdorffDistance: distance is " << dist;
 }
 
 template <typename POINT_T>
@@ -44,6 +46,7 @@ double CalculateHausdorffDistance(std::vector<POINT_T>& points_a,
   // Shuffle the vector
   std::shuffle(points_a.begin(), points_a.end(), g);
   std::shuffle(points_b.begin(), points_b.end(), g);
+  uint32_t compared_pairs = 0;
 
   for (size_t i = 0; i < points_a.size(); i++) {
     double cmin = DBL_MAX;
@@ -52,6 +55,7 @@ double CalculateHausdorffDistance(std::vector<POINT_T>& points_a,
       if (d < cmin) {
         cmin = d;
       }
+      compared_pairs++;
       if (cmin < cmax) {
         break;
       }
@@ -60,6 +64,7 @@ double CalculateHausdorffDistance(std::vector<POINT_T>& points_a,
       cmax = cmin;
     }
   }
+  LOG(INFO) << "Compared Pairs: " << compared_pairs;
   return sqrt(cmax);
 }
 
@@ -180,15 +185,14 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   }
   sw.stop();
 
-  LOG(INFO) << "Running Time " << sw.ms() / n_repeat << " ms, Distance "
-            << dist;
+  LOG(INFO) << "Running Time " << sw.ms() / n_repeat << " ms";
 
   if (config.check) {
     auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
     auto diff = answer_dist - dist;
 
     if (dist != answer_dist) {
-      LOG(ERROR) << "Wrong HausdorffDistance. Result: " << dist
+      LOG(FATAL) << "Wrong HausdorffDistance. Result: " << dist
                  << " Answer: " << answer_dist << " Diff: " << diff;
     } else {
       LOG(INFO) << "HausdorffDistance is checked";

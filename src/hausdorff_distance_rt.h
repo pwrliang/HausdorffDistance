@@ -10,7 +10,6 @@
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
 #include "sampler.h"
-#include "utils/bitset.h"
 #include "utils/derived_atomic_functions.h"
 #include "utils/helpers.h"
 #include "utils/queue.h"
@@ -31,45 +30,6 @@ __device__ __forceinline__ double atomicMaxDouble(double* address, double val) {
 }
 
 namespace hd {
-
-template <typename POINT_T>
-double CalculateHausdorffDistanceGPU(const Stream& stream,
-                                     thrust::device_vector<POINT_T>& points_a,
-                                     thrust::device_vector<POINT_T>& points_b) {
-  thrust::default_random_engine g;
-  SharedValue<float> cmax;
-  auto* p_cmax = cmax.data();
-  ArrayView<POINT_T> v_points_b(points_b);
-
-  cmax.set(stream.cuda_stream(), 0);
-
-  thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()), points_a.begin(),
-                  points_a.end(), g);
-
-  thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()), points_b.begin(),
-                  points_b.end(), g);
-
-  thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points_a.begin(),
-                   points_a.end(),
-                   [=] __device__(const POINT_T& point_a) mutable {
-                     float cmin = FLT_MAX;
-
-                     for (uint32_t j = 0; j < v_points_b.size(); j++) {
-                       auto d = EuclideanDistance2(point_a, v_points_b[j]);
-                       if (d < cmin) {
-                         cmin = d;
-                       }
-                       if (cmin < atomicMax(p_cmax, 0.0f)) {
-                         break;
-                       }
-                     }
-                     if (cmin != FLT_MAX) {
-                       atomicMax(p_cmax, cmin);
-                     }
-                   });
-
-  return sqrt(cmax.get(stream.cuda_stream()));
-}
 
 namespace details {
 
@@ -113,13 +73,6 @@ DEV_HOST_INLINE OptixAabb GetOptixAABB(double3 p, double radius) {
   aabb.minZ = next_float_from_double(p.z - radius, -1, 2);
   aabb.maxZ = next_float_from_double(p.z + radius, 1, 2);
   return aabb;
-}
-
-std::vector<float> GetScaleMatrix(float scale) {
-  std::vector<float> mat = {1.0f * scale, 0.0f,         0.0f,         0.0f,
-                            0.0f,         1.0f * scale, 0.0f,         0.0f,
-                            0.0f,         0.0f,         1.0f * scale, 0.0f};
-  return mat;
 }
 
 template <typename POINT_T>
@@ -201,7 +154,7 @@ class HausdorffDistanceRT {
       radius = CalculateInitialRadius(stream);
     }
 
-    // LOG(INFO) << "init_radius: " << radius << " Time: " << sw.ms() << " ms";
+    LOG(INFO) << "init_radius: " << radius << " Time: " << sw.ms() << " ms";
     std::vector<OptixTraversableHandle> handles{gas_handle_};
 
     in_queue_.Init(points_a_.size());
@@ -351,31 +304,6 @@ class HausdorffDistanceRT {
     }
     VLOG(1) << "Calculate Time " << sw.ms() << " ms";
     return sqrt(cmax2_.get(stream.cuda_stream()));
-  }
-
-  void ContinueCompute(const Stream& stream, COORD_T* cmax,
-                       ArrayView<uint32_t> point_ids) {
-    ArrayView<point_t> points_a(points_a_);
-    ArrayView<point_t> points_b(points_b_);
-
-    thrust::for_each(
-        thrust::cuda::par.on(stream.cuda_stream()), point_ids.begin(),
-        point_ids.end(), [=] __device__(uint32_t point_id) mutable {
-          double cmin = DBL_MAX;
-
-          for (uint32_t i = 0; i < points_b.size(); i++) {
-            auto d = EuclideanDistance2(points_a[point_id], points_b[i]);
-            if (d < cmin) {
-              cmin = d;
-            }
-            if (cmin < atomicMax(cmax, 0.0)) {
-              break;
-            }
-          }
-          if (cmin != DBL_MAX) {
-            atomicMax(cmax, cmin);
-          }
-        });
   }
 
   OptixTraversableHandle BuildBVH(const Stream& stream,
