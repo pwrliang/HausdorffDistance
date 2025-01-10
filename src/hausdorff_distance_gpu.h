@@ -3,6 +3,7 @@
 #include <thrust/device_vector.h>
 #include <thrust/random.h>
 #include <thrust/shuffle.h>
+#include <utils/type_traits.h>
 
 #include "distance.h"
 #include "utils/array_view.h"
@@ -13,11 +14,12 @@
 namespace hd {
 
 template <typename POINT_T>
-double CalculateHausdorffDistanceGPU(const Stream& stream,
-                                     thrust::device_vector<POINT_T>& points_a,
-                                     thrust::device_vector<POINT_T>& points_b) {
+typename vec_info<POINT_T>::type CalculateHausdorffDistanceGPU(
+    const Stream& stream, thrust::device_vector<POINT_T>& points_a,
+    thrust::device_vector<POINT_T>& points_b) {
+  using coord_t = typename vec_info<POINT_T>::type;
   thrust::default_random_engine g;
-  SharedValue<float> cmax;
+  SharedValue<coord_t> cmax;
   auto* p_cmax = cmax.data();
   ArrayView<POINT_T> v_points_b(points_b);
 
@@ -32,18 +34,18 @@ double CalculateHausdorffDistanceGPU(const Stream& stream,
   thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points_a.begin(),
                    points_a.end(),
                    [=] __device__(const POINT_T& point_a) mutable {
-                     float cmin = FLT_MAX;
+                     coord_t cmin = std::numeric_limits<coord_t>::max();
 
                      for (uint32_t j = 0; j < v_points_b.size(); j++) {
                        auto d = EuclideanDistance2(point_a, v_points_b[j]);
                        if (d < cmin) {
                          cmin = d;
                        }
-                       if (cmin < atomicMax(p_cmax, 0.0f)) {
+                       if (cmin <= atomicMax(p_cmax, 0)) {
                          break;
                        }
                      }
-                     if (cmin != FLT_MAX) {
+                     if (cmin != std::numeric_limits<coord_t>::max()) {
                        atomicMax(p_cmax, cmin);
                      }
                    });

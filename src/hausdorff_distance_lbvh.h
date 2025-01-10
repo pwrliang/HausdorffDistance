@@ -120,7 +120,7 @@ struct AABBToMbr<COORD_T, 2> {
 template <typename COORD_T>
 struct AABBToMbr<COORD_T, 3> {
   using point_t = typename Mbr<COORD_T, 3>::point_t;
-  Mbr<COORD_T, 2> operator()(const lbvh::aabb<COORD_T>& aabb) const {
+  Mbr<COORD_T, 3> operator()(const lbvh::aabb<COORD_T>& aabb) const {
     point_t lower, upper;
 
     lower.x = aabb.lower.x;
@@ -165,6 +165,10 @@ Real best_first_hd(
   Real cmax = 0;
   int visited_nodes = 0;
   int visited_leaves = 0;
+  int visited_point_pairs = 0;
+
+  Stopwatch sw;
+  double total_nn_time = 0;
 
   while (!pq.empty()) {
     PQElement<Real> e = pq.top();
@@ -173,7 +177,9 @@ Real best_first_hd(
     pq.pop();
     if (tree_a.nodes_host()[curr_node_idx].object_idx != 0xFFFFFFFF) {
       LOG(INFO) << "Visited Nodes " << visited_nodes << " Visited Leaves "
-                << visited_leaves;
+                << visited_leaves << " Visited Point Pairs "
+                << visited_point_pairs << " Total NN time " << total_nn_time
+                << " ms";
       return e.dist;
     }
 
@@ -183,13 +189,17 @@ Real best_first_hd(
       const auto obj_idx = tree_a.nodes_host()[node_idx].object_idx;
 
       if (obj_idx != 0xFFFFFFFF) {  // leaf node
-        auto& obj = tree_a.objects_host()[obj_idx];
-        auto nn =
-            lbvh::query_host(tree_b, lbvh::nearest(obj),
-                             [](const vector_type& a, const Objects& b) {
-                               return EuclideanDistance2(
-                                   *reinterpret_cast<const Objects*>(&a.x), b);
-                             });
+        sw.start();
+        const auto& obj = tree_a.objects_host()[obj_idx];
+        auto nn = lbvh::query_host(
+            tree_b, lbvh::nearest(obj),
+            [&visited_point_pairs](const vector_type& a, const Objects& b) {
+              visited_point_pairs++;
+              return EuclideanDistance2(*reinterpret_cast<const Objects*>(&a.x),
+                                        b);
+            });
+        sw.stop();
+        total_nn_time += sw.ms();
         auto dist2 = nn.second;
         CHECK_LE(dist2, e.dist);
 

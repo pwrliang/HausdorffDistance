@@ -24,22 +24,23 @@ void RunHausdorffDistance(const RunConfig& config) {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<double, 2>(config);
     } else if (config.n_dims == 3) {
-      // dist = RunHausdorffDistanceImpl<double, 3>(config);
+      dist = RunHausdorffDistanceImpl<double, 3>(config);
     }
   } else {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      // dist = RunHausdorffDistanceImpl<float, 3>(config);
+      dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
 }
 
 template <typename POINT_T>
-double CalculateHausdorffDistance(std::vector<POINT_T>& points_a,
-                                  std::vector<POINT_T>& points_b) {
-  double cmax = 0.0;
+typename vec_info<POINT_T>::type CalculateHausdorffDistance(
+    std::vector<POINT_T>& points_a, std::vector<POINT_T>& points_b) {
+  using coord_t = typename vec_info<POINT_T>::type;
+  coord_t cmax = 0;
   std::random_device rd;  // Seed source
   std::mt19937 g(rd());   // Mersenne Twister engine seeded with rd()
 
@@ -49,18 +50,18 @@ double CalculateHausdorffDistance(std::vector<POINT_T>& points_a,
   uint32_t compared_pairs = 0;
 
   for (size_t i = 0; i < points_a.size(); i++) {
-    double cmin = DBL_MAX;
+    coord_t cmin = std::numeric_limits<coord_t>::max();
     for (size_t j = 0; j < points_b.size(); j++) {
       auto d = EuclideanDistance2(points_a[i], points_b[j]);
       if (d < cmin) {
         cmin = d;
       }
       compared_pairs++;
-      if (cmin < cmax) {
+      if (cmin <= cmax) {
         break;
       }
     }
-    if (cmin != DBL_MAX && cmin > cmax) {
+    if (cmin != std::numeric_limits<coord_t>::max() && cmin > cmax) {
       cmax = cmin;
     }
   }
@@ -188,7 +189,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   LOG(INFO) << "Running Time " << sw.ms() / n_repeat << " ms";
 
   if (config.check) {
-    auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
+    auto answer_dist = CalculateHausdorffDistance(points_a, points_b);
     auto diff = answer_dist - dist;
 
     if (dist != answer_dist) {
