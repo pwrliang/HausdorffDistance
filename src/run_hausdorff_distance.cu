@@ -189,7 +189,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   LOG(INFO) << "Running Time " << sw.ms() / n_repeat << " ms";
 
   if (config.check) {
-    auto answer_dist = CalculateHausdorffDistance(points_a, points_b);
+    auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
     auto diff = answer_dist - dist;
 
     if (dist != answer_dist) {
