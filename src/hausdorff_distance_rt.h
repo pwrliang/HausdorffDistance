@@ -110,6 +110,7 @@ template <typename COORD_T, int N_DIMS>
 class HausdorffDistanceRT {
   using coord_t = COORD_T;
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
+  using mbr_t = Mbr<COORD_T, N_DIMS>;
 
  public:
   HausdorffDistanceRT() = default;
@@ -122,10 +123,19 @@ class HausdorffDistanceRT {
 
   template <typename IT>
   void SetPointsTo(const Stream& stream, IT begin, IT end) {
+    auto* p_mbr = mbr_b_.data();
+
     points_b_.assign(begin, end);
 
     thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
                     points_b_.begin(), points_b_.end(), g_);
+
+    mbr_b_.set(stream.cuda_stream(), mbr_t());
+    thrust::for_each(
+        thrust::cuda::par.on(stream.cuda_stream()), points_b_.begin(),
+        points_b_.end(),
+        [=] __device__(const point_t& p) mutable { p_mbr->Expand(p); });
+    auto mbr_b = mbr_b_.get(stream.cuda_stream());
 
     auto n_points = points_b_.size();
     auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
@@ -137,25 +147,24 @@ class HausdorffDistanceRT {
 
   template <typename IT>
   COORD_T CalculateDistanceFrom(const Stream& stream, IT begin, IT end) {
+    auto* p_mbr = mbr_a_.data();
+
     points_a_.assign(begin, end);
 
     thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
                     points_a_.begin(), points_a_.end(), g_);
 
-
-    Stopwatch sw;
-    sw.start();
-    COORD_T radius;
-
-    if (FLAGS_radius != 0) {
-      radius = FLAGS_radius;
-    } else {
-      radius = CalculateInitialRadius(stream);
-    }
-    sw.stop();
-
-    VLOG(1) << "init_radius: " << radius << " Time: " << sw.ms() << " ms";
-    std::vector<OptixTraversableHandle> handles{gas_handle_};
+    mbr_a_.set(stream.cuda_stream(), mbr_t());
+    thrust::for_each(
+        thrust::cuda::par.on(stream.cuda_stream()), points_a_.begin(),
+        points_a_.end(),
+        [=] __device__(const point_t& p) mutable { p_mbr->Expand(p); });
+    auto mbr_a = mbr_a_.get(stream.cuda_stream());
+    auto mbr_b = mbr_b_.get(stream.cuda_stream());
+    HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
+    auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
+    auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
+    auto radius = hd_lb;
 
     in_queue_.Init(points_a_.size());
     out_queue_.Init(points_a_.size());
@@ -173,21 +182,16 @@ class HausdorffDistanceRT {
                      });
 
     uint32_t in_size = points_a_.size();
-    cmax2_.set(stream.cuda_stream(), 0);
+    cmax2_.set(stream.cuda_stream(), hd_lb);
 
     buffer_.Clear();
-
-    sw.start();
     auto gas_handle = BuildBVH(stream, points_b_, radius);
-    stream.Sync();
-    sw.stop();
 
     SharedValue<uint32_t> skip_count;
     SharedValue<uint32_t> skip_total_idx;
     // LOG(INFO) << "Init BVH Time: " << sw.ms() << " ms";
     SharedValue<uint32_t> total_hits;
     int iter = 0;
-    sw.start();
 
     while (in_size > 0) {
       iter++;
@@ -293,16 +297,14 @@ class HausdorffDistanceRT {
       }
 
       radius *= 2;
+      radius = std::min(radius, hd_ub);
 
       in_size = in_queue_.size(stream.cuda_stream());
       if (in_size > 0) {
-        buffer_.Clear();
-        gas_handle = BuildBVH(stream, points_b_, radius);
-        // UpdateBVH(stream, gas_handle, points_b_, radius);
+        gas_handle = UpdateBVH(stream, gas_handle, points_b_, radius);
       }
       sw.stop();
     }
-    VLOG(1) << "Calculate Time " << sw.ms() << " ms";
     return sqrt(cmax2_.get(stream.cuda_stream()));
   }
 
@@ -333,47 +335,14 @@ class HausdorffDistanceRT {
                                         0, config_.fast_build, config_.compact);
   }
 
-  COORD_T CalculateInitialRadius(const Stream& stream) {
-    size_t sample_size_a = points_a_.size() * config_.sample_rate + 1;
-    size_t sample_size_b = points_b_.size() * config_.sample_rate + 1;
-    thrust::device_vector<point_t> samples_a, samples_b;
-    auto sample_size = std::max(sample_size_a, sample_size_b);
-
-    sampler_.Init(sample_size);
-
-    sampler_.Sample(stream.cuda_stream(), ArrayView<point_t>(points_a_),
-                    sample_size_a, samples_a);
-    sampler_.Sample(stream.cuda_stream(), ArrayView<point_t>(points_b_),
-                    sample_size_b, samples_b);
-
-    ArrayView<point_t> v_samples_a(samples_a);
-    ArrayView<point_t> v_samples_b(samples_b);
-
-    if (v_samples_a.size() < v_samples_b.size()) {
-      v_samples_a.Swap(v_samples_b);
-    }
-
-    int grid_size, block_size;
-    SharedValue<float> dist2;
-
-    dist2.set(stream.cuda_stream(), FLT_MAX);
-
-    CUDA_CHECK(cudaOccupancyMaxPotentialBlockSize(
-        &grid_size, &block_size, details::CalculateNNDist2<point_t>, 0,
-        reinterpret_cast<int>(MAX_BLOCK_SIZE)));
-
-    details::
-        CalculateNNDist2<<<grid_size, block_size, 0, stream.cuda_stream()>>>(
-            v_samples_a, v_samples_b, dist2.data());
-    return sqrt(dist2.get(stream.cuda_stream()));
-  }
-
  private:
   HausdorffDistanceRTConfig config_;
   thrust::default_random_engine g_;
   thrust::device_vector<point_t> points_a_;
   thrust::device_vector<point_t> points_b_;
   thrust::device_vector<OptixAabb> aabbs_;
+  SharedValue<mbr_t> mbr_a_;
+  SharedValue<mbr_t> mbr_b_;
   OptixTraversableHandle gas_handle_;
   Queue<uint32_t> in_queue_, out_queue_;
   Sampler sampler_;

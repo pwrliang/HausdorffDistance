@@ -1,15 +1,26 @@
 #ifndef MBR_H
 #define MBR_H
 
+#include "utils/shared_value.h"
 #include "utils/type_traits.h"
 #include "utils/util.h"
 namespace hd {
 template <typename COORD_T, int N_DIMS>
 class Mbr {
  public:
+  using coord_t = COORD_T;
+  static constexpr int n_dims = N_DIMS;
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
 
-  Mbr() = default;
+  Mbr() {
+    auto* lower = reinterpret_cast<coord_t*>(&lower_.x);
+    auto* upper = reinterpret_cast<coord_t*>(&upper_.x);
+
+    for (int dim = 0; dim < n_dims; dim++) {
+      lower[dim] = std::numeric_limits<coord_t>::max();
+      upper[dim] = std::numeric_limits<coord_t>::lowest();
+    }
+  }
 
   DEV_HOST Mbr(const point_t& lower, const point_t& upper)
       : lower_(lower), upper_(upper) {
@@ -40,6 +51,17 @@ class Mbr {
       contains &= lower(i) <= mbr.lower(i) && upper(i) >= mbr.upper(i);
     }
     return contains;
+  }
+
+  DEV_INLINE void Expand(const point_t& p) {
+    auto* p_lower = reinterpret_cast<COORD_T*>(&lower_.x);
+    auto* p_upper = reinterpret_cast<COORD_T*>(&upper_.x);
+    auto* p_point = reinterpret_cast<const COORD_T*>(&p.x);
+
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      atomicMin(&p_lower[dim], p_point[dim]);
+      atomicMax(&p_upper[dim], p_point[dim]);
+    }
   }
 
   DEV_HOST_INLINE COORD_T GetMinDist2(const Mbr& other) const {
@@ -105,6 +127,14 @@ class Mbr {
  private:
   point_t lower_, upper_;
 };
+
+template <typename POINT_T>
+inline Mbr<typename vec_info<POINT_T>::type, vec_info<POINT_T>::n_dims>
+ComputeMbr(const Stream& stream, const ArrayView<POINT_T>& points) {
+  using mbr_t =
+      Mbr<typename vec_info<POINT_T>::type, vec_info<POINT_T>::n_dims>;
+
+}
 
 }  // namespace hd
 
