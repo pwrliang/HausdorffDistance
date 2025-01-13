@@ -18,17 +18,6 @@
 #include "utils/type_traits.h"
 #include "utils/util.h"
 
-__device__ __forceinline__ double atomicMaxDouble(double* address, double val) {
-  unsigned long long ret = __double_as_longlong(*address);
-  while (val > __longlong_as_double(ret)) {
-    unsigned long long old = ret;
-    if ((ret = atomicCAS((unsigned long long*) address, old,
-                         __double_as_longlong(val))) == old)
-      break;
-  }
-  return __longlong_as_double(ret);
-}
-
 namespace hd {
 
 namespace details {
@@ -75,27 +64,6 @@ DEV_HOST_INLINE OptixAabb GetOptixAABB(double3 p, double radius) {
   return aabb;
 }
 
-template <typename POINT_T>
-__global__ void CalculateNNDist2(ArrayView<POINT_T> points_a,
-                                 ArrayView<POINT_T> points_b,
-                                 float* min_dist2) {
-  auto warp_id = TID_1D / WARP_SIZE;
-  auto n_warps = TOTAL_THREADS_1D / WARP_SIZE;
-  auto lane_id = threadIdx.x % WARP_SIZE;
-
-  for (uint32_t point_id_a = warp_id; point_id_a < points_a.size();
-       point_id_a += n_warps) {
-    for (uint32_t point_id_b = lane_id; point_id_b < points_b.size();
-         point_id_b += WARP_SIZE) {
-      float dist2 =
-          EuclideanDistance2(points_a[point_id_a], points_b[point_id_b]);
-      if (dist2 != 0) {
-        atomicMin(min_dist2, dist2);
-      }
-    }
-  }
-}
-
 }  // namespace details
 
 struct HausdorffDistanceRTConfig {
@@ -103,7 +71,6 @@ struct HausdorffDistanceRTConfig {
   bool fast_build = false;
   bool compact = false;
   float sample_rate = 0.1;
-  bool cull = false;
 };
 
 template <typename COORD_T, int N_DIMS>
@@ -164,7 +131,7 @@ class HausdorffDistanceRT {
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
-    auto radius = hd_lb;
+    COORD_T radius = hd_lb;
 
     in_queue_.Init(points_a_.size());
     out_queue_.Init(points_a_.size());
@@ -182,27 +149,26 @@ class HausdorffDistanceRT {
                      });
 
     uint32_t in_size = points_a_.size();
-    cmax2_.set(stream.cuda_stream(), hd_lb);
+    LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub;
 
     buffer_.Clear();
     auto gas_handle = BuildBVH(stream, points_b_, radius);
 
     SharedValue<uint32_t> skip_count;
     SharedValue<uint32_t> skip_total_idx;
-    // LOG(INFO) << "Init BVH Time: " << sw.ms() << " ms";
-    SharedValue<uint32_t> total_hits;
+    SharedValue<uint32_t> iter_hits;
     int iter = 0;
+    uint64_t total_hits = 0;
+
+    cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
     while (in_size > 0) {
       iter++;
+      iter_hits.set(stream.cuda_stream(), 0);
       details::LaunchParamsNN<COORD_T, N_DIMS> params_nn;
 
-      total_hits.set(stream.cuda_stream(), 0);
       skip_count.set(stream.cuda_stream(), 0);
       skip_total_idx.set(stream.cuda_stream(), 0);
-
-      // TODO: Idea sort the queue by the distance to the center of points B
-
       ArrayView<uint32_t> in(in_queue_.data(), in_size);
 
       params_nn.in_queue = in;
@@ -212,28 +178,24 @@ class HausdorffDistanceRT {
       params_nn.handle = gas_handle;
       params_nn.aabbs = ArrayView<OptixAabb>(aabbs_);
       params_nn.cmax2 = cmax2_.data();
+      params_nn.radius = radius;
       params_nn.skip_count = skip_count.data();
       params_nn.skip_total_idx = skip_total_idx.data();
-      params_nn.total_hits = total_hits.data();
+      params_nn.n_hits = iter_hits.data();
 
       details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
-      details::ModuleIdentifier mod_cull = details::NUM_MODULE_IDENTIFIERS;
 
       if (typeid(COORD_T) == typeid(float)) {
         if (N_DIMS == 2) {
           mod_nn = details::MODULE_ID_FLOAT_NN_2D;
-          mod_cull = details::MODULE_ID_FLOAT_CULL_2D;
         } else if (N_DIMS == 3) {
           mod_nn = details::MODULE_ID_FLOAT_NN_3D;
-          mod_cull = details::MODULE_ID_FLOAT_CULL_3D;
         }
       } else if (typeid(COORD_T) == typeid(double)) {
         if (N_DIMS == 2) {
           mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
-          mod_cull = details::MODULE_ID_DOUBLE_CULL_2D;
         } else if (N_DIMS == 3) {
           mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
-          mod_cull = details::MODULE_ID_DOUBLE_CULL_3D;
         }
       }
 
@@ -246,65 +208,33 @@ class HausdorffDistanceRT {
       stream.Sync();
       sw.stop();
 
-      auto cmax = sqrt(cmax2_.get(stream.cuda_stream()));
+      auto cmax2 = cmax2_.get(stream.cuda_stream());
+      auto cmax = sqrt(cmax2);
+      auto n_hits = iter_hits.get(stream.cuda_stream());
+      total_hits += n_hits;
 
-      VLOG(1) << "Iter: " << iter << " radius: " << radius << " cmax: " << cmax
+      VLOG(1) << "Iter: " << iter << " radius: " << radius
+              << " cmax2: " << cmax2 << " cmax: " << cmax
               << " in_size: " << in_size
               << " out_size: " << out_queue_.size(stream.cuda_stream())
-              << " Avg hits "
-              << (float) total_hits.get(stream.cuda_stream()) / in_size
-              << " Skip idx: "
+              << " Avg hits " << (float) n_hits / in_size << " Skip idx: "
               << (float) skip_total_idx.get(stream.cuda_stream()) /
                      skip_count.get(stream.cuda_stream())
               << " Time: " << sw.ms() << " ms";
 
-      // Cull out queue
-      if (config_.cull) {
-        auto cull_in_size = out_queue_.size(stream.cuda_stream());
+      in_queue_.Clear(stream.cuda_stream());
+      in_queue_.Swap(out_queue_);
 
-        if (cull_in_size > 0) {
-          Stopwatch sw;
-          sw.start();
-          details::LaunchParamsCull<COORD_T, N_DIMS> params_cull;
-          in_queue_.Clear(stream.cuda_stream());
-          // gas_handle = UpdateBVH(stream, gas_handle, points_b_, cmax);
-          gas_handle = BuildBVH(stream, points_b_, cmax);
-          params_cull.in_queue =
-              ArrayView<uint32_t>(out_queue_.data(), cull_in_size);
-          params_cull.out_queue = in_queue_.DeviceObject();
-          params_cull.points_a = ArrayView<point_t>(points_a_);
-          params_cull.points_b = ArrayView<point_t>(points_b_);
-          params_cull.handle = gas_handle;
-          params_cull.radius = cmax;
-
-          dims.x = cull_in_size;
-          rt_engine_.CopyLaunchParams(stream.cuda_stream(), params_cull);
-          rt_engine_.Render(stream.cuda_stream(), mod_cull, dims);
-          stream.Sync();
-          sw.stop();
-          auto culled_size =
-              cull_in_size - in_queue_.size(stream.cuda_stream());
-          VLOG(1) << "culled size: " << culled_size << " culled ratio: "
-                  << (float) culled_size / cull_in_size * 100
-                  << " % Cull time: " << sw.ms();
-          out_queue_.Clear(stream.cuda_stream());
-        } else {
-          break;
-        }
-      } else {
-        in_queue_.Clear(stream.cuda_stream());
-        in_queue_.Swap(out_queue_);
-      }
-
-      radius *= 2;
-      radius = std::min(radius, hd_ub);
-
+      radius *= 1.1;
       in_size = in_queue_.size(stream.cuda_stream());
       if (in_size > 0) {
         gas_handle = UpdateBVH(stream, gas_handle, points_b_, radius);
+        // buffer_.Clear();
+        // gas_handle = BuildBVH(stream, points_b_, radius);
       }
-      sw.stop();
     }
+    LOG(INFO) << "Total Hits " << total_hits;
+
     return sqrt(cmax2_.get(stream.cuda_stream()));
   }
 

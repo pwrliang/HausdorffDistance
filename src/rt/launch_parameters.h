@@ -19,7 +19,8 @@ struct LaunchParamsNN {
   ArrayView<OptixAabb> aabbs;
   OptixTraversableHandle handle;
   COORD_T* cmax2;
-  uint32_t* total_hits;
+  COORD_T radius;
+  uint32_t* n_hits;
   uint32_t* skip_count;
   uint32_t* skip_total_idx;
 };
