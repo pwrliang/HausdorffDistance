@@ -316,9 +316,9 @@ class HausdorffDistanceRT {
       auto n_hits = iter_hits.get(stream.cuda_stream());
       total_hits += n_hits;
 
-      VLOG(1) << "Iter: " << iter << " radius: " << radius
-              << " cmax2: " << cmax2 << " cmax: " << cmax
-              << " in_size: " << in_size
+      VLOG(1) << "Iter: " << iter << " radius: " << radius << std::fixed
+              << std::setprecision(8) << " cmax2: " << cmax2
+              << " cmax: " << cmax << " in_size: " << in_size
               << " out_size: " << out_queue_.size(stream.cuda_stream())
               << " Avg hits " << (float) n_hits / in_size << " Skip idx: "
               << (float) skip_total_idx.get(stream.cuda_stream()) /
@@ -376,7 +376,7 @@ class HausdorffDistanceRT {
     in_queue_.Clear(stream.cuda_stream());
     out_queue_.Clear(stream.cuda_stream());
 
-    cmin2_.resize(n_points_a, std::numeric_limits<COORD_T>::max());
+    cmin2_.resize(n_points_a);
     thread_counters_.resize(n_points_a);
 
     auto d_in_queue = in_queue_.DeviceObject();
@@ -416,6 +416,8 @@ class HausdorffDistanceRT {
     while (in_size > 0) {
       iter++;
       iter_hits.set(stream.cuda_stream(), 0);
+      thrust::fill_n(thrust::cuda::par.on(stream.cuda_stream()), cmin2_.begin(),
+                     in_size, std::numeric_limits<COORD_T>::max());
       thrust::fill_n(thrust::cuda::par.on(stream.cuda_stream()),
                      thread_counters_.begin(), in_size, 0);
 
@@ -465,7 +467,6 @@ class HausdorffDistanceRT {
       if (dims.x * dims.y > max_size) {
         dims.x = max_size / dims.y;
       }
-
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
       rt_engine_.Render(stream.cuda_stream(), mod_nn, dims);
       stream.Sync();
@@ -488,9 +489,8 @@ class HausdorffDistanceRT {
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
 
-      radius *= 1.1;
+      radius *= config_.radius_step;
       in_size = in_queue_.size(stream.cuda_stream());
-      LOG(INFO) << "Out size " << in_size;
 
       if (in_size > 0) {
         if (config_.rebuild_bvh) {

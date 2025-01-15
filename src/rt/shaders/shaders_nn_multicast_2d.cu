@@ -51,9 +51,29 @@ extern "C" __global__ void __intersection__nn_multicast_2d() {
   if (optixGetLaunchIndex().y == partition_hit) {
     if (point_a.x >= point_b.x - radius && point_a.x <= point_b.x + radius &&
         point_a.y >= point_b.y - radius && point_a.y <= point_b.y + radius) {
+      FLOAT_TYPE cmin2;
       auto dist2 = hd::EuclideanDistance2(point_a, point_b);
 
-      atomicMin(&params.cmin2[optixGetLaunchIndex().x], dist2);
+      if (sizeof(FLOAT_TYPE) == sizeof(float)) {
+        auto cmin2_storage = optixGetPayload_2();
+        cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
+
+        if (dist2 < cmin2) {
+          cmin2 = dist2;
+          cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
+          optixSetPayload_2(cmin2_storage);
+        }
+      } else {
+        uint2 cmin2_storage{optixGetPayload_2(), optixGetPayload_3()};
+        hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
+
+        if (dist2 < cmin2) {
+          cmin2 = dist2;
+          hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
+          optixSetPayload_2(cmin2_storage.x);
+          optixSetPayload_3(cmin2_storage.y);
+        }
+      }
 
       auto cmax2 = *params.cmax2;
       optixSetPayload_1(skip_idx + 1);
@@ -90,25 +110,47 @@ extern "C" __global__ void __raygen__nn_multicast_2d() {
     origin.z = 0;
     float3 dir = {0, 0, 1};
 
+    auto cmin2 = std::numeric_limits<FLOAT_TYPE>::max();
     unsigned int skip_idx = 0;
 
-    optixTrace(params.handle, origin, dir, tmin, tmax, 0,
-          OptixVisibilityMask(255),
-          OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
-          SURFACE_RAY_TYPE,     // SBT offset
-          RAY_TYPE_COUNT,       // SBT stride
-          SURFACE_RAY_TYPE,     // missSBTIndex
-          point_id_a, skip_idx);
+    if (sizeof(FLOAT_TYPE) == sizeof(float)) {
+      auto cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
+      optixTrace(params.handle, origin, dir, tmin, tmax, 0,
+            OptixVisibilityMask(255),
+            OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
+            SURFACE_RAY_TYPE,     // SBT offset
+            RAY_TYPE_COUNT,       // SBT stride
+            SURFACE_RAY_TYPE,     // missSBTIndex
+            point_id_a, skip_idx, cmin2_storage);
+      cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
+    } else {
+      uint2 cmin2_storage;
+      hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
+      optixTrace(params.handle, origin, dir, tmin, tmax, 0,
+            OptixVisibilityMask(255),
+            OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
+            SURFACE_RAY_TYPE,     // SBT offset
+            RAY_TYPE_COUNT,       // SBT stride
+            SURFACE_RAY_TYPE,     // missSBTIndex
+            point_id_a, skip_idx, cmin2_storage.x, cmin2_storage.y);
+      hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
+    }
+
+    // aggreated cmin2
+    if (cmin2 != std::numeric_limits<FLOAT_TYPE>::max()) {
+      atomicMin(&params.cmin2[i], cmin2);
+    }
 
     // last thread
     if (atomicAdd(&params.thread_counters[i], 1) ==
         optixGetLaunchDimensions().y - 1) {
-      auto cmin2 = params.cmin2[i];
+      auto agg_cmin2 = atomicMax(&params.cmin2[i], 0); // force loading the latest
+
       // this thread hits nothing
-      if (cmin2 == std::numeric_limits<FLOAT_TYPE>::max()) {
+      if (agg_cmin2 == std::numeric_limits<FLOAT_TYPE>::max()) {
         params.out_queue.Append(point_id_a);
       } else {
-        atomicMax(params.cmax2, cmin2);
+        atomicMax(params.cmax2, agg_cmin2);
       }
     }
   }

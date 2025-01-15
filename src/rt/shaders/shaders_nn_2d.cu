@@ -82,7 +82,7 @@ extern "C" __global__ void __raygen__nn_2d() {
     origin.z = 0;
     float3 dir = {0, 0, 1};
 
-    auto cmin2 = std::numeric_limits<FLOAT_TYPE>::max(); // params.closest_dist[point_id_a]; //std::numeric_limits<double>::max();
+    auto cmin2 = std::numeric_limits<FLOAT_TYPE>::max();
     unsigned int skip_idx = 0;
 
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
