@@ -14,6 +14,8 @@ DECLARE_bool(is_double);
 DECLARE_int32(limit);
 DECLARE_double(move_offset);
 DECLARE_int32(repeat);
-DECLARE_double(radius);
-DECLARE_bool(cull);
+DECLARE_double(radius_step);
+DECLARE_bool(rebuild_bvh);
+DECLARE_bool(shuffle);
+DECLARE_int32(parallelism);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

@@ -18,12 +18,14 @@ extern "C" __global__ void __intersection__nn_2d() {
   auto point_a_id = optixGetPayload_0();
   auto skip_idx = optixGetPayload_1();
   auto point_b_id = optixGetPrimitiveIndex();
-  const auto &aabb = params.aabbs[point_b_id];
   const auto& point_a = params.points_a[point_a_id];
   const auto& point_b = params.points_b[point_b_id];
+  auto radius = params.radius;
 
-  if (point_a.x >= aabb.minX && point_a.x <= aabb.maxX &&
-      point_a.y >= aabb.minY && point_a.y <= aabb.maxY) {
+  atomicAdd(params.n_hits, 1);
+
+  if (point_a.x >= point_b.x - radius && point_a.x <= point_b.x + radius &&
+      point_a.y >= point_b.y - radius && point_a.y <= point_b.y + radius) {
     FLOAT_TYPE cmin2;
     auto dist2 = hd::EuclideanDistance2(point_a, point_b);
 
@@ -47,8 +49,6 @@ extern "C" __global__ void __intersection__nn_2d() {
         optixSetPayload_3(cmin2_storage.y);
       }
     }
-
-    atomicAdd(params.n_hits, 1);
 
     auto cmax2 = *params.cmax2;
     optixSetPayload_1(skip_idx + 1);

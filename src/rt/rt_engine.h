@@ -36,6 +36,10 @@ enum ModuleIdentifier {
   MODULE_ID_DOUBLE_NN_2D,
   MODULE_ID_FLOAT_NN_3D,
   MODULE_ID_DOUBLE_NN_3D,
+  MODULE_ID_FLOAT_NN_MULTICAST_2D,
+  MODULE_ID_DOUBLE_NN_MULTICAST_2D,
+  MODULE_ID_FLOAT_NN_MULTICAST_3D,
+  MODULE_ID_DOUBLE_NN_MULTICAST_3D,
   MODULE_ID_FLOAT_CULL_2D,
   MODULE_ID_DOUBLE_CULL_2D,
   MODULE_ID_FLOAT_CULL_3D,
@@ -149,6 +153,23 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
 
     mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_2D);
     mod.set_program_path(ptx_root + "/double_shaders_nn_2d.ptx");
+    config.AddModule(mod);
+  }
+
+  {
+    Module mod;
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_MULTICAST_2D);
+    mod.set_program_path(ptx_root + "/float_shaders_nn_multicast_2d.ptx");
+    mod.set_function_suffix("nn_multicast_2d");
+    mod.EnableIsIntersection();
+    mod.EnableAnyHit();
+    mod.set_n_payload(6);
+
+    config.AddModule(mod);
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_MULTICAST_2D);
+    mod.set_program_path(ptx_root + "/double_shaders_nn_multicast_2d.ptx");
     config.AddModule(mod);
   }
 

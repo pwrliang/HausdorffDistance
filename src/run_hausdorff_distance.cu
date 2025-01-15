@@ -21,16 +21,16 @@ void RunHausdorffDistance(const RunConfig& config) {
   double dist = -1;
 
   if (config.is_double) {
-    if (config.n_dims == 2) {
-      dist = RunHausdorffDistanceImpl<double, 2>(config);
-    } else if (config.n_dims == 3) {
-      dist = RunHausdorffDistanceImpl<double, 3>(config);
-    }
+    // if (config.n_dims == 2) {
+    //   dist = RunHausdorffDistanceImpl<double, 2>(config);
+    // } else if (config.n_dims == 3) {
+    //   dist = RunHausdorffDistanceImpl<double, 3>(config);
+    // }
   } else {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      dist = RunHausdorffDistanceImpl<float, 3>(config);
+      // dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
@@ -152,9 +152,10 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   std::string ptx_root = config.exec_path + "/ptx";
 
   rt_config.ptx_root = ptx_root.c_str();
+  rt_config.shuffle = FLAGS_shuffle;
+  rt_config.rebuild_bvh = FLAGS_rebuild_bvh;
+  rt_config.radius_step = FLAGS_radius_step;
   hdist_rt.Init(rt_config);
-  hdist_rt.SetPointsTo(stream, points_b.begin(), points_b.end());
-
   hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
 
   LOG(INFO) << "Points A: " << points_a.size()
@@ -177,8 +178,12 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::RT: {
-      dist = hdist_rt.CalculateDistanceFrom(stream, points_a.begin(),
-                                            points_a.end());
+      if (FLAGS_parallelism == 1) {
+        dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+      } else {
+        dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
+                                          FLAGS_parallelism);
+      }
       break;
     }
     case Variant::LBVH: {

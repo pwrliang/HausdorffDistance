@@ -226,7 +226,7 @@ class Bitset {
   }
 
   void Clear(cudaStream_t stream) {
-    positive_count_.set(0, stream);
+    positive_count_.set(stream, 0);
     CUDA_CHECK(cudaMemsetAsync(thrust::raw_pointer_cast(data_.data()), 0,
                                sizeof(uint64_t) * data_.size(), stream));
   }

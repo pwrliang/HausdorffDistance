@@ -37,12 +37,22 @@ class Mbr {
 
   DEV_HOST_INLINE COORD_T lower(int dim) const {
     assert(dim >= 0 && dim < N_DIMS);
-    return reinterpret_cast<const COORD_T*>(&lower_)[dim];
+    return reinterpret_cast<const COORD_T*>(&lower_.x)[dim];
   }
 
   DEV_HOST_INLINE COORD_T upper(int dim) const {
     assert(dim >= 0 && dim < N_DIMS);
-    return reinterpret_cast<const COORD_T*>(&upper_)[dim];
+    return reinterpret_cast<const COORD_T*>(&upper_.x)[dim];
+  }
+
+  DEV_HOST_INLINE void set_lower(int dim, COORD_T val) {
+    assert(dim >= 0 && dim < N_DIMS);
+    reinterpret_cast<COORD_T*>(&lower_.x)[dim] = val;
+  }
+
+  DEV_HOST_INLINE void set_upper(int dim, COORD_T val) {
+    assert(dim >= 0 && dim < N_DIMS);
+    reinterpret_cast<COORD_T*>(&upper_.x)[dim] = val;
   }
 
   DEV_HOST_INLINE bool Contains(const Mbr& mbr) const {
@@ -53,7 +63,7 @@ class Mbr {
     return contains;
   }
 
-  DEV_INLINE void Expand(const point_t& p) {
+  DEV_INLINE void ExpandAtomic(const point_t& p) {
     auto* p_lower = reinterpret_cast<COORD_T*>(&lower_.x);
     auto* p_upper = reinterpret_cast<COORD_T*>(&upper_.x);
     auto* p_point = reinterpret_cast<const COORD_T*>(&p.x);
@@ -61,6 +71,13 @@ class Mbr {
     for (int dim = 0; dim < N_DIMS; dim++) {
       atomicMin(&p_lower[dim], p_point[dim]);
       atomicMax(&p_upper[dim], p_point[dim]);
+    }
+  }
+
+  DEV_HOST_INLINE void Expand(const Mbr& mbr) {
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      set_lower(dim, std::min(lower(dim), mbr.lower(dim)));
+      set_upper(dim, std::max(upper(dim), mbr.upper(dim)));
     }
   }
 
@@ -127,14 +144,6 @@ class Mbr {
  private:
   point_t lower_, upper_;
 };
-
-template <typename POINT_T>
-inline Mbr<typename vec_info<POINT_T>::type, vec_info<POINT_T>::n_dims>
-ComputeMbr(const Stream& stream, const ArrayView<POINT_T>& points) {
-  using mbr_t =
-      Mbr<typename vec_info<POINT_T>::type, vec_info<POINT_T>::n_dims>;
-
-}
 
 }  // namespace hd
 
