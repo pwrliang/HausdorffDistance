@@ -1,9 +1,11 @@
 #ifndef MBR_H
 #define MBR_H
 
+#include "utils/derived_atomic_functions.h"
 #include "utils/shared_value.h"
 #include "utils/type_traits.h"
 #include "utils/util.h"
+
 namespace hd {
 template <typename COORD_T, int N_DIMS>
 class Mbr {
@@ -61,6 +63,32 @@ class Mbr {
       contains &= lower(i) <= mbr.lower(i) && upper(i) >= mbr.upper(i);
     }
     return contains;
+  }
+
+  DEV_HOST_INLINE point_t Normalize(const point_t& p) const {
+    auto* p_lower = reinterpret_cast<const COORD_T*>(&lower_.x);
+    auto* p_upper = reinterpret_cast<const COORD_T*>(&upper_.x);
+    auto* p_point = reinterpret_cast<const COORD_T*>(&p.x);
+    point_t np;
+
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      assert(p_point[dim] >= p_lower[dim] && p_point[dim] <= p_upper[dim]);
+
+      auto val = (p_point[dim] - p_lower[dim]) / (p_upper[dim] - p_lower[dim]);
+      reinterpret_cast<coord_t*>(&np.x)[dim] = val;
+    }
+    return np;
+  }
+
+  DEV_HOST_INLINE void Expand(const point_t& p) {
+    auto* p_lower = reinterpret_cast<COORD_T*>(&lower_.x);
+    auto* p_upper = reinterpret_cast<COORD_T*>(&upper_.x);
+    auto* p_point = reinterpret_cast<const COORD_T*>(&p.x);
+
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      p_lower[dim] = std::min(p_lower[dim], p_point[dim]);
+      p_upper[dim] = std::max(p_upper[dim], p_point[dim]);
+    }
   }
 
   DEV_INLINE void ExpandAtomic(const point_t& p) {

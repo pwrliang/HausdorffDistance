@@ -9,6 +9,7 @@
 
 #include "distance.h"
 #include "glog/logging.h"
+#include "mbr.h"
 #include "utils/type_traits.h"
 
 namespace hd {
@@ -105,8 +106,6 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistance(
   return sqrt(cmax);
 }
 
-
-
 template <typename POINT_T>
 typename vec_info<POINT_T>::type CalculateHausdorffDistanceParallel(
     std::vector<POINT_T>& points_a, std::vector<POINT_T>& points_b) {
@@ -163,9 +162,24 @@ template <typename POINT_T>
 typename vec_info<POINT_T>::type CalculateHausdorffDistanceZOrder(
     std::vector<POINT_T>& points_a, std::vector<POINT_T>& points_b) {
   using coord_t = typename vec_info<POINT_T>::type;
+  constexpr int n_dims = vec_info<POINT_T>::n_dims;
+  using mbr_t = Mbr<coord_t, n_dims>;
   coord_t cmax = 0;
-  auto comp = [](const POINT_T& a, const POINT_T& b) {
-    return detail::morton_code(a) < detail::morton_code(b);
+  mbr_t mbr;
+
+  for (auto& p : points_a) {
+    mbr.Expand(p);
+  }
+
+  for (auto& p : points_b) {
+    mbr.Expand(p);
+  }
+
+  auto comp = [mbr](const POINT_T& a, const POINT_T& b) {
+    auto np_a = mbr.Normalize(a);
+    auto np_b = mbr.Normalize(b);
+
+    return detail::morton_code(np_a) < detail::morton_code(np_b);
   };
   std::sort(points_a.begin(), points_a.end(), comp);
   std::sort(points_b.begin(), points_b.end(), comp);
@@ -209,9 +223,24 @@ template <typename POINT_T>
 typename vec_info<POINT_T>::type CalculateHausdorffDistanceYuan(
     std::vector<POINT_T>& points_a, std::vector<POINT_T>& points_b) {
   using coord_t = typename vec_info<POINT_T>::type;
+  constexpr int n_dims = vec_info<POINT_T>::n_dims;
+  using mbr_t = Mbr<coord_t, n_dims>;
   coord_t cmax = 0;
-  auto comp = [](const POINT_T& a, const POINT_T& b) {
-    return detail::morton_code(a) < detail::morton_code(b);
+  mbr_t mbr;
+
+  for (auto& p : points_a) {
+    mbr.Expand(p);
+  }
+
+  for (auto& p : points_b) {
+    mbr.Expand(p);
+  }
+
+  auto comp = [mbr](const POINT_T& a, const POINT_T& b) {
+    auto np_a = mbr.Normalize(a);
+    auto np_b = mbr.Normalize(b);
+
+    return detail::morton_code(np_a) < detail::morton_code(np_b);
   };
   std::sort(points_a.begin(), points_a.end(), comp);
   std::sort(points_b.begin(), points_b.end(), comp);
