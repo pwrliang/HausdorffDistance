@@ -24,26 +24,43 @@ int main(int argc, char* argv[]) {
   config.exec_path = exec_path.substr(0, exec_path.find_last_of("/"));
   config.input_file1 = FLAGS_input1;
   config.input_file2 = FLAGS_input2;
-  config.move_offset = FLAGS_move_offset;
   config.serialize_folder = FLAGS_serialize;
-  config.n_dims = FLAGS_n_dims;
-  config.is_double = FLAGS_is_double;
-  config.check = FLAGS_check;
 
-  if (FLAGS_variant == "serial") {
-    config.variant = Variant::SERIAL;
-  } else if (FLAGS_variant == "parallel") {
-    config.variant = Variant::PARALLEL;
-  } else if (FLAGS_variant == "gpu") {
-    config.variant = Variant::GPU;
+  if (FLAGS_variant == "eb") {
+    config.variant = Variant::EARLY_BREAK;
+  } else if (FLAGS_variant == "zorder") {
+    config.variant = Variant::ZORDER;
+  } else if (FLAGS_variant == "yuan") {
+    config.variant = Variant::YUAN;
   } else if (FLAGS_variant == "rt") {
     config.variant = Variant::RT;
-  } else if (FLAGS_variant == "lbvh") {
-    config.variant = Variant::LBVH;
+  } else if (FLAGS_variant == "branch-bound") {
+    config.variant = Variant::BRANCH_BOUND;
   } else {
     LOG(FATAL) << "Unknown variant: " << FLAGS_variant;
   }
 
+  if (FLAGS_execution == "serial") {
+    config.execution = Execution::Serial;
+  } else if (FLAGS_execution == "parallel") {
+    config.execution = Execution::Parallel;
+  } else if (FLAGS_execution == "gpu") {
+    config.execution = Execution::GPU;
+  } else {
+    LOG(FATAL) << "Unknown execution: " << FLAGS_execution;
+  }
+
+  config.parallelism = FLAGS_parallelism;
+  config.shuffle = FLAGS_shuffle;
+  config.check = FLAGS_check;
+  config.n_dims = FLAGS_n_dims;
+  config.is_double = FLAGS_is_double;
+  config.limit = FLAGS_limit;
+  config.move_offset = FLAGS_move_offset;
+  config.repeat = FLAGS_repeat;
+  config.radius_step = FLAGS_radius_step;
+  config.rebuild_bvh = FLAGS_rebuild_bvh;
+  config.ray_multicast = FLAGS_raymulticast;
   hd::RunHausdorffDistance(config);
 
   google::ShutdownGoogleLogging();

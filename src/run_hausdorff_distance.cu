@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <random>  // For random number generators
 
-#include "flags.h"
+#include "hausdorff_distance_cpu.h"
 #include "hausdorff_distance_gpu.h"
 #include "hausdorff_distance_lbvh.h"
 #include "hausdorff_distance_rt.h"
@@ -13,6 +13,17 @@
 #include "utils/type_traits.h"
 #include "wkt_loader.h"
 
+// TODO: Idea
+
+/**
+ * Build a grid over points B, each cell turns into cell.xyz +/- radius
+ *
+ * cast a ray from A to know a point intersects how many points from B
+ *
+ * for a given point A that has a high number of intersections -> early break
+ * otherwise, use RT method
+ *
+ */
 namespace hd {
 template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(const RunConfig& config);
@@ -36,99 +47,6 @@ void RunHausdorffDistance(const RunConfig& config) {
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
 }
 
-template <typename POINT_T>
-typename vec_info<POINT_T>::type CalculateHausdorffDistance(
-    std::vector<POINT_T>& points_a, std::vector<POINT_T>& points_b) {
-  using coord_t = typename vec_info<POINT_T>::type;
-  coord_t cmax = 0;
-  std::random_device rd;  // Seed source
-  std::mt19937 g(rd());   // Mersenne Twister engine seeded with rd()
-
-  // Shuffle the vector
-  std::shuffle(points_a.begin(), points_a.end(), g);
-  std::shuffle(points_b.begin(), points_b.end(), g);
-  uint32_t compared_pairs = 0;
-
-  for (size_t i = 0; i < points_a.size(); i++) {
-    coord_t cmin = std::numeric_limits<coord_t>::max();
-
-    for (size_t j = 0; j < points_b.size(); j++) {
-      auto d = EuclideanDistance2(points_a[i], points_b[j]);
-      if (d < cmin) {
-        cmin = d;
-      }
-      compared_pairs++;
-      if (cmin <= cmax) {
-        break;
-      }
-    }
-    if (cmin != std::numeric_limits<coord_t>::max() && cmin > cmax) {
-      cmax = cmin;
-    }
-  }
-  LOG(INFO) << "Compared Pairs: " << compared_pairs;
-  return sqrt(cmax);
-}
-
-template <typename T>
-void update_maximum(std::atomic<T>& maximum_value, T const& value) noexcept {
-  T prev_value = maximum_value;
-  while (prev_value < value &&
-         !maximum_value.compare_exchange_weak(prev_value, value)) {}
-}
-
-template <typename POINT_T>
-typename vec_info<POINT_T>::type CalculateHausdorffDistanceParallel(
-    std::vector<POINT_T>& points_a, std::vector<POINT_T>& points_b) {
-  using coord_t = typename vec_info<POINT_T>::type;
-  std::random_device rd;  // Seed source
-  std::mt19937 g(rd());   // Mersenne Twister engine seeded with rd()
-
-  // Shuffle the vector
-  std::shuffle(points_a.begin(), points_a.end(), g);
-  std::shuffle(points_b.begin(), points_b.end(), g);
-
-  std::vector<std::thread> threads;
-  auto thread_count = std::thread::hardware_concurrency();
-  auto avg_points = (points_a.size() + thread_count - 1) / thread_count;
-  std::atomic<coord_t> cmax;
-  std::atomic_uint64_t compared_pairs{0};
-
-  cmax = 0;
-
-  for (int tid = 0; tid < thread_count; tid++) {
-    threads.emplace_back(std::thread([&, tid]() {
-      auto begin = tid * avg_points;
-      auto end = std::min(begin + avg_points, points_a.size());
-      uint64_t local_compared_pairs = 0;
-
-      for (int i = begin; i < end; i++) {
-        auto cmin = std::numeric_limits<coord_t>::max();
-        for (size_t j = 0; j < points_b.size(); j++) {
-          auto d = EuclideanDistance2(points_a[i], points_b[j]);
-          local_compared_pairs++;
-          if (d < cmin) {
-            cmin = d;
-          }
-          if (cmin < cmax) {
-            break;
-          }
-        }
-        if (cmin != std::numeric_limits<coord_t>::max()) {
-          update_maximum(cmax, cmin);
-        }
-      }
-      compared_pairs += local_compared_pairs;
-    }));
-  }
-
-  for (auto& thread : threads) {
-    thread.join();
-  }
-  LOG(INFO) << "Compared Pairs: " << compared_pairs;
-  return sqrt(cmax);
-}
-
 template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
@@ -141,8 +59,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
     MovePoints(points_a, points_b, config.move_offset);
   }
 
-  COORD_T dist;
-  int n_repeat = FLAGS_repeat;
+  COORD_T dist = -1;
   Stream stream;
   thrust::device_vector<point_t> d_points_a = points_a;
   thrust::device_vector<point_t> d_points_b = points_b;
@@ -162,23 +79,41 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
             << " Points B: " << points_b.size();
   Stopwatch sw;
   sw.start();
-  for (int i = 0; i < n_repeat; i++) {
+  for (int i = 0; i < config.repeat; i++) {
     switch (config.variant) {
-    case Variant::SERIAL: {
-      dist = CalculateHausdorffDistance(points_a, points_b);
+    case Variant::EARLY_BREAK: {
+      switch (config.execution) {
+      case Execution::Serial:
+        dist = CalculateHausdorffDistance(points_a, points_b);
+        break;
+      case Execution::Parallel:
+        dist = CalculateHausdorffDistanceParallel(points_a, points_b);
+        break;
+      case Execution::GPU:
+        dist = CalculateHausdorffDistanceGPU<point_t>(stream, d_points_a,
+                                                      d_points_b);
+        break;
+      }
       break;
     }
-    case Variant::PARALLEL: {
-      dist = CalculateHausdorffDistanceParallel(points_a, points_b);
+    case Variant::ZORDER: {
+      switch (config.execution) {
+      case Execution::Serial:
+        dist = CalculateHausdorffDistanceZOrder(points_a, points_b);
+        break;
+      }
       break;
     }
-    case Variant::GPU: {
-      dist = CalculateHausdorffDistanceGPU<point_t>(stream, d_points_a,
-                                                    d_points_b);
+    case Variant::YUAN: {
+      switch (config.execution) {
+      case Execution::Serial:
+        dist = CalculateHausdorffDistanceYuan(points_a, points_b);
+        break;
+      }
       break;
     }
     case Variant::RT: {
-      if (FLAGS_parallelism == 1) {
+      if (config.ray_multicast == 1) {
         dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
       } else {
         dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
@@ -186,27 +121,27 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       }
       break;
     }
-    case Variant::LBVH: {
+    case Variant::BRANCH_BOUND: {
       dist = hdist_lbvh.CalculateDistanceFrom(stream, points_a.begin(),
                                               points_a.end());
       break;
     }
     }
-  }
-  sw.stop();
+    sw.stop();
 
-  LOG(INFO) << "Running Time " << sw.ms() / n_repeat << " ms";
+    LOG(INFO) << "Running Time " << sw.ms() / config.repeat << " ms";
 
-  if (config.check) {
-    auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
-    auto diff = answer_dist - dist;
+    if (config.check) {
+      auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
+      auto diff = answer_dist - dist;
 
-    if (dist != answer_dist) {
-      LOG(FATAL) << std::fixed << std::setprecision(8)
-                 << "Wrong HausdorffDistance. Result: " << dist
-                 << " Answer: " << answer_dist << " Diff: " << diff;
-    } else {
-      LOG(INFO) << "HausdorffDistance is checked";
+      if (dist != answer_dist) {
+        LOG(FATAL) << std::fixed << std::setprecision(8)
+                   << "Wrong HausdorffDistance. Result: " << dist
+                   << " Answer: " << answer_dist << " Diff: " << diff;
+      } else {
+        LOG(INFO) << "HausdorffDistance is checked";
+      }
     }
   }
 
