@@ -1,6 +1,5 @@
 #ifndef HAUSDORFF_DISTANCE_RT_H
 #define HAUSDORFF_DISTANCE_RT_H
-#include <flags.h>
 #include <glog/logging.h>
 #include <thrust/device_vector.h>
 #include <thrust/random.h>

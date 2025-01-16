@@ -51,9 +51,9 @@ template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   auto points_a = LoadPoints<COORD_T, N_DIMS>(
-      config.input_file1, config.serialize_folder, FLAGS_limit);
+      config.input_file1, config.serialize_folder, config.limit);
   auto points_b = LoadPoints<COORD_T, N_DIMS>(
-      config.input_file2, config.serialize_folder, FLAGS_limit);
+      config.input_file2, config.serialize_folder, config.limit);
 
   if (config.move_offset != 0) {
     MovePoints(points_a, points_b, config.move_offset);
@@ -69,9 +69,9 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   std::string ptx_root = config.exec_path + "/ptx";
 
   rt_config.ptx_root = ptx_root.c_str();
-  rt_config.shuffle = FLAGS_shuffle;
-  rt_config.rebuild_bvh = FLAGS_rebuild_bvh;
-  rt_config.radius_step = FLAGS_radius_step;
+  rt_config.shuffle = config.shuffle;
+  rt_config.rebuild_bvh = config.rebuild_bvh;
+  rt_config.radius_step = config.radius_step;
   hdist_rt.Init(rt_config);
   hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
 
@@ -117,7 +117,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
         dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
       } else {
         dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
-                                          FLAGS_parallelism);
+                                          config.ray_multicast);
       }
       break;
     }
