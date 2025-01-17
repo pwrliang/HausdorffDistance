@@ -103,6 +103,7 @@ FUNCTION(OPTIX_COMPILE_SHADERS OUTPUT_DIR GENERATED_FILES)
                 "--relocatable-device-code=true"
                 "--expt-relaxed-constexpr"
                 "-Wno-deprecated-gpu-targets"
+                "--fmad=false" # For consistency to the CPU results
                 "-I${OptiX_INCLUDE}"
                 "-I${PROJECT_SOURCE_DIR}/src"
                 "-DFLOAT_TYPE=${FLOAT_TYPE}"
