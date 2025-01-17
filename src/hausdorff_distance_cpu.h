@@ -16,12 +16,18 @@ namespace hd {
 namespace detail {
 
 DEV_HOST_INLINE
-std::uint32_t expand_bits(std::uint32_t v) {
-  v = (v * 0x00010001u) & 0xFF0000FFu;
-  v = (v * 0x00000101u) & 0x0F00F00Fu;
-  v = (v * 0x00000011u) & 0xC30C30C3u;
-  v = (v * 0x00000005u) & 0x49249249u;
-  return v;
+std::uint32_t expand_bits(std::uint32_t n) {
+  //v = (v * 0x00010001u) & 0xFF0000FFu;
+  //v = (v * 0x00000101u) & 0x0F00F00Fu;
+  //v = (v * 0x00000011u) & 0xC30C30C3u;
+  //v = (v * 0x00000005u) & 0x49249249u;
+  //return v;
+  n &= 0x0000ffff;                 
+  n = (n | (n << 8)) & 0x00FF00FF; 
+  n = (n | (n << 4)) & 0x0F0F0F0F; 
+  n = (n | (n << 2)) & 0x33333333;  
+  n = (n | (n << 1)) & 0x55555555;  
+  return n;
 }
 
 DEV_HOST_INLINE
@@ -204,7 +210,11 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceZOrder(
         ++k;
         compared_pairs++;
       }
-      cmin = std::min(cmin, std::min(dist_l, dist_r));
+      double tmp = std::min(cmin, std::min(dist_l, dist_r));
+	  if(tmp!=cmin){
+		cmin = tmp;
+        dc = dist_l < dist_r ? j : k;
+	  }
       if (cmin <= cmax) {
         dc = dist_l < dist_r ? j : k;
         break;
@@ -223,22 +233,34 @@ template <typename POINT_T>
 typename vec_info<POINT_T>::type CalculateHausdorffDistanceYuan(
     std::vector<POINT_T>& points_a, std::vector<POINT_T>& points_b) {
   using coord_t = typename vec_info<POINT_T>::type;
-  constexpr int n_dims = vec_info<POINT_T>::n_dims;
-  using mbr_t = Mbr<coord_t, n_dims>;
   coord_t cmax = 0;
-  mbr_t mbr;
 
-  for (auto& p : points_a) {
-    mbr.Expand(p);
+  double minx = std::numeric_limits<coord_t>::max();
+  double miny = std::numeric_limits<coord_t>::max();
+  double maxx = std::numeric_limits<coord_t>::min();
+  double maxy = std::numeric_limits<coord_t>::min();
+  for(int i=0; i<points_a.size(); i++){
+    auto p = points_a[i];
+	if(p.x < minx)minx = p.x;
+	if(p.y < miny)miny = p.y;
+	if(p.x > maxx)maxx = p.x;
+	if(p.y > maxy)maxy = p.y;
   }
 
-  for (auto& p : points_b) {
-    mbr.Expand(p);
+  for(int i=0; i<points_a.size(); i++){
+    auto p = points_b[i];
+	if(p.x < minx)minx = p.x;
+	if(p.y < miny)miny = p.y;
+	if(p.x > maxx)maxx = p.x;
+	if(p.y > maxy)maxy = p.y;
   }
-
-  auto comp = [mbr](const POINT_T& a, const POINT_T& b) {
-    auto np_a = mbr.Normalize(a);
-    auto np_b = mbr.Normalize(b);
+  
+  auto comp = [minx, miny, maxx, maxy](const POINT_T& a, const POINT_T& b) {
+    POINT_T np_a, np_b;
+	np_a.x = (a.x-minx)/(maxx-minx);
+	np_a.y = (a.y-miny)/(maxy-miny);
+	np_b.x = (b.x-minx)/(maxx-minx);
+	np_b.y = (b.y-miny)/(maxy-miny);
 
     return detail::morton_code(np_a) < detail::morton_code(np_b);
   };
@@ -249,8 +271,13 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceYuan(
   {
     int j = 0;
     for (int i = 0; i < points_b.size(); i++) {
-      auto& p_b = points_b[i];
-      auto& p_a = points_a[j];
+      auto& b = points_b[i];
+      auto& a = points_a[j];
+      POINT_T p_a, p_b;
+	  p_a.x = (a.x-minx)/(maxx-minx);
+	  p_a.y = (a.y-miny)/(maxy-miny);
+	  p_b.x = (b.x-minx)/(maxx-minx);
+	  p_b.y = (b.y-miny)/(maxy-miny);
 
       if (detail::morton_code(p_b) >= detail::morton_code(p_a)) {
         Aloc[j] = i;
