@@ -61,6 +61,8 @@ int main(int argc, char* argv[]) {
   config.radius_step = FLAGS_radius_step;
   config.rebuild_bvh = FLAGS_rebuild_bvh;
   config.ray_multicast = FLAGS_raymulticast;
+  config.nf = FLAGS_nf;
+  config.grid_size = FLAGS_grid;
   hd::RunHausdorffDistance(config);
 
   google::ShutdownGoogleLogging();

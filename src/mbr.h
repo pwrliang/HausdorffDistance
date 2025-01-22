@@ -1,8 +1,11 @@
 #ifndef MBR_H
 #define MBR_H
 
+#include <utils/stream.h>
+
 #include "utils/derived_atomic_functions.h"
 #include "utils/shared_value.h"
+#include "utils/stream.h"
 #include "utils/type_traits.h"
 #include "utils/util.h"
 
@@ -55,6 +58,15 @@ class Mbr {
   DEV_HOST_INLINE void set_upper(int dim, COORD_T val) {
     assert(dim >= 0 && dim < N_DIMS);
     reinterpret_cast<COORD_T*>(&upper_.x)[dim] = val;
+  }
+
+  DEV_HOST_INLINE bool Contains(const point_t& p) const {
+    bool contains = true;
+    for (int i = 0; contains && i < N_DIMS; i++) {
+      auto val = reinterpret_cast<const COORD_T*>(&p.x)[i];
+      contains &= lower(i) <= val && upper(i) >= val;
+    }
+    return contains;
   }
 
   DEV_HOST_INLINE bool Contains(const Mbr& mbr) const {
@@ -172,6 +184,27 @@ class Mbr {
  private:
   point_t lower_, upper_;
 };
+
+template <typename POINT_T>
+using MbrTypeFromPoint =
+    Mbr<typename vec_info<POINT_T>::type, vec_info<POINT_T>::n_dims>;
+
+template <typename IT_T>
+MbrTypeFromPoint<typename std::iterator_traits<IT_T>::value_type> CalculateMbr(
+    const Stream& stream, IT_T begin, IT_T end) {
+  using mbr_t =
+      MbrTypeFromPoint<typename std::iterator_traits<IT_T>::value_type>;
+  using point_t = typename std::iterator_traits<IT_T>::value_type;
+
+  SharedValue<mbr_t> mbr;
+  auto* p_mbr = mbr.data();
+
+  mbr.set(stream.cuda_stream(), mbr_t());
+  thrust::for_each(
+      thrust::cuda::par.on(stream.cuda_stream()), begin, end,
+      [=] __device__(const point_t& p) mutable { p_mbr->ExpandAtomic(p); });
+  return mbr.get(stream.cuda_stream());
+}
 
 }  // namespace hd
 

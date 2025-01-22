@@ -43,7 +43,7 @@ extern "C" __global__ void __intersection__nn_multicast_2d() {
   auto point_b_id = optixGetPrimitiveIndex();
   const auto& point_a = params.points_a[point_a_id];
   const auto& point_b = params.points_b[point_b_id];
-  auto radius = params.radius;
+  auto radius = params.radius * sqrt(2); // Actuall AABB size
   auto partition_hit = point_b_id % optixGetLaunchDimensions().y;
 
   atomicAdd(params.n_hits, 1);
@@ -53,6 +53,7 @@ extern "C" __global__ void __intersection__nn_multicast_2d() {
         point_a.y >= point_b.y - radius && point_a.y <= point_b.y + radius) {
       FLOAT_TYPE cmin2;
       auto dist2 = hd::EuclideanDistance2(point_a, point_b);
+      atomicAdd(params.n_compared_pairs, 1);
 
       if (sizeof(FLOAT_TYPE) == sizeof(float)) {
         auto cmin2_storage = optixGetPayload_2();

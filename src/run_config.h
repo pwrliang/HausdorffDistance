@@ -24,6 +24,8 @@ struct RunConfig {
   double radius_step;
   bool rebuild_bvh;
   int ray_multicast;
+  bool nf;
+  int grid_size;
 };
 
 #endif  // HAUSDORFF_DISTANCE_RUN_CONFIG_H

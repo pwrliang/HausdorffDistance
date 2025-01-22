@@ -22,6 +22,7 @@ struct LaunchParamsNN {
   COORD_T* cmax2;
   COORD_T radius;
   uint32_t* n_hits;
+  uint32_t* n_compared_pairs;
   uint32_t* skip_count;
   uint32_t* skip_total_idx;
 };
@@ -43,6 +44,7 @@ struct LaunchParamsNNMultiCast {
   COORD_T* cmax2;
   COORD_T radius;
   uint32_t* n_hits;
+  uint32_t* n_compared_pairs;
   uint32_t* skip_count;
   uint32_t* skip_total_idx;
 };

@@ -72,6 +72,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   rt_config.shuffle = config.shuffle;
   rt_config.rebuild_bvh = config.rebuild_bvh;
   rt_config.radius_step = config.radius_step;
+  rt_config.grid_size = config.grid_size;
   hdist_rt.Init(rt_config);
   hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
 
@@ -113,11 +114,16 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::RT: {
-      if (config.ray_multicast == 1) {
-        dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+      if (config.nf) {
+        dist =
+            hdist_rt.CalculateDistanceNearFar(stream, d_points_a, d_points_b);
       } else {
-        dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
-                                          config.ray_multicast);
+        if (config.ray_multicast == 1) {
+          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+        } else {
+          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
+                                            config.ray_multicast);
+        }
       }
       break;
     }
@@ -128,20 +134,20 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
     }
     }
     sw.stop();
+  }
 
-    LOG(INFO) << "Running Time " << sw.ms() / config.repeat << " ms";
+  LOG(INFO) << "Running Time " << sw.ms() / config.repeat << " ms";
 
-    if (config.check) {
-      auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
-      auto diff = answer_dist - dist;
+  if (config.check) {
+    auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
+    auto diff = answer_dist - dist;
 
-      if (dist != answer_dist) {
-        LOG(FATAL) << std::fixed << std::setprecision(8)
-                   << "Wrong HausdorffDistance. Result: " << dist
-                   << " Answer: " << answer_dist << " Diff: " << diff;
-      } else {
-        LOG(INFO) << "HausdorffDistance is checked";
-      }
+    if (dist != answer_dist) {
+      LOG(FATAL) << std::fixed << std::setprecision(8)
+                 << "Wrong HausdorffDistance. Result: " << dist
+                 << " Answer: " << answer_dist << " Diff: " << diff;
+    } else {
+      LOG(INFO) << "HausdorffDistance is checked";
     }
   }
 

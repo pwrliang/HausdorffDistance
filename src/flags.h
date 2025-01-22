@@ -20,4 +20,6 @@ DECLARE_int32(repeat);
 DECLARE_double(radius_step);
 DECLARE_bool(rebuild_bvh);
 DECLARE_int32(raymulticast);
+DECLARE_bool(nf);
+DECLARE_int32(grid);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

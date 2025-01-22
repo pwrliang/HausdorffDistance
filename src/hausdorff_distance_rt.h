@@ -8,6 +8,7 @@
 #include <iomanip>
 
 #include "distance.h"
+#include "grid.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
 #include "sampler.h"
@@ -23,7 +24,6 @@
 namespace hd {
 
 namespace details {
-
 DEV_HOST_INLINE OptixAabb GetOptixAABB(float2 p, float radius) {
   OptixAabb aabb;
   aabb.minX = p.x - radius;
@@ -192,7 +192,8 @@ struct HausdorffDistanceRTConfig {
   bool compact = false;
   bool rebuild_bvh = false;
   bool shuffle = false;
-  float radius_step = 1.1;
+  float radius_step = 2;
+  int grid_size = 1000;
 };
 
 template <typename COORD_T, int N_DIMS>
@@ -210,13 +211,247 @@ class HausdorffDistanceRT {
     rt_engine_.Init(rt_config);
   }
 
+  void FillNearFarQueue(const Stream& stream,
+                        thrust::device_vector<point_t>& points_a,
+                        const ArrayView<uint32_t>& v_points_ids) {
+    auto d_grid = grid_.DeviceObject();
+    SharedValue<uint32_t> n_intersects;
+    auto* p_n_intersects = n_intersects.data();
+
+    n_intersects.set(stream.cuda_stream(), 0);
+    Stopwatch sw;
+    sw.start();
+    auto* p_points = thrust::raw_pointer_cast(points_a.data());
+    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                     v_points_ids.begin(), v_points_ids.end(),
+                     [=] __device__(uint32_t point_id) mutable {
+                       const auto& p = p_points[point_id];
+                       auto& cell = d_grid.Query(p);
+                       atomicAdd(p_n_intersects, cell.n_primitives);
+                     });
+    auto total_n_intersects = n_intersects.get(stream.cuda_stream());
+    auto avg_hits = total_n_intersects / v_points_ids.size();
+    sw.stop();
+    LOG(INFO) << "Total Intersections: " << total_n_intersects
+              << " Avg intersections: " << avg_hits << " Time " << sw.ms()
+              << " ms";
+
+    near_queue_.Clear(stream.cuda_stream());
+    far_queue_.Clear(stream.cuda_stream());
+
+    auto d_near_queue = near_queue_.DeviceObject();
+    auto d_far_queue = far_queue_.DeviceObject();
+    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                     v_points_ids.begin(), v_points_ids.end(),
+                     [=] __device__(uint32_t point_id) mutable {
+                       const auto& p = p_points[point_id];
+                       auto& cell = d_grid.Query(p);
+
+                       if (cell.n_primitives == 0) {  // far
+                         d_far_queue.Append(point_id);
+                       } else {  // near
+                         d_near_queue.Append(point_id);
+                       }
+                     });
+  }
+
+  COORD_T CalculateDistanceNearFar(const Stream& stream,
+                                   thrust::device_vector<point_t>& points_a,
+                                   thrust::device_vector<point_t>& points_b) {
+    auto n_points_a = points_a.size();
+    auto n_points_b = points_b.size();
+    const auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
+    const auto mbr_b = CalculateMbr(stream, points_b.begin(), points_b.end());
+    auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
+        n_points_b, config_.fast_build, config_.compact);
+
+    buffer_.Init(mem_bytes * 1.5);
+    buffer_.Clear();
+
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                    points_a.begin(), points_a.end(), g_);
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                    points_b.begin(), points_b.end(), g_);
+
+    HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
+    auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
+    auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
+    COORD_T radius = hd_lb;
+    // CHECK_GT(hd_lb, 0);
+
+    if (radius == 0) {
+      radius = hd_ub / 100;
+    }
+
+    // radius *= sqrt(N_DIMS);  // Refer RTNN Fig10c
+    COORD_T max_radius = hd_ub;
+
+    LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub;
+
+    auto union_mbr = mbr_a;
+    union_mbr.Expand(mbr_b);
+
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      auto lower = union_mbr.lower(dim) - max_radius;
+      auto upper = union_mbr.upper(dim) + max_radius;
+      union_mbr.set_lower(dim, lower);
+      union_mbr.set_upper(dim, upper);
+    };
+
+    grid_ = Grid<COORD_T, N_DIMS>(union_mbr, config_.grid_size);
+
+    in_queue_.Init(n_points_a);
+    out_queue_.Init(n_points_a);
+    near_queue_.Init(n_points_a);
+    far_queue_.Init(n_points_a);
+    in_queue_.Clear(stream.cuda_stream());
+    out_queue_.Clear(stream.cuda_stream());
+
+    auto d_in_queue = in_queue_.DeviceObject();
+
+    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                     thrust::make_counting_iterator<uint32_t>(0),
+                     thrust::make_counting_iterator<uint32_t>(points_a.size()),
+                     [=] __device__(uint32_t point_id) mutable {
+                       d_in_queue.Append(point_id);
+                     });
+
+    uint32_t in_size = n_points_a;
+
+    buffer_.Clear();
+    auto gas_handle = BuildBVH(stream, points_b, radius);
+    stream.Sync();
+
+    SharedValue<uint32_t> skip_count;
+    SharedValue<uint32_t> skip_total_idx;
+    SharedValue<uint32_t> iter_hits;
+    SharedValue<uint32_t> n_compared_pairs;
+    int iter = 0;
+    uint64_t total_hits = 0;
+    uint64_t total_compared_pairs = 0;
+
+    cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
+    grid_.Clear(stream.cuda_stream());
+    grid_.Insert(stream.cuda_stream(), points_b);
+
+    Stopwatch sw;
+
+    while (in_size > 0) {
+      iter++;
+      iter_hits.set(stream.cuda_stream(), 0);
+      n_compared_pairs.set(stream.cuda_stream(), 0);
+
+      sw.start();
+
+      FillNearFarQueue(stream, points_a,
+                       ArrayView<uint32_t>(in_queue_.data(), in_size));
+
+      auto near_size = near_queue_.size(stream.cuda_stream());
+      auto far_size = far_queue_.size(stream.cuda_stream());
+      sw.stop();
+
+      VLOG(1) << "Near " << (float) near_size / in_size << " Far "
+              << (float) far_size / in_size << " Time " << sw.ms();
+
+      if (far_size > 0) {
+        sw.start();
+        CalculateHausdorffDistanceGPU(
+            stream, points_a, points_b,
+            ArrayView<uint32_t>(far_queue_.data(), far_size));
+        stream.Sync();
+        sw.stop();
+        LOG(INFO) << "EB Time " << sw.ms();
+      }
+
+      if (near_size > 0) {
+        details::LaunchParamsNN<COORD_T, N_DIMS> params;
+
+        skip_count.set(stream.cuda_stream(), 0);
+        skip_total_idx.set(stream.cuda_stream(), 0);
+
+        params.in_queue = ArrayView<uint32_t>(near_queue_.data(), near_size);
+        params.out_queue = out_queue_.DeviceObject();
+        params.points_a = ArrayView<point_t>(points_a);
+        params.points_b = ArrayView<point_t>(points_b);
+        params.handle = gas_handle;
+        params.cmax2 = cmax2_.data();
+        params.radius = radius;
+        params.skip_count = skip_count.data();
+        params.skip_total_idx = skip_total_idx.data();
+        params.n_hits = iter_hits.data();
+        params.n_compared_pairs = n_compared_pairs.data();
+
+        details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
+
+        if (typeid(COORD_T) == typeid(float)) {
+          if (N_DIMS == 2) {
+            mod_nn = details::MODULE_ID_FLOAT_NN_2D;
+          } else if (N_DIMS == 3) {
+            mod_nn = details::MODULE_ID_FLOAT_NN_3D;
+          }
+        } else if (typeid(COORD_T) == typeid(double)) {
+          if (N_DIMS == 2) {
+            mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
+          } else if (N_DIMS == 3) {
+            mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
+          }
+        }
+
+        dim3 dims{1, 1, 1};
+        Stopwatch sw;
+        sw.start();
+        dims.x = params.in_queue.size();
+        rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
+        rt_engine_.Render(stream.cuda_stream(), mod_nn, dims);
+        stream.Sync();
+        sw.stop();
+
+        auto cmax2 = cmax2_.get(stream.cuda_stream());
+        auto cmax = sqrt(cmax2);
+        auto n_hits = iter_hits.get(stream.cuda_stream());
+        auto n_pairs = n_compared_pairs.get(stream.cuda_stream());
+
+        total_hits += n_hits;
+        total_compared_pairs += n_pairs;
+
+        VLOG(1) << "Iter: " << iter << " radius: " << radius << std::fixed
+                << std::setprecision(8) << " cmax2: " << cmax2
+                << " cmax: " << cmax << " near_size: " << near_size
+                << " out_size: " << out_queue_.size(stream.cuda_stream())
+                << " Iter hits " << n_hits << " Iter compared pairs " << n_pairs
+                << " Avg hits " << (float) n_hits / near_size << " Skip idx: "
+                << (float) skip_total_idx.get(stream.cuda_stream()) /
+                       skip_count.get(stream.cuda_stream())
+                << " Time: " << sw.ms() << " ms";
+
+        radius *= config_.radius_step;
+      }
+
+      in_queue_.Clear(stream.cuda_stream());
+      in_queue_.Swap(out_queue_);
+      in_size = in_queue_.size(stream.cuda_stream());
+
+      if (in_size > 0) {
+        if (config_.rebuild_bvh) {
+          buffer_.Clear();
+          gas_handle = BuildBVH(stream, points_b, radius);
+        } else {
+          gas_handle = UpdateBVH(stream, gas_handle, points_b, radius);
+        }
+      }
+    }
+    LOG(INFO) << "Total Hits " << total_hits;
+    LOG(INFO) << "Total compared pairs " << total_compared_pairs;
+    return sqrt(cmax2_.get(stream.cuda_stream()));
+  }
+
   COORD_T CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) {
     auto n_points_a = points_a.size();
     auto n_points_b = points_b.size();
-    auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
-    auto mbr_b = CalculateMbr(stream, points_b.begin(), points_b.end());
+    const auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
+    const auto mbr_b = CalculateMbr(stream, points_b.begin(), points_b.end());
     auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
         n_points_b, config_.fast_build, config_.compact);
 
@@ -234,9 +469,26 @@ class HausdorffDistanceRT {
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
     COORD_T radius = hd_lb;
+    // CHECK_GT(hd_lb, 0);
+
+    if (radius == 0) {
+      radius = hd_ub / 100;
+    }
+
+    radius *= sqrt(N_DIMS);  // Refer RTNN Fig10c
     COORD_T max_radius = hd_ub;
 
     LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub;
+
+    auto union_mbr = mbr_a;
+    union_mbr.Expand(mbr_b);
+
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      auto lower = union_mbr.lower(dim) - max_radius;
+      auto upper = union_mbr.upper(dim) + max_radius;
+      union_mbr.set_lower(dim, lower);
+      union_mbr.set_upper(dim, upper);
+    };
 
     in_queue_.Init(n_points_a);
     out_queue_.Init(n_points_a);
@@ -256,18 +508,22 @@ class HausdorffDistanceRT {
 
     buffer_.Clear();
     auto gas_handle = BuildBVH(stream, points_b, radius);
+    stream.Sync();
 
     SharedValue<uint32_t> skip_count;
     SharedValue<uint32_t> skip_total_idx;
     SharedValue<uint32_t> iter_hits;
+    SharedValue<uint32_t> n_compared_pairs;
     int iter = 0;
     uint64_t total_hits = 0;
+    uint64_t total_compared_pairs = 0;
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
     while (in_size > 0) {
       iter++;
       iter_hits.set(stream.cuda_stream(), 0);
+      n_compared_pairs.set(stream.cuda_stream(), 0);
       details::LaunchParamsNN<COORD_T, N_DIMS> params;
 
       skip_count.set(stream.cuda_stream(), 0);
@@ -284,6 +540,7 @@ class HausdorffDistanceRT {
       params.skip_count = skip_count.data();
       params.skip_total_idx = skip_total_idx.data();
       params.n_hits = iter_hits.data();
+      params.n_compared_pairs = n_compared_pairs.data();
 
       details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
 
@@ -313,12 +570,16 @@ class HausdorffDistanceRT {
       auto cmax2 = cmax2_.get(stream.cuda_stream());
       auto cmax = sqrt(cmax2);
       auto n_hits = iter_hits.get(stream.cuda_stream());
+      auto n_pairs = n_compared_pairs.get(stream.cuda_stream());
+
       total_hits += n_hits;
+      total_compared_pairs += n_pairs;
 
       VLOG(1) << "Iter: " << iter << " radius: " << radius << std::fixed
               << std::setprecision(8) << " cmax2: " << cmax2
               << " cmax: " << cmax << " in_size: " << in_size
               << " out_size: " << out_queue_.size(stream.cuda_stream())
+              << " Iter hits " << n_hits << " Iter compared pairs " << n_pairs
               << " Avg hits " << (float) n_hits / in_size << " Skip idx: "
               << (float) skip_total_idx.get(stream.cuda_stream()) /
                      skip_count.get(stream.cuda_stream())
@@ -339,7 +600,7 @@ class HausdorffDistanceRT {
       }
     }
     LOG(INFO) << "Total Hits " << total_hits;
-
+    LOG(INFO) << "Total compared pairs " << total_compared_pairs;
     return sqrt(cmax2_.get(stream.cuda_stream()));
   }
 
@@ -367,7 +628,7 @@ class HausdorffDistanceRT {
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
-    COORD_T radius = hd_lb;
+    COORD_T radius = hd_lb * sqrt(N_DIMS);  // Refer RTNN Fig10c
     COORD_T max_radius = hd_ub;
 
     in_queue_.Init(n_points_a);
@@ -407,14 +668,18 @@ class HausdorffDistanceRT {
     SharedValue<uint32_t> skip_count;
     SharedValue<uint32_t> skip_total_idx;
     SharedValue<uint32_t> iter_hits;
+    SharedValue<uint32_t> n_compared_pairs;
     int iter = 0;
     uint64_t total_hits = 0;
+    uint64_t total_compared_pairs = 0;
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
     while (in_size > 0) {
       iter++;
       iter_hits.set(stream.cuda_stream(), 0);
+      n_compared_pairs.set(stream.cuda_stream(), 0);
+
       thrust::fill_n(thrust::cuda::par.on(stream.cuda_stream()), cmin2_.begin(),
                      in_size, std::numeric_limits<COORD_T>::max());
       thrust::fill_n(thrust::cuda::par.on(stream.cuda_stream()),
@@ -436,6 +701,7 @@ class HausdorffDistanceRT {
       params.skip_count = skip_count.data();
       params.skip_total_idx = skip_total_idx.data();
       params.n_hits = iter_hits.data();
+      params.n_compared_pairs = n_compared_pairs.data();
       params.mbr = union_mbr;
       params.thread_counters =
           thrust::raw_pointer_cast(thread_counters_.data());
@@ -474,12 +740,15 @@ class HausdorffDistanceRT {
       auto cmax2 = cmax2_.get(stream.cuda_stream());
       auto cmax = sqrt(cmax2);
       auto n_hits = iter_hits.get(stream.cuda_stream());
+      auto n_pairs = n_compared_pairs.get(stream.cuda_stream());
       total_hits += n_hits;
+      total_compared_pairs += n_pairs;
 
       VLOG(1) << "Iter: " << iter << " radius: " << radius << std::fixed
               << std::setprecision(8) << " cmax2: " << cmax2
               << " cmax: " << cmax << " in_size: " << in_size
               << " out_size: " << out_queue_.size(stream.cuda_stream())
+              << " Iter hits " << n_hits << " Iter compared pairs " << n_pairs
               << " Avg hits " << (float) n_hits / in_size << " Skip idx: "
               << (float) skip_total_idx.get(stream.cuda_stream()) /
                      skip_count.get(stream.cuda_stream())
@@ -503,18 +772,9 @@ class HausdorffDistanceRT {
       }
     }
     LOG(INFO) << "Total Hits " << total_hits;
+    LOG(INFO) << "Total compared pairs " << total_compared_pairs;
 
     return sqrt(cmax2_.get(stream.cuda_stream()));
-  }
-
-  template <typename IT_T>
-  mbr_t CalculateMbr(const Stream& stream, IT_T begin, IT_T end) {
-    auto* p_mbr = mbr_.data();
-    mbr_.set(stream.cuda_stream(), mbr_t());
-    thrust::for_each(
-        thrust::cuda::par.on(stream.cuda_stream()), begin, end,
-        [=] __device__(const point_t& p) mutable { p_mbr->ExpandAtomic(p); });
-    return mbr_.get(stream.cuda_stream());
   }
 
   OptixTraversableHandle BuildBVH(const Stream& stream,
@@ -585,6 +845,70 @@ class HausdorffDistanceRT {
                                         0, config_.fast_build, config_.compact);
   }
 
+  void CalculateHausdorffDistanceGPU(const Stream& stream,
+                                     thrust::device_vector<point_t>& points_a,
+                                     thrust::device_vector<point_t>& points_b,
+                                     ArrayView<uint32_t> v_point_ids_a) {
+    auto* p_cmax2 = cmax2_.data();
+    ArrayView<point_t> v_points_a(points_a);
+    ArrayView<point_t> v_points_b(points_b);
+
+    SharedValue<uint32_t> compared_pairs;
+    auto* p_compared_pairs = compared_pairs.data();
+
+    compared_pairs.set(stream.cuda_stream(), 0);
+
+    LaunchKernel(stream, [=] __device__() {
+      using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
+      __shared__ typename BlockReduce::TempStorage temp_storage;
+      __shared__ int early_break;
+      __shared__ point_t point_a;
+
+      for (auto i = blockIdx.x; i < v_point_ids_a.size(); i += gridDim.x) {
+        auto size_b_roundup =
+            div_round_up(v_points_b.size(), blockDim.x) * blockDim.x;
+        coord_t cmin = std::numeric_limits<coord_t>::max();
+        uint32_t n_pairs = 0;
+
+        early_break = 0;
+        auto point_id_s = v_point_ids_a[i];
+        point_a = v_points_a[point_id_s];
+        __syncthreads();
+
+        for (auto j = threadIdx.x; j < size_b_roundup; j += blockDim.x) {
+          coord_t d = std::numeric_limits<coord_t>::max();
+          if (j < v_points_b.size()) {
+            const auto& point_b = v_points_b[j];
+            d = EuclideanDistance2(point_a, point_b);
+            n_pairs++;
+          }
+
+          auto agg_min = BlockReduce(temp_storage).Reduce(d, cub::Min());
+
+          if (threadIdx.x == 0) {
+            cmin = std::min(cmin, agg_min);
+            if (cmin <= *p_cmax2) {
+              early_break = 1;
+            }
+          }
+          __syncthreads();
+
+          if (early_break) {
+            break;
+          }
+        }
+        atomicAdd(p_compared_pairs, n_pairs);
+        if (threadIdx.x == 0 && cmin != std::numeric_limits<coord_t>::max()) {
+          atomicMax(p_cmax2, cmin);
+        }
+      }
+    });
+
+    LOG(INFO) << "EB Compared Pairs: "
+              << compared_pairs.get(stream.cuda_stream()) << " cmax2 "
+              << cmax2_.get(stream.cuda_stream());
+  }
+
  private:
   HausdorffDistanceRTConfig config_;
   thrust::default_random_engine g_;
@@ -598,6 +922,9 @@ class HausdorffDistanceRT {
   ReusableBuffer buffer_;
   details::RTEngine rt_engine_;
   SharedValue<COORD_T> cmax2_;
+  Grid<COORD_T, N_DIMS> grid_;
+  // near-far
+  Queue<uint32_t> near_queue_, far_queue_;
 };
 }  // namespace hd
 

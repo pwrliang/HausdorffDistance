@@ -104,7 +104,9 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistance(
         break;
       }
     }
+
     if (cmin != std::numeric_limits<coord_t>::max() && cmin > cmax) {
+      auto prev_cmax = cmax;
       cmax = cmin;
     }
   }
