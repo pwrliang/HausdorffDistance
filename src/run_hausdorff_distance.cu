@@ -4,8 +4,10 @@
 
 #include "hausdorff_distance_cpu.h"
 #include "hausdorff_distance_gpu.h"
+#include "hausdorff_distance_itk.h"
 #include "hausdorff_distance_lbvh.h"
 #include "hausdorff_distance_rt.h"
+#include "img_loader.h"
 #include "move_points.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
@@ -41,7 +43,7 @@ void RunHausdorffDistance(const RunConfig& config) {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      // dist = RunHausdorffDistanceImpl<float, 3>(config);
+      dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
@@ -50,10 +52,22 @@ void RunHausdorffDistance(const RunConfig& config) {
 template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
-  auto points_a = LoadPoints<COORD_T, N_DIMS>(
-      config.input_file1, config.serialize_folder, config.limit);
-  auto points_b = LoadPoints<COORD_T, N_DIMS>(
-      config.input_file2, config.serialize_folder, config.limit);
+  std::vector<point_t> points_a, points_b;
+
+  switch (config.input_type) {
+  case InputType::kWKT: {
+    points_a = LoadPoints<COORD_T, N_DIMS>(
+        config.input_file1, config.serialize_folder, config.limit);
+    points_b = LoadPoints<COORD_T, N_DIMS>(
+        config.input_file2, config.serialize_folder, config.limit);
+    break;
+  }
+  case InputType::kImage: {
+    points_a = LoadImage<COORD_T, N_DIMS>(config.input_file1, config.limit);
+    points_b = LoadImage<COORD_T, N_DIMS>(config.input_file2, config.limit);
+    break;
+  }
+  }
 
   if (config.move_offset != 0) {
     MovePoints(points_a, points_b, config.move_offset);
@@ -82,38 +96,38 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   sw.start();
   for (int i = 0; i < config.repeat; i++) {
     switch (config.variant) {
-    case Variant::EARLY_BREAK: {
+    case Variant::kEARLY_BREAK: {
       switch (config.execution) {
-      case Execution::Serial:
+      case Execution::kSerial:
         dist = CalculateHausdorffDistance(points_a, points_b);
         break;
-      case Execution::Parallel:
+      case Execution::kParallel:
         dist = CalculateHausdorffDistanceParallel(points_a, points_b);
         break;
-      case Execution::GPU:
+      case Execution::kGPU:
         dist = CalculateHausdorffDistanceGPU<point_t>(stream, d_points_a,
                                                       d_points_b);
         break;
       }
       break;
     }
-    case Variant::ZORDER: {
+    case Variant::kZORDER: {
       switch (config.execution) {
-      case Execution::Serial:
+      case Execution::kSerial:
         dist = CalculateHausdorffDistanceZOrder(points_a, points_b);
         break;
       }
       break;
     }
-    case Variant::YUAN: {
+    case Variant::kYUAN: {
       switch (config.execution) {
-      case Execution::Serial:
+      case Execution::kSerial:
         dist = CalculateHausdorffDistanceYuan(points_a, points_b);
         break;
       }
       break;
     }
-    case Variant::RT: {
+    case Variant::kRT: {
       if (config.nf) {
         dist =
             hdist_rt.CalculateDistanceNearFar(stream, d_points_a, d_points_b);
@@ -127,10 +141,14 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       }
       break;
     }
-    case Variant::BRANCH_BOUND: {
+    case Variant::kBRANCH_BOUND: {
       dist = hdist_lbvh.CalculateDistanceFrom(stream, points_a.begin(),
                                               points_a.end());
       break;
+    }
+    case Variant::kITK: {
+      dist = CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
+                                                   config.input_file2.c_str());
     }
     }
     sw.stop();

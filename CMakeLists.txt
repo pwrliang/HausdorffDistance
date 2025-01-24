@@ -79,6 +79,9 @@ else ()
     include_directories(SYSTEM ${GLOG_INCLUDE_DIRS})
 endif ()
 
+find_package(ITK REQUIRED)
+include(${ITK_USE_FILE})
+
 include_directories(${PROJECT_SOURCE_DIR})
 
 FUNCTION(OPTIX_COMPILE_SHADERS OUTPUT_DIR GENERATED_FILES)

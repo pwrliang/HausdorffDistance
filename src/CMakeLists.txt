@@ -19,6 +19,8 @@ target_link_libraries(hd_exec
         ${CUDA_nvToolsExt_LIBRARY}
         ${GFLAGS_LIBRARIES}
         ${GLOG_LIBRARIES}
+        ${ITK_LIBRARIES}
 )
 target_compile_options(hd_exec PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr --fmad=false>)
 set_target_properties(hd_exec PROPERTIES CUDA_ARCHITECTURES "${ENABLED_ARCHS}" CUDA_SEPARABLE_COMPILATION ON)
+message("ITK_LIBRARIES: ${ITK_LIBRARIES}")

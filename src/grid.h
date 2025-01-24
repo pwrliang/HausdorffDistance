@@ -172,7 +172,12 @@ class Grid {
   Grid() = default;
 
   Grid(const mbr_t& mbr, int resolution) : mbr_(mbr), resolution_(resolution) {
-    cells_.resize(resolution * resolution);
+    uint32_t total_cells = 1;
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      total_cells *= resolution_;
+    }
+
+    cells_.resize(total_cells);
   }
 
   void Clear(cudaStream_t cuda_stream) {

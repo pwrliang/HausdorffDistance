@@ -6,6 +6,7 @@
 
 DECLARE_string(input1);
 DECLARE_string(input2);
+DECLARE_string(input_type);
 DECLARE_string(serialize);
 DECLARE_string(variant);
 DECLARE_string(execution);

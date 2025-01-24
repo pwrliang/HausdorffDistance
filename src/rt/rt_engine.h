@@ -156,6 +156,24 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     config.AddModule(mod);
   }
 
+
+  {
+    Module mod;
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_3D);
+    mod.set_program_path(ptx_root + "/float_shaders_nn_3d.ptx");
+    mod.set_function_suffix("nn_3d");
+    mod.EnableIsIntersection();
+    mod.EnableAnyHit();
+    mod.set_n_payload(6);
+
+    config.AddModule(mod);
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_3D);
+    mod.set_program_path(ptx_root + "/double_shaders_nn_3d.ptx");
+    config.AddModule(mod);
+  }
+
   {
     Module mod;
 

@@ -1,17 +1,21 @@
 #ifndef HAUSDORFF_DISTANCE_RUN_CONFIG_H
 #define HAUSDORFF_DISTANCE_RUN_CONFIG_H
 #include <string>
-enum class Variant { EARLY_BREAK, ZORDER, YUAN, RT, BRANCH_BOUND };
+enum class Variant { kEARLY_BREAK, kZORDER, kYUAN, kRT, kBRANCH_BOUND, kITK };
 
-enum class Execution { Serial, Parallel, GPU };
+enum class Execution { kSerial, kParallel, kGPU };
+
+enum class InputType { kWKT, kImage };
 
 struct RunConfig {
   std::string exec_path;
   std::string input_file1;
   std::string input_file2;
   std::string serialize_folder;
+  InputType input_type;
   Variant variant;
   Execution execution;
+
   int parallelism;
   bool shuffle;
   bool check;
