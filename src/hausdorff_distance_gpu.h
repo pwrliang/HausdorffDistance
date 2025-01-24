@@ -42,62 +42,51 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceGPU(
 
   compared_pairs.set(stream.cuda_stream(), 0);
 
-  auto n_batches = 1;
-  auto batch_size = div_round_up(points_a.size(), n_batches);
+  LaunchKernel(stream, [=] __device__() {
+    using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
+    __shared__ typename BlockReduce::TempStorage temp_storage;
+    __shared__ bool early_break;
+    __shared__ POINT_T point_a;
 
-  for (uint32_t batch = 0; batch < n_batches; batch++) {
-    auto begin = batch * batch_size;
-    auto size = std::min(begin + batch_size, points_a.size()) - begin;
-    ArrayView<POINT_T> v_points_a_batch(
-        thrust::raw_pointer_cast(points_a.data()) + begin, size);
+    for (auto i = blockIdx.x; i < v_points_a.size(); i += gridDim.x) {
+      auto size_b_roundup =
+          div_round_up(v_points_b.size(), blockDim.x) * blockDim.x;
+      coord_t cmin = std::numeric_limits<coord_t>::max();
+      uint32_t n_pairs = 0;
 
-    LaunchKernel(stream, [=] __device__() {
-      using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
-      __shared__ typename BlockReduce::TempStorage temp_storage;
-      __shared__ int early_break;
-      __shared__ POINT_T point_a;
+      early_break = false;
+      point_a = v_points_a[i];
+      __syncthreads();
 
-      for (auto i = blockIdx.x; i < v_points_a_batch.size(); i += gridDim.x) {
-        auto size_b_roundup =
-            div_round_up(v_points_b.size(), blockDim.x) * blockDim.x;
-        coord_t cmin = std::numeric_limits<coord_t>::max();
-        uint32_t n_pairs = 0;
+      for (auto j = threadIdx.x; j < size_b_roundup && !early_break;
+           j += blockDim.x) {
+        auto d = std::numeric_limits<coord_t>::max();
+        if (j < v_points_b.size()) {
+          const auto& point_b = v_points_b[j];
+          d = EuclideanDistance2(point_a, point_b);
+          n_pairs++;
+        }
 
-        early_break = 0;
-        point_a = v_points_a_batch[i];
+        auto agg_min = BlockReduce(temp_storage).Reduce(d, cub::Min());
+
+        if (threadIdx.x == 0) {
+          cmin = std::min(cmin, agg_min);
+          if (cmin <= *p_cmax) {
+            early_break = true;
+          }
+        }
         __syncthreads();
-
-        for (auto j = threadIdx.x; j < size_b_roundup; j += blockDim.x) {
-          coord_t d = std::numeric_limits<coord_t>::max();
-          if (j < v_points_b.size()) {
-            const auto& point_b = v_points_b[j];
-            d = EuclideanDistance2(point_a, point_b);
-            n_pairs++;
-          }
-
-          auto agg_min = BlockReduce(temp_storage).Reduce(d, cub::Min());
-
-          if (threadIdx.x == 0) {
-            cmin = std::min(cmin, agg_min);
-            if (cmin <= *p_cmax) {
-              early_break = 1;
-            }
-          }
-          __syncthreads();
-
-          if (early_break) {
-            break;
-          }
-        }
-        atomicAdd(p_compared_pairs, n_pairs);
-        if (threadIdx.x == 0 && cmin != std::numeric_limits<coord_t>::max()) {
-          atomicMax(p_cmax, cmin);
-        }
       }
-    });
-  }
+      atomicAdd(p_compared_pairs, n_pairs);
+      __syncthreads();
+      if (threadIdx.x == 0 && cmin != std::numeric_limits<coord_t>::max()) {
+        atomicMax(p_cmax, cmin);
+      }
+    }
+  });
 
-  LOG(INFO) << "Compared Pairs: " << compared_pairs.get(stream.cuda_stream());
+  LOG(INFO) << "Compared Pairs: " << compared_pairs.get(stream.cuda_stream())
+            << " cmax2 " << cmax.get(stream.cuda_stream());
 
   return sqrt(cmax.get(stream.cuda_stream()));
 }

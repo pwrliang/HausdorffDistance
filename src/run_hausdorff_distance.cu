@@ -149,6 +149,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
     case Variant::kITK: {
       dist = CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
                                                    config.input_file2.c_str());
+      break;
     }
     }
     sw.stop();

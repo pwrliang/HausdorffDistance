@@ -171,7 +171,7 @@ class Grid {
  public:
   Grid() = default;
 
-  Grid(const mbr_t& mbr, int resolution) : mbr_(mbr), resolution_(resolution) {
+  explicit Grid(int resolution) : resolution_(resolution) {
     uint32_t total_cells = 1;
     for (int dim = 0; dim < N_DIMS; dim++) {
       total_cells *= resolution_;
@@ -185,6 +185,8 @@ class Grid {
     thrust::fill(thrust::cuda::par.on(cuda_stream), cells_.begin(),
                  cells_.end(), cell);
   }
+
+  void set_mbr(const mbr_t& mbr) { mbr_ = mbr; }
 
   void Insert(cudaStream_t cuda_stream,
               const thrust::device_vector<point_t>& points) {
