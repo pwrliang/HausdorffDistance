@@ -212,50 +212,6 @@ class HausdorffDistanceRT {
     grid_ = Grid<COORD_T, N_DIMS>(config_.grid_size);
   }
 
-  void FillNearFarQueue(const Stream& stream,
-                        thrust::device_vector<point_t>& points_a,
-                        const ArrayView<uint32_t>& v_points_ids) {
-    auto d_grid = grid_.DeviceObject();
-    SharedValue<uint32_t> n_intersects;
-    auto* p_n_intersects = n_intersects.data();
-
-    n_intersects.set(stream.cuda_stream(), 0);
-    Stopwatch sw;
-    sw.start();
-    auto* p_points = thrust::raw_pointer_cast(points_a.data());
-    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
-                     v_points_ids.begin(), v_points_ids.end(),
-                     [=] __device__(uint32_t point_id) mutable {
-                       const auto& p = p_points[point_id];
-                       auto& cell = d_grid.Query(p);
-                       atomicAdd(p_n_intersects, cell.n_primitives);
-                     });
-    auto total_n_intersects = n_intersects.get(stream.cuda_stream());
-    auto avg_hits = total_n_intersects / v_points_ids.size();
-    sw.stop();
-    LOG(INFO) << "Total Intersections: " << total_n_intersects
-              << " Avg intersections: " << avg_hits << " Time " << sw.ms()
-              << " ms";
-
-    near_queue_.Clear(stream.cuda_stream());
-    far_queue_.Clear(stream.cuda_stream());
-
-    auto d_near_queue = near_queue_.DeviceObject();
-    auto d_far_queue = far_queue_.DeviceObject();
-    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
-                     v_points_ids.begin(), v_points_ids.end(),
-                     [=] __device__(uint32_t point_id) mutable {
-                       const auto& p = p_points[point_id];
-                       auto& cell = d_grid.Query(p);
-
-                       if (cell.n_primitives == 0) {  // far
-                         d_far_queue.Append(point_id);
-                       } else {  // near
-                         d_near_queue.Append(point_id);
-                       }
-                     });
-  }
-
   COORD_T CalculateDistanceNearFar(const Stream& stream,
                                    thrust::device_vector<point_t>& points_a,
                                    thrust::device_vector<point_t>& points_b) {
@@ -269,17 +225,10 @@ class HausdorffDistanceRT {
     buffer_.Init(mem_bytes * 1.5);
     buffer_.Clear();
 
-    {
-      Stopwatch sw;
-      sw.start();
-      thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
-                      points_a.begin(), points_a.end(), g_);
-      thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
-                      points_b.begin(), points_b.end(), g_);
-      stream.Sync();
-      sw.stop();
-      LOG(INFO) << "Shuffle time " << sw.ms();
-    }
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                    points_a.begin(), points_a.end(), g_);
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                    points_b.begin(), points_b.end(), g_);
 
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
@@ -317,6 +266,7 @@ class HausdorffDistanceRT {
     grid_.Insert(stream.cuda_stream(), points_b);
 
     auto d_in_queue = in_queue_.DeviceObject();
+    auto d_grid = grid_.DeviceObject();
 
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
                      thrust::make_counting_iterator<uint32_t>(0),
@@ -348,8 +298,24 @@ class HausdorffDistanceRT {
       n_compared_pairs.set(stream.cuda_stream(), 0);
 
       sw.start();
-      FillNearFarQueue(stream, points_a,
-                       ArrayView<uint32_t>(in_queue_.data(), in_size));
+      near_queue_.Clear(stream.cuda_stream());
+      far_queue_.Clear(stream.cuda_stream());
+
+      auto d_near_queue = near_queue_.DeviceObject();
+      auto d_far_queue = far_queue_.DeviceObject();
+      auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
+      thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                       in_queue_.data(), in_queue_.data() + in_size,
+                       [=] __device__(uint32_t point_id) mutable {
+                         const auto& p = p_points_a[point_id];
+                         auto& cell = d_grid.Query(p);
+
+                         if (cell.n_primitives == 0) {  // far
+                           d_far_queue.Append(point_id);
+                         } else {  // near
+                           d_near_queue.Append(point_id);
+                         }
+                       });
 
       auto near_size = near_queue_.size(stream.cuda_stream());
       auto far_size = far_queue_.size(stream.cuda_stream());
@@ -376,7 +342,7 @@ class HausdorffDistanceRT {
         skip_count.set(stream.cuda_stream(), 0);
         skip_total_idx.set(stream.cuda_stream(), 0);
 
-        if (config_.rebuild_bvh && gas_handle == 0) {
+        if (gas_handle == 0 || !config_.rebuild_bvh) {
           buffer_.Clear();
           gas_handle = BuildBVH(stream, points_b, radius);
         } else {
@@ -412,7 +378,6 @@ class HausdorffDistanceRT {
         }
 
         dim3 dims{1, 1, 1};
-        Stopwatch sw;
         sw.start();
         dims.x = params.in_queue.size();
         rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
