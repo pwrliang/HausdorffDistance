@@ -261,12 +261,35 @@ class HausdorffDistanceRT {
     far_queue_.Init(n_points_a);
     in_queue_.Clear(stream.cuda_stream());
     out_queue_.Clear(stream.cuda_stream());
-    grid_.Clear(stream.cuda_stream());
+    grid_.Clear(stream);
     grid_.set_mbr(union_mbr);
-    grid_.Insert(stream.cuda_stream(), points_b);
+
+
+#if 0
+    {
+      aabbs_.resize(points_b.size());
+      thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
+                        points_b.begin(), points_b.end(), aabbs_.begin(),
+                        [=] __device__(const point_t& p) {
+                          return details::GetOptixAABB(p, radius);
+                        });
+      stream.Sync();
+      Stopwatch sw;
+      sw.start();
+      grid_.Insert(stream, aabbs_);
+      stream.Sync();
+      sw.stop();
+      LOG(INFO) << "Grid insert time: " << sw.ms();
+    }
+#else
+    grid_.Insert(stream, points_b);
+#endif
 
     auto d_in_queue = in_queue_.DeviceObject();
     auto d_grid = grid_.DeviceObject();
+
+    // TODO: Use radius to infer grid resolution, min(mbr[:]) / radius
+
 
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
                      thrust::make_counting_iterator<uint32_t>(0),

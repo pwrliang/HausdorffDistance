@@ -74,8 +74,10 @@ class Grid {
     auto lower_cell_p = CalculateCellPos(lower_p);
     auto upper_cell_p = CalculateCellPos(upper_p);
 
-    for (int i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
-      for (int j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
+    for (int j = lower_cell_p.y + threadIdx.y; j <= upper_cell_p.y;
+         j += blockDim.y) {
+      for (int i = lower_cell_p.x + threadIdx.x; i <= upper_cell_p.x;
+           i += blockDim.x) {
         auto cell_idx = i + j * resolution_;
 
         atomicAdd(&cells_[cell_idx].n_primitives, 1);
@@ -83,6 +85,7 @@ class Grid {
     }
   }
 
+#if 1
   template <typename U = void,
             typename std::enable_if<N_DIMS == 3, U>::type* = nullptr>
   DEV_INLINE void Insert(const OptixAabb& aabb) {
@@ -91,15 +94,38 @@ class Grid {
     auto lower_cell_p = CalculateCellPos(lower_p);
     auto upper_cell_p = CalculateCellPos(upper_p);
 
-    for (int i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
-      for (int j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
-        for (int k = lower_cell_p.z; k <= upper_cell_p.z; k++) {
+    for (int k = lower_cell_p.z + threadIdx.z; k <= upper_cell_p.z;
+         k += blockDim.z) {
+      for (int j = lower_cell_p.y + threadIdx.y; j <= upper_cell_p.y;
+           j += blockDim.y) {
+        for (int i = lower_cell_p.x + threadIdx.x; i <= upper_cell_p.x;
+             i += blockDim.x) {
           auto cell_idx = i + j * resolution_ + k * resolution_ * resolution_;
           atomicAdd(&cells_[cell_idx].n_primitives, 1);
         }
       }
     }
   }
+#else
+  template <typename U = void,
+            typename std::enable_if<N_DIMS == 3, U>::type* = nullptr>
+  DEV_INLINE void Insert(const OptixAabb& aabb) {
+    auto lower_p = GetLowerPoint(aabb);
+    auto upper_p = GetUpperPoint(aabb);
+    auto lower_cell_p = CalculateCellPos(lower_p);
+    auto upper_cell_p = CalculateCellPos(upper_p);
+
+    for (int k = lower_cell_p.z; k <= upper_cell_p.z; k++) {
+      for (int j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
+        for (int i = lower_cell_p.x + threadIdx.x; i <= upper_cell_p.x;
+             i += blockDim.x) {
+          auto cell_idx = i + j * resolution_ + k * resolution_ * resolution_;
+          atomicAdd(&cells_[cell_idx].n_primitives, 1);
+        }
+      }
+    }
+  }
+#endif
 
  private:
   mbr_t mbr_;
@@ -167,6 +193,7 @@ class Grid {
   using cell_t = dev::Cell;
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
+  static_assert(N_DIMS == 2 || N_DIMS == 3, "Invalid N_DIMS");
 
  public:
   Grid() = default;
@@ -180,28 +207,44 @@ class Grid {
     cells_.resize(total_cells);
   }
 
-  void Clear(cudaStream_t cuda_stream) {
+  void Clear(const Stream& stream) {
     cell_t cell;
-    thrust::fill(thrust::cuda::par.on(cuda_stream), cells_.begin(),
+    thrust::fill(thrust::cuda::par.on(stream.cuda_stream()), cells_.begin(),
                  cells_.end(), cell);
   }
 
   void set_mbr(const mbr_t& mbr) { mbr_ = mbr; }
 
-  void Insert(cudaStream_t cuda_stream,
+  void Insert(const Stream& stream,
               const thrust::device_vector<point_t>& points) {
     auto d_grid = DeviceObject();
-    thrust::for_each(
-        thrust::cuda::par.on(cuda_stream), points.begin(), points.end(),
-        [=] __device__(const point_t& p) mutable { d_grid.Insert(p); });
+    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
+                     points.end(), [=] __device__(const point_t& p) mutable {
+                       d_grid.Insert(p);
+                     });
   }
 
-  void Insert(cudaStream_t cuda_stream,
+  void Insert(const Stream& stream,
               const thrust::device_vector<OptixAabb>& aabbs) {
+    ArrayView<OptixAabb> v_aabbs(aabbs);
     auto d_grid = DeviceObject();
-    thrust::for_each(
-        thrust::cuda::par.on(cuda_stream), aabbs.begin(), aabbs.end(),
-        [=] __device__(const OptixAabb& aabb) mutable { d_grid.Insert(aabb); });
+    dim3 grid_dims{(uint32_t) aabbs.size(), 1, 1};
+    dim3 block_dims;
+
+    if (N_DIMS == 2) {
+      block_dims = dim3{16, 16, 1};
+    } else if (N_DIMS == 3) {
+      block_dims = dim3{8, 8, 8};
+    }
+
+    LaunchKernel(stream, grid_dims, block_dims, [=] __device__() mutable {
+      for (auto aabb_id = blockIdx.x; aabb_id < v_aabbs.size();
+           aabb_id += gridDim.x) {
+        const auto& aabb = v_aabbs[aabb_id];
+
+        d_grid.Insert(aabb);
+      }
+    });
   }
 
   dev::Grid<COORD_T, N_DIMS> DeviceObject() {

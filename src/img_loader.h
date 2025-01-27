@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "glog/logging.h"
 #include "utils/type_traits.h"
 
 template <typename COORD_T, int N_DIMS>
@@ -26,6 +27,8 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadImage(
   auto image = reader->GetOutput();
   // Iterator over the image
   using IteratorType = itk::ImageRegionIterator<ImageType>;
+  auto size = image->GetLargestPossibleRegion().GetSize();
+
   IteratorType it(image, image->GetLargestPossibleRegion());
 
   for (it.GoToBegin(); !it.IsAtEnd(); ++it) {
@@ -42,6 +45,15 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadImage(
         break;
       }
     }
+  }
+  if (N_DIMS == 2) {
+    VLOG(1) << "File " << path << " Size: " << size[0] << " x " << size[1]
+            << " # of Pixels " << size[0] * size[1] << " Valid Pixel "
+            << points.size();
+  } else if (N_DIMS == 3) {
+    VLOG(1) << "File " << path << " Size: " << size[0] << " x " << size[1]
+            << " x " << size[2] << " # of Voxels "
+            << size[0] * size[1] * size[2] << " Valid Voxels " << points.size();
   }
   return points;
 }

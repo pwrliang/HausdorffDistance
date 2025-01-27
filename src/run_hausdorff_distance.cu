@@ -116,6 +116,10 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       case Execution::kSerial:
         dist = CalculateHausdorffDistanceZOrder(points_a, points_b);
         break;
+      case Execution::kGPU:
+        dist =
+            CalculateHausdorffDistanceZorderGPU(stream, d_points_a, d_points_b);
+        break;
       }
       break;
     }
