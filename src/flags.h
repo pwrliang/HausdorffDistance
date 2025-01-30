@@ -23,4 +23,5 @@ DECLARE_bool(rebuild_bvh);
 DECLARE_int32(raymulticast);
 DECLARE_bool(nf);
 DECLARE_int32(grid);
+DECLARE_bool(auto_grid);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

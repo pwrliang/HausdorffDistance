@@ -1,6 +1,7 @@
 #include <glog/logging.h>
 
 #include "flags.h"
+#include "play.cuh"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
 
@@ -73,11 +74,14 @@ int main(int argc, char* argv[]) {
   config.ray_multicast = FLAGS_raymulticast;
   config.nf = FLAGS_nf;
   config.grid_size = FLAGS_grid;
+  config.auto_grid = FLAGS_auto_grid;
 
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";
 
   hd::RunHausdorffDistance(config);
+
+  // hd::Play(config);
 
   google::ShutdownGoogleLogging();
 }

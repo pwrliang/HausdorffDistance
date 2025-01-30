@@ -8,6 +8,7 @@ message("ENABLED_ARCHS: ${ENABLED_ARCHS}")
 add_executable(hd_exec
         main.cpp
         flags.cc
+        play.cu
         run_hausdorff_distance.cu
         ${PROGRAM_MODULES}
 )

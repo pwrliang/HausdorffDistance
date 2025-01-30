@@ -30,6 +30,7 @@ struct RunConfig {
   int ray_multicast;
   bool nf;
   int grid_size;
+  bool auto_grid;
 };
 
 #endif  // HAUSDORFF_DISTANCE_RUN_CONFIG_H

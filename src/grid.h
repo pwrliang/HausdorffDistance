@@ -31,13 +31,7 @@ class Grid {
 
   DEV_HOST Grid(const mbr_t& mbr, int resolution,
                 const ArrayView<cell_t>& cells)
-      : mbr_(mbr), resolution_(resolution), cells_(cells) {}
-
-  DEV_INLINE cell_t& Query(const point_t& p) {
-    auto cell_pos = CalculateCellPos(p);
-    auto cell_idx = CellPosTo1D(cell_pos);
-    return cells_[cell_idx];
-  }
+      : mbr_(mbr), grid_size_(resolution), cells_(cells) {}
 
   DEV_INLINE const cell_t& Query(const point_t& p) const {
     auto cell_pos = CalculateCellPos(p);
@@ -50,7 +44,7 @@ class Grid {
   DEV_INLINE void Insert(const point_t& p) {
     auto cell_p = CalculateCellPos(p);
 
-    auto cell_idx = cell_p.x + cell_p.y * resolution_;
+    auto cell_idx = cell_p.x + cell_p.y * grid_size_;
 
     atomicAdd(&cells_[cell_idx].n_primitives, 1);
   }
@@ -61,7 +55,7 @@ class Grid {
     auto cell_p = CalculateCellPos(p);
 
     auto cell_idx =
-        cell_p.x + cell_p.y * resolution_ + cell_p.y * cell_p.z * resolution_;
+        cell_p.x + cell_p.y * grid_size_ + cell_p.y * cell_p.z * grid_size_;
 
     atomicAdd(&cells_[cell_idx].n_primitives, 1);
   }
@@ -74,39 +68,15 @@ class Grid {
     auto lower_cell_p = CalculateCellPos(lower_p);
     auto upper_cell_p = CalculateCellPos(upper_p);
 
-    for (int j = lower_cell_p.y + threadIdx.y; j <= upper_cell_p.y;
-         j += blockDim.y) {
-      for (int i = lower_cell_p.x + threadIdx.x; i <= upper_cell_p.x;
-           i += blockDim.x) {
-        auto cell_idx = i + j * resolution_;
+    for (int j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
+      for (int i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
+        auto cell_idx = i + j * grid_size_;
 
         atomicAdd(&cells_[cell_idx].n_primitives, 1);
       }
     }
   }
 
-#if 1
-  template <typename U = void,
-            typename std::enable_if<N_DIMS == 3, U>::type* = nullptr>
-  DEV_INLINE void Insert(const OptixAabb& aabb) {
-    auto lower_p = GetLowerPoint(aabb);
-    auto upper_p = GetUpperPoint(aabb);
-    auto lower_cell_p = CalculateCellPos(lower_p);
-    auto upper_cell_p = CalculateCellPos(upper_p);
-
-    for (int k = lower_cell_p.z + threadIdx.z; k <= upper_cell_p.z;
-         k += blockDim.z) {
-      for (int j = lower_cell_p.y + threadIdx.y; j <= upper_cell_p.y;
-           j += blockDim.y) {
-        for (int i = lower_cell_p.x + threadIdx.x; i <= upper_cell_p.x;
-             i += blockDim.x) {
-          auto cell_idx = i + j * resolution_ + k * resolution_ * resolution_;
-          atomicAdd(&cells_[cell_idx].n_primitives, 1);
-        }
-      }
-    }
-  }
-#else
   template <typename U = void,
             typename std::enable_if<N_DIMS == 3, U>::type* = nullptr>
   DEV_INLINE void Insert(const OptixAabb& aabb) {
@@ -117,19 +87,17 @@ class Grid {
 
     for (int k = lower_cell_p.z; k <= upper_cell_p.z; k++) {
       for (int j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
-        for (int i = lower_cell_p.x + threadIdx.x; i <= upper_cell_p.x;
-             i += blockDim.x) {
-          auto cell_idx = i + j * resolution_ + k * resolution_ * resolution_;
+        for (int i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
+          auto cell_idx = i + j * grid_size_ + k * grid_size_ * grid_size_;
           atomicAdd(&cells_[cell_idx].n_primitives, 1);
         }
       }
     }
   }
-#endif
 
  private:
   mbr_t mbr_;
-  int resolution_;
+  int grid_size_;
   ArrayView<cell_t> cells_;
 
   DEV_INLINE typename cuda_vec<unsigned int, N_DIMS>::type CalculateCellPos(
@@ -145,8 +113,8 @@ class Grid {
       auto norm_val = (val - lower) / (upper - lower);
 
       reinterpret_cast<unsigned int*>(&cell_pos.x)[dim] =
-          std::min(std::max(norm_val * resolution_, (COORD_T) 0.0),
-                   resolution_ - (COORD_T) 1.0);
+          std::min(std::max(norm_val * grid_size_, (COORD_T) 0.0),
+                   grid_size_ - (COORD_T) 1.0);
     }
     return cell_pos;
   }
@@ -172,17 +140,17 @@ class Grid {
   }
 
   DEV_INLINE uint32_t CellPosTo1D(const uint2& cell_pos) const {
-    assert(cell_pos.x < resolution_);
-    assert(cell_pos.y < resolution_);
-    return cell_pos.x + cell_pos.y * resolution_;
+    assert(cell_pos.x < grid_size_);
+    assert(cell_pos.y < grid_size_);
+    return cell_pos.x + cell_pos.y * grid_size_;
   }
 
   DEV_INLINE uint32_t CellPosTo1D(const uint3& cell_pos) const {
-    assert(cell_pos.x < resolution_);
-    assert(cell_pos.y < resolution_);
-    assert(cell_pos.z < resolution_);
-    return cell_pos.x + cell_pos.y * resolution_ +
-           cell_pos.z * resolution_ * resolution_;
+    assert(cell_pos.x < grid_size_);
+    assert(cell_pos.y < grid_size_);
+    assert(cell_pos.z < grid_size_);
+    return cell_pos.x + cell_pos.y * grid_size_ +
+           cell_pos.z * grid_size_ * grid_size_;
   }
 };
 
@@ -198,10 +166,10 @@ class Grid {
  public:
   Grid() = default;
 
-  explicit Grid(int resolution) : resolution_(resolution) {
+  explicit Grid(int max_grid_size) : max_grid_size_(max_grid_size) {
     uint32_t total_cells = 1;
     for (int dim = 0; dim < N_DIMS; dim++) {
-      total_cells *= resolution_;
+      total_cells *= max_grid_size;
     }
 
     cells_.resize(total_cells);
@@ -213,7 +181,11 @@ class Grid {
                  cells_.end(), cell);
   }
 
-  void set_mbr(const mbr_t& mbr) { mbr_ = mbr; }
+  void Init(int grid_size, const mbr_t& mbr) {
+    assert(grid_size <= max_grid_size_);
+    grid_size_ = grid_size;
+    mbr_ = mbr;
+  }
 
   void Insert(const Stream& stream,
               const thrust::device_vector<point_t>& points) {
@@ -228,18 +200,10 @@ class Grid {
               const thrust::device_vector<OptixAabb>& aabbs) {
     ArrayView<OptixAabb> v_aabbs(aabbs);
     auto d_grid = DeviceObject();
-    dim3 grid_dims{(uint32_t) aabbs.size(), 1, 1};
-    dim3 block_dims;
 
-    if (N_DIMS == 2) {
-      block_dims = dim3{16, 16, 1};
-    } else if (N_DIMS == 3) {
-      block_dims = dim3{8, 8, 8};
-    }
-
-    LaunchKernel(stream, grid_dims, block_dims, [=] __device__() mutable {
-      for (auto aabb_id = blockIdx.x; aabb_id < v_aabbs.size();
-           aabb_id += gridDim.x) {
+    LaunchKernel(stream, [=] __device__() mutable {
+      for (auto aabb_id = TID_1D; aabb_id < v_aabbs.size();
+           aabb_id += TOTAL_THREADS_1D) {
         const auto& aabb = v_aabbs[aabb_id];
 
         d_grid.Insert(aabb);
@@ -247,17 +211,17 @@ class Grid {
     });
   }
 
-  dev::Grid<COORD_T, N_DIMS> DeviceObject() {
-    return dev::Grid<COORD_T, N_DIMS>(mbr_, resolution_, cells_);
+  dev::Grid<COORD_T, N_DIMS> DeviceObject() const {
+    return dev::Grid<COORD_T, N_DIMS>(mbr_, grid_size_, cells_);
   }
-  const dev::Grid<COORD_T, N_DIMS> DeviceObject() const {
-    return dev::Grid<COORD_T, N_DIMS>(mbr_, resolution_, cells_);
-  }
+
+  int get_grid_size() const { return grid_size_; }
 
  private:
   thrust::device_vector<cell_t> cells_;
   mbr_t mbr_;
-  int resolution_;
+  int max_grid_size_;
+  int grid_size_;
 };
 }  // namespace hd
 #endif  // GRID_H

@@ -1,7 +1,6 @@
 #ifndef RTSPATIAL_DETAILS_RT_ENGINE_H
 #define RTSPATIAL_DETAILS_RT_ENGINE_H
 #include <cuda.h>
-#include <optix_function_table_definition.h>  // for g_optixFunctionTable
 #include <optix_host.h>
 #include <optix_stack_size.h>
 #include <optix_stubs.h>
@@ -32,6 +31,7 @@
 namespace hd {
 namespace details {
 enum ModuleIdentifier {
+  MODULE_ID_PLAY,
   MODULE_ID_FLOAT_NN_2D,
   MODULE_ID_DOUBLE_NN_2D,
   MODULE_ID_FLOAT_NN_3D,
@@ -138,6 +138,19 @@ struct RTConfig {
 
 inline RTConfig get_default_rt_config(const std::string& ptx_root) {
   RTConfig config;
+
+  {
+    Module mod;
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_PLAY);
+    mod.set_program_path(ptx_root + "/float_shaders_play.ptx");
+    mod.set_function_suffix("play");
+    mod.EnableIsIntersection();
+    mod.EnableAnyHit();
+    mod.set_n_payload(6);
+
+    config.AddModule(mod);
+  }
 
   {
     Module mod;

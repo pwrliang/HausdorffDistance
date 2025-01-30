@@ -1,6 +1,7 @@
 #include <algorithm>  // For std::shuffle
 #include <cstdio>
 #include <random>  // For random number generators
+#include <optix_function_table_definition.h>  // for g_optixFunctionTable
 
 #include "hausdorff_distance_cpu.h"
 #include "hausdorff_distance_gpu.h"
@@ -43,7 +44,7 @@ void RunHausdorffDistance(const RunConfig& config) {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      dist = RunHausdorffDistanceImpl<float, 3>(config);
+      // dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
@@ -86,7 +87,8 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   rt_config.shuffle = config.shuffle;
   rt_config.rebuild_bvh = config.rebuild_bvh;
   rt_config.radius_step = config.radius_step;
-  rt_config.grid_size = config.grid_size;
+  rt_config.max_grid_size = config.grid_size;
+  rt_config.auto_grid = config.auto_grid;
   hdist_rt.Init(rt_config);
   hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
 

@@ -193,7 +193,10 @@ struct HausdorffDistanceRTConfig {
   bool rebuild_bvh = false;
   bool shuffle = false;
   float radius_step = 2;
-  int grid_size = 1000;
+  int max_grid_size = 1024;
+  float sample_rate = 0.05;
+  int max_samples = 100 * 1000;
+  bool auto_grid = true;
 };
 
 template <typename COORD_T, int N_DIMS>
@@ -209,12 +212,272 @@ class HausdorffDistanceRT {
     config_ = hd_config;
     auto rt_config = details::get_default_rt_config(hd_config.ptx_root);
     rt_engine_.Init(rt_config);
-    grid_ = Grid<COORD_T, N_DIMS>(config_.grid_size);
+    grid_ = Grid<COORD_T, N_DIMS>(config_.max_grid_size);
+    sampler_.Init(hd_config.max_samples);
+  }
+#if 0
+  int CalculateBestGridSize(const Stream& stream,
+                            const thrust::device_vector<point_t>& points_a,
+                            const thrust::device_vector<point_t>& points_b,
+                            const mbr_t& mbr, const mbr_t& mbr_b,
+                            float& radius) {
+    SharedValue<uint32_t> sv_n_near_points;
+    Stopwatch sw;
+    auto samples_a = sampler_.Sample(
+        stream.cuda_stream(), points_a.size(),
+        std::max(1u, (uint32_t) (points_a.size() * config_.sample_rate)));
+    auto samples_b = sampler_.Sample(
+        stream.cuda_stream(), ArrayView<point_t>(points_b),
+        std::max(1u, (uint32_t) (points_b.size() * config_.sample_rate)));
+
+    COORD_T volume = 1;
+    COORD_T min_extent = std::numeric_limits<COORD_T>::max();
+    COORD_T max_extent = 0;
+
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      auto extent = mbr.upper(dim) - mbr.lower(dim);
+      volume *= extent;
+      min_extent = std::min(min_extent, extent);
+      max_extent = std::max(max_extent, extent);
+    }
+
+    float density = (float) points_b.size() / volume;
+
+    int best_grid_size = 0;
+    uint64_t min_cost = std::numeric_limits<uint64_t>::max();
+    double min_time = std::numeric_limits<double>::max();
+
+    for (int grid_size = 128; grid_size <= config_.max_grid_size;) {
+      sw.start();
+      auto d_near_queue = near_queue_.DeviceObject();
+      auto d_far_queue = far_queue_.DeviceObject();
+      auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
+
+      grid_.Init(grid_size, mbr);
+      grid_.Clear(stream);
+      grid_.Insert(stream, samples_b);
+
+      auto d_grid = grid_.DeviceObject();
+
+      near_queue_.Clear(stream.cuda_stream());
+      far_queue_.Clear(stream.cuda_stream());
+
+      thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                       samples_a.begin(), samples_a.end(),
+                       [=] __device__(uint32_t point_id) mutable {
+                         const auto& p = p_points_a[point_id];
+                         const auto& cell = d_grid.Query(p);
+
+                         if (cell.n_primitives == 0) {  // far
+                           d_far_queue.Append(point_id);
+                         } else {  // near
+                           d_near_queue.Append(point_id);
+                         }
+                       });
+      auto near_size = near_queue_.size(stream.cuda_stream());
+      auto far_size = far_queue_.size(stream.cuda_stream());
+
+      LOG(INFO) << "Near rate " << (float) near_size / samples_a.size()
+                << " Far rate " << (float) far_size / samples_a.size();
+
+      auto eb_coefficient =
+          CalculateHDEarlyBreak(
+              stream, points_a, samples_b,
+              ArrayView<uint32_t>(far_queue_.data(), far_size)) /
+          samples_b.size();
+
+      radius = max_extent / grid_size;
+      if (near_size > 0) {
+        buffer_.Clear();
+        auto gas_handle = BuildBVH(stream, samples_b, radius);
+        details::LaunchParamsNN<COORD_T, N_DIMS> params;
+
+        memset(&params, 0, sizeof(params));
+        params.in_queue = ArrayView<uint32_t>(near_queue_.data(), near_size);
+        params.out_queue = out_queue_.DeviceObject();
+        params.points_a = ArrayView<point_t>(points_a);
+        params.points_b = ArrayView<point_t>(points_b);
+        params.handle = gas_handle;
+        params.cmax2 = cmax2_.data();
+        params.radius = radius;
+
+        details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
+
+        if (typeid(COORD_T) == typeid(float)) {
+          if (N_DIMS == 2) {
+            mod_nn = details::MODULE_ID_FLOAT_NN_2D;
+          } else if (N_DIMS == 3) {
+            mod_nn = details::MODULE_ID_FLOAT_NN_3D;
+          }
+        } else if (typeid(COORD_T) == typeid(double)) {
+          if (N_DIMS == 2) {
+            mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
+          } else if (N_DIMS == 3) {
+            mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
+          }
+        }
+
+        dim3 dims{1, 1, 1};
+        dims.x = params.in_queue.size();
+        rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
+        rt_engine_.Render(stream.cuda_stream(), mod_nn, dims);
+      }
+      stream.Sync();
+      sw.stop();
+      if (sw.ms() < min_time) {
+        min_time = sw.ms();
+        best_grid_size = grid_size;
+      }
+#if 0
+      auto near_rate =
+          (float) near_queue_.size(stream.cuda_stream()) / samples_a.size();
+      auto n_near_points = points_a.size() * near_rate;
+      auto n_far_points = points_a.size() - n_near_points;
+      auto s = min_extent / grid_size;
+      COORD_T cube_volume = 1;
+
+      for (int dim = 0; dim < N_DIMS; dim++) {
+        cube_volume *= s;
+      }
+
+      uint64_t ray_cast_cost = n_near_points * log(points_b.size());
+      uint64_t rt_intersects = n_near_points * cube_volume * density;
+      uint64_t near_cost = rt_intersects;
+      uint64_t far_cost = n_far_points * eb_coefficient;
+      uint64_t total_cost = near_cost + far_cost;
+
+      LOG(INFO) << "Grid " << grid_size << " s " << s << " Near Rate "
+                << near_rate << " Ray Intersect Cost " << rt_intersects
+                << " cube volume " << cube_volume << " density " << density
+                << " RT Cost " << near_cost << " Far Cost " << far_cost
+                << " Total Cost " << total_cost << " eb_coefficient "
+                << eb_coefficient;
+
+      if (total_cost < min_cost) {
+        min_cost = total_cost;
+        best_grid_size = grid_size;
+        radius = s;
+      }
+#endif
+      LOG(INFO) << "Grid " << grid_size << " Time " << sw.ms() << " ms";
+      grid_size *= config_.radius_step;
+    }
+
+    LOG(INFO) << "best grid size : " << best_grid_size;
+    return best_grid_size;
+  }
+#endif
+
+  int CalculateBestGridSize(const Stream& stream,
+                            const thrust::device_vector<point_t>& points_a,
+                            const thrust::device_vector<point_t>& points_b,
+                            const mbr_t& mbr, const mbr_t& mbr_b,
+                            float& radius) {
+    SharedValue<uint32_t> sv_n_near_points;
+    Stopwatch sw;
+    auto samples_a = sampler_.Sample(
+        stream.cuda_stream(), points_a.size(),
+        std::max(1u, (uint32_t) (points_a.size() * config_.sample_rate)));
+    auto samples_b = sampler_.Sample(
+        stream.cuda_stream(), ArrayView<point_t>(points_b),
+        std::max(1u, (uint32_t) (points_b.size() * config_.sample_rate)));
+
+    COORD_T volume = 1;
+    COORD_T min_extent = std::numeric_limits<COORD_T>::max();
+    COORD_T max_extent = 0;
+
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      auto extent = mbr.upper(dim) - mbr.lower(dim);
+      volume *= extent;
+      min_extent = std::min(min_extent, extent);
+      max_extent = std::max(max_extent, extent);
+    }
+
+    float density = (float) points_b.size() / volume;
+
+    int best_grid_size = 0;
+    uint64_t min_cost = std::numeric_limits<uint64_t>::max();
+
+    for (int grid_size = 128; grid_size <= config_.max_grid_size;
+         grid_size *= config_.radius_step) {
+      sw.start();
+      auto d_near_queue = near_queue_.DeviceObject();
+      auto d_far_queue = far_queue_.DeviceObject();
+      auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
+
+      grid_.Init(grid_size, mbr);
+      grid_.Clear(stream);
+      grid_.Insert(stream, samples_b);
+
+      auto d_grid = grid_.DeviceObject();
+
+      near_queue_.Clear(stream.cuda_stream());
+      far_queue_.Clear(stream.cuda_stream());
+
+      thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                       samples_a.begin(), samples_a.end(),
+                       [=] __device__(uint32_t point_id) mutable {
+                         const auto& p = p_points_a[point_id];
+                         const auto& cell = d_grid.Query(p);
+
+                         if (cell.n_primitives == 0) {  // far
+                           d_far_queue.Append(point_id);
+                         } else {  // near
+                           d_near_queue.Append(point_id);
+                         }
+                       });
+      auto near_size = near_queue_.size(stream.cuda_stream());
+      auto far_size = far_queue_.size(stream.cuda_stream());
+
+      LOG(INFO) << "Near rate " << (float) near_size / samples_a.size()
+                << " Far rate " << (float) far_size / samples_a.size();
+
+      cmax2_.set(stream.cuda_stream(), 0);
+      auto eb_coefficient =
+          CalculateHDEarlyBreak(
+              stream, points_a, samples_b,
+              ArrayView<uint32_t>(far_queue_.data(), far_size)) /
+          samples_b.size();
+
+      auto near_rate =
+          (float) near_queue_.size(stream.cuda_stream()) / samples_a.size();
+      auto n_near_points = points_a.size() * near_rate;
+      auto n_far_points = points_a.size() - n_near_points;
+      auto s = min_extent / grid_size;
+      COORD_T cube_volume = 1;
+
+      for (int dim = 0; dim < N_DIMS; dim++) {
+        cube_volume *= s;
+      }
+
+      uint64_t ray_cast_cost = n_near_points * log(points_b.size());
+      uint64_t rt_intersects = n_near_points * cube_volume * density;
+      uint64_t near_cost = rt_intersects;
+      uint64_t far_cost = n_far_points * eb_coefficient;
+      uint64_t total_cost = near_cost + far_cost;
+
+      LOG(INFO) << "Grid " << grid_size << " s " << s << " Near Rate "
+                << near_rate << " Ray Intersect Cost " << rt_intersects
+                << " cube volume " << cube_volume << " density " << density
+                << " RT Cost " << near_cost << " Far Cost " << far_cost
+                << " Total Cost " << total_cost << " eb_coefficient "
+                << eb_coefficient;
+
+      if (total_cost < min_cost) {
+        min_cost = total_cost;
+        best_grid_size = grid_size;
+        radius = s;
+      }
+    }
+
+    LOG(INFO) << "best grid size : " << best_grid_size;
+    return best_grid_size;
   }
 
   COORD_T CalculateDistanceNearFar(const Stream& stream,
                                    thrust::device_vector<point_t>& points_a,
                                    thrust::device_vector<point_t>& points_b) {
+    Stopwatch sw;
     auto n_points_a = points_a.size();
     auto n_points_b = points_b.size();
     const auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
@@ -233,27 +496,36 @@ class HausdorffDistanceRT {
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
-    COORD_T radius = hd_lb;
-    // CHECK_GT(hd_lb, 0);
 
-    if (radius == 0) {
-      radius = hd_ub / 100;
-    }
+    auto union_mbr = mbr_a;  // largest possible range
+    coord_t min_extent = std::numeric_limits<coord_t>::max();
+    coord_t max_extent = 0;
 
-    // radius *= sqrt(N_DIMS);  // Refer RTNN Fig10c
-    COORD_T max_radius = hd_ub;
-
-    LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub;
-
-    auto union_mbr = mbr_a;
     union_mbr.Expand(mbr_b);
 
     for (int dim = 0; dim < N_DIMS; dim++) {
-      auto lower = union_mbr.lower(dim) - max_radius;
-      auto upper = union_mbr.upper(dim) + max_radius;
+      auto lower = union_mbr.lower(dim) - hd_ub;
+      auto upper = union_mbr.upper(dim) + hd_ub;
       union_mbr.set_lower(dim, lower);
       union_mbr.set_upper(dim, upper);
-    };
+      min_extent = std::min(min_extent, upper - lower);
+      max_extent = std::max(max_extent, upper - lower);
+    }
+
+    COORD_T volume = 1;
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      auto lower = mbr_b.lower(dim);
+      auto upper = mbr_b.upper(dim);
+      auto extent = upper - lower;
+      min_extent = std::min(min_extent, extent);
+      max_extent = std::max(max_extent, extent);
+      volume *= extent;
+    }
+
+    auto density = points_b.size() / volume;
+
+    LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub << " min extent "
+              << min_extent << " max extent " << max_extent;
 
     in_queue_.Init(n_points_a);
     out_queue_.Init(n_points_a);
@@ -261,35 +533,28 @@ class HausdorffDistanceRT {
     far_queue_.Init(n_points_a);
     in_queue_.Clear(stream.cuda_stream());
     out_queue_.Clear(stream.cuda_stream());
-    grid_.Clear(stream);
-    grid_.set_mbr(union_mbr);
 
+    int grid_size = config_.max_grid_size;
+    float radius;
 
-#if 0
-    {
-      aabbs_.resize(points_b.size());
-      thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
-                        points_b.begin(), points_b.end(), aabbs_.begin(),
-                        [=] __device__(const point_t& p) {
-                          return details::GetOptixAABB(p, radius);
-                        });
-      stream.Sync();
-      Stopwatch sw;
-      sw.start();
-      grid_.Insert(stream, aabbs_);
-      stream.Sync();
-      sw.stop();
-      LOG(INFO) << "Grid insert time: " << sw.ms();
+    if (config_.auto_grid) {
+      grid_size = CalculateBestGridSize(stream, points_a, points_b, union_mbr,
+                                        mbr_b, radius);
+    } else {
+      if (hd_lb > 0) {
+        radius = hd_lb;
+      } else {
+        radius = hd_ub / 100;
+      }
     }
-#else
+
+    LOG(INFO) << "Grid " << grid_size << " radius " << radius;
+
+    grid_.Init(grid_size, union_mbr);
+    grid_.Clear(stream);
     grid_.Insert(stream, points_b);
-#endif
-
-    auto d_in_queue = in_queue_.DeviceObject();
     auto d_grid = grid_.DeviceObject();
-
-    // TODO: Use radius to infer grid resolution, min(mbr[:]) / radius
-
+    auto d_in_queue = in_queue_.DeviceObject();
 
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
                      thrust::make_counting_iterator<uint32_t>(0),
@@ -313,8 +578,6 @@ class HausdorffDistanceRT {
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
-    Stopwatch sw;
-
     while (in_size > 0) {
       iter++;
       iter_hits.set(stream.cuda_stream(), 0);
@@ -327,11 +590,12 @@ class HausdorffDistanceRT {
       auto d_near_queue = near_queue_.DeviceObject();
       auto d_far_queue = far_queue_.DeviceObject();
       auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
+
       thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
                        in_queue_.data(), in_queue_.data() + in_size,
                        [=] __device__(uint32_t point_id) mutable {
                          const auto& p = p_points_a[point_id];
-                         auto& cell = d_grid.Query(p);
+                         const auto& cell = d_grid.Query(p);
 
                          if (cell.n_primitives == 0) {  // far
                            d_far_queue.Append(point_id);
@@ -344,22 +608,28 @@ class HausdorffDistanceRT {
       auto far_size = far_queue_.size(stream.cuda_stream());
       sw.stop();
 
-      VLOG(1) << "Near " << near_size << ", Rate "
-              << (float) near_size / in_size << ", Far " << far_size
-              << ", Rate " << (float) far_size / in_size << ", Time "
-              << sw.ms();
+      VLOG(1) << "Near Rate " << (float) near_size / in_size << ", Far Rate "
+              << (float) far_size / in_size;
 
       if (far_size > 0) {
         sw.start();
-        CalculateHausdorffDistanceGPU(
-            stream, points_a, points_b,
-            ArrayView<uint32_t>(far_queue_.data(), far_size));
+        CalculateHDEarlyBreak(stream, points_a, points_b,
+                              ArrayView<uint32_t>(far_queue_.data(), far_size));
         stream.Sync();
         sw.stop();
         LOG(INFO) << "EB Time " << sw.ms();
       }
 
       if (near_size > 0) {
+        // Estimate Hits
+        COORD_T primitive_volume = 1;
+
+        for (int dim = 0; dim < N_DIMS; dim++) {
+          primitive_volume *= radius;
+        }
+
+        auto estimated_hits = near_size * density * primitive_volume;
+
         details::LaunchParamsNN<COORD_T, N_DIMS> params;
 
         skip_count.set(stream.cuda_stream(), 0);
@@ -420,7 +690,8 @@ class HausdorffDistanceRT {
                 << std::setprecision(8) << " cmax2: " << cmax2
                 << " cmax: " << cmax << " near_size: " << near_size
                 << " out_size: " << out_queue_.size(stream.cuda_stream())
-                << " Iter hits " << n_hits << " Iter compared pairs " << n_pairs
+                << " Iter hits " << n_hits << " Estimated hits "
+                << estimated_hits << " Iter compared pairs " << n_pairs
                 << " Avg hits " << (float) n_hits / near_size << " Skip idx: "
                 << (float) skip_total_idx.get(stream.cuda_stream()) /
                        skip_count.get(stream.cuda_stream())
@@ -462,7 +733,6 @@ class HausdorffDistanceRT {
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
     COORD_T radius = hd_lb;
-    // CHECK_GT(hd_lb, 0);
 
     if (radius == 0) {
       radius = hd_ub / 100;
@@ -474,6 +744,8 @@ class HausdorffDistanceRT {
     LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub;
 
     auto union_mbr = mbr_a;
+    COORD_T min_extent = std::numeric_limits<COORD_T>::max();
+    COORD_T max_extent = 0;
     union_mbr.Expand(mbr_b);
 
     for (int dim = 0; dim < N_DIMS; dim++) {
@@ -481,9 +753,12 @@ class HausdorffDistanceRT {
       auto upper = union_mbr.upper(dim) + max_radius;
       union_mbr.set_lower(dim, lower);
       union_mbr.set_upper(dim, upper);
+      min_extent = std::min(min_extent, upper - lower);
+      max_extent = std::max(max_extent, upper - lower);
     };
 
     in_queue_.Init(n_points_a);
+    near_queue_.Init(n_points_a);
     out_queue_.Init(n_points_a);
     in_queue_.Clear(stream.cuda_stream());
     out_queue_.Clear(stream.cuda_stream());
@@ -838,18 +1113,23 @@ class HausdorffDistanceRT {
                                         0, config_.fast_build, config_.compact);
   }
 
-  void CalculateHausdorffDistanceGPU(const Stream& stream,
-                                     thrust::device_vector<point_t>& points_a,
-                                     thrust::device_vector<point_t>& points_b,
-                                     ArrayView<uint32_t> v_point_ids_a) {
+  uint32_t CalculateHDEarlyBreak(
+      const Stream& stream, const thrust::device_vector<point_t>& points_a,
+      const thrust::device_vector<point_t>& points_b,
+      ArrayView<uint32_t> v_point_ids_a = ArrayView<uint32_t>()) {
     auto* p_cmax2 = cmax2_.data();
     ArrayView<point_t> v_points_a(points_a);
     ArrayView<point_t> v_points_b(points_b);
-
     SharedValue<uint32_t> compared_pairs;
     auto* p_compared_pairs = compared_pairs.data();
 
     compared_pairs.set(stream.cuda_stream(), 0);
+
+    uint32_t n_points_a = v_point_ids_a.size();
+
+    if (n_points_a == 0) {
+      n_points_a = points_a.size();
+    }
 
     LaunchKernel(stream, [=] __device__() {
       using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
@@ -857,15 +1137,21 @@ class HausdorffDistanceRT {
       __shared__ bool early_break;
       __shared__ point_t point_a;
 
-      for (auto i = blockIdx.x; i < v_point_ids_a.size(); i += gridDim.x) {
+      for (auto i = blockIdx.x; i < n_points_a; i += gridDim.x) {
         auto size_b_roundup =
             div_round_up(v_points_b.size(), blockDim.x) * blockDim.x;
         coord_t cmin = std::numeric_limits<coord_t>::max();
         uint32_t n_pairs = 0;
 
-        early_break = false;
-        auto point_id_s = v_point_ids_a[i];
-        point_a = v_points_a[point_id_s];
+        if (threadIdx.x == 0) {
+          early_break = false;
+          if (v_point_ids_a.empty()) {
+            point_a = v_points_a[i];
+          } else {
+            auto point_id_s = v_point_ids_a[i];
+            point_a = v_points_a[point_id_s];
+          }
+        }
         __syncthreads();
 
         for (auto j = threadIdx.x; j < size_b_roundup && !early_break;
@@ -895,9 +1181,13 @@ class HausdorffDistanceRT {
       }
     });
 
-    LOG(INFO) << "EB Compared Pairs: "
-              << compared_pairs.get(stream.cuda_stream()) << " cmax2 "
+    auto n_compared_pairs = compared_pairs.get(stream.cuda_stream());
+    auto coefficient = n_compared_pairs / points_b.size();
+
+    LOG(INFO) << "EB Compared Pairs: " << n_compared_pairs
+              << " coefficient to B " << coefficient << " cmax2 "
               << cmax2_.get(stream.cuda_stream());
+    return n_compared_pairs;
   }
 
  private:
@@ -914,6 +1204,7 @@ class HausdorffDistanceRT {
   details::RTEngine rt_engine_;
   SharedValue<COORD_T> cmax2_;
   Grid<COORD_T, N_DIMS> grid_;
+  Sampler sampler_;
   // near-far
   Queue<uint32_t> near_queue_, far_queue_;
 };

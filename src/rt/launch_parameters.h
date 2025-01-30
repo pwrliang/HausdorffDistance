@@ -61,6 +61,11 @@ struct LaunchParamsCull {
   COORD_T radius;
 };
 
+struct LaunchParamsPlay {
+  ArrayView<float3> points;
+  OptixTraversableHandle handle;
+};
+
 }  // namespace details
 
 }  // namespace hd
