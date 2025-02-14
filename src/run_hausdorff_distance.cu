@@ -36,16 +36,16 @@ void RunHausdorffDistance(const RunConfig& config) {
   double dist = -1;
 
   if (config.is_double) {
-    // if (config.n_dims == 2) {
-    //   dist = RunHausdorffDistanceImpl<double, 2>(config);
-    // } else if (config.n_dims == 3) {
-    //   dist = RunHausdorffDistanceImpl<double, 3>(config);
-    // }
+    if (config.n_dims == 2) {
+      dist = RunHausdorffDistanceImpl<double, 2>(config);
+    } else if (config.n_dims == 3) {
+      dist = RunHausdorffDistanceImpl<double, 3>(config);
+    }
   } else {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      // dist = RunHausdorffDistanceImpl<float, 3>(config);
+      dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
@@ -137,21 +137,20 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::kRT: {
-      dist = hdist_rt.CalculateDistanceGrid(stream, d_points_a, d_points_b);
+      // dist = hdist_rt.CalculateDistanceGrid(stream, d_points_a, d_points_b);
       // dist = hdist_rt.CalculateDistanceRandom(stream, d_points_a, d_points_b,
-                                              // config.ray_multicast);
-      // if (config.nf) {
-      //   dist =
-      //       hdist_rt.CalculateDistanceNearFar(stream, d_points_a,
-      //       d_points_b);
-      // } else {
-      //   if (config.ray_multicast == 1) {
-      //     dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
-      //   } else {
-      //     dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
-      //                                       config.ray_multicast);
-      //   }
-      // }
+      // config.ray_multicast);
+      if (config.nf) {
+        dist =
+            hdist_rt.CalculateDistanceNearFar(stream, d_points_a, d_points_b);
+      } else {
+        if (config.ray_multicast == 1) {
+          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+        } else {
+          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
+                                            config.ray_multicast);
+        }
+      }
       break;
     }
     case Variant::kBRANCH_BOUND: {

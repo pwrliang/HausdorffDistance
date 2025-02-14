@@ -232,7 +232,6 @@ class HausdorffDistanceRT {
     config_ = hd_config;
     auto rt_config = details::get_default_rt_config(hd_config.ptx_root);
     rt_engine_.Init(rt_config);
-    grid_ = Grid<COORD_T, N_DIMS>(config_.max_grid_size);
     sampler_.Init(hd_config.max_samples);
   }
 
@@ -425,7 +424,7 @@ class HausdorffDistanceRT {
       auto d_near_queue = near_queue_.DeviceObject();
       auto d_far_queue = far_queue_.DeviceObject();
       auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
-
+      grid_ = Grid<COORD_T, N_DIMS>(config_.max_grid_size);
       grid_.Init(grid_size, mbr);
       grid_.Clear(stream);
       grid_.Insert(stream, samples_b);
@@ -439,9 +438,9 @@ class HausdorffDistanceRT {
                        samples_a.begin(), samples_a.end(),
                        [=] __device__(uint32_t point_id) mutable {
                          const auto& p = p_points_a[point_id];
-                         const auto& cell = d_grid.Query(p);
+                         auto n_primitives = d_grid.Query(p);
 
-                         if (cell.n_primitives == 0) {  // far
+                         if (n_primitives == 0) {  // far
                            d_far_queue.Append(point_id);
                          } else {  // near
                            d_near_queue.Append(point_id);
@@ -574,6 +573,7 @@ class HausdorffDistanceRT {
     LOG(INFO) << "Grid " << grid_size << " radius " << radius
               << " min cell size " << min_cell_size;
 
+    grid_ = Grid<COORD_T, N_DIMS>(config_.max_grid_size);
     grid_.Init(grid_size, union_mbr);
     grid_.Clear(stream);
     grid_.Insert(stream, points_b);
@@ -619,9 +619,9 @@ class HausdorffDistanceRT {
                        in_queue_.data(), in_queue_.data() + in_size,
                        [=] __device__(uint32_t point_id) mutable {
                          const auto& p = p_points_a[point_id];
-                         const auto& cell = d_grid.Query(p);
+                         auto n_primitives = d_grid.Query(p);
 
-                         if (cell.n_primitives == 0) {  // far
+                         if (n_primitives == 0) {  // far
                            d_far_queue.Append(point_id);
                          } else {  // near
                            d_near_queue.Append(point_id);
@@ -941,6 +941,7 @@ class HausdorffDistanceRT {
       max_extent = std::max(max_extent, upper - lower);
     }
 
+    grid_ = Grid<COORD_T, N_DIMS>(config_.max_grid_size);
     grid_.Init(config_.max_grid_size, union_mbr);
     grid_.Clear(stream);
     // grid_.Insert(stream, points_a, false);
