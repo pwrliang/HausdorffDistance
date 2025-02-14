@@ -30,20 +30,29 @@
 
 namespace hd {
 namespace details {
+enum class ModuleType {
+  kCUSTOM,
+  kSPHERE,
+};
+
 enum ModuleIdentifier {
   MODULE_ID_PLAY,
   MODULE_ID_FLOAT_NN_2D,
   MODULE_ID_DOUBLE_NN_2D,
   MODULE_ID_FLOAT_NN_3D,
   MODULE_ID_DOUBLE_NN_3D,
+  MODULE_ID_FLOAT_NN_GRID_2D,
+  MODULE_ID_DOUBLE_NN_GRID_2D,
   MODULE_ID_FLOAT_NN_MULTICAST_2D,
   MODULE_ID_DOUBLE_NN_MULTICAST_2D,
   MODULE_ID_FLOAT_NN_MULTICAST_3D,
   MODULE_ID_DOUBLE_NN_MULTICAST_3D,
-  MODULE_ID_FLOAT_CULL_2D,
-  MODULE_ID_DOUBLE_CULL_2D,
-  MODULE_ID_FLOAT_CULL_3D,
-  MODULE_ID_DOUBLE_CULL_3D,
+  MODULE_ID_FLOAT_NN_RANDOMCAST_2D,
+  MODULE_ID_DOUBLE_NN_RANDOMCAST_2D,
+  MODULE_ID_FLOAT_SPHERE_2D,
+  MODULE_ID_DOUBLE_SPHERE_2D,
+  MODULE_ID_FLOAT_SPHERE_3D,
+  MODULE_ID_DOUBLE_SPHERE_3D,
   NUM_MODULE_IDENTIFIERS
 };
 
@@ -54,8 +63,12 @@ class Module {
  public:
   Module() : enabled_module_(0), n_payload_(0), n_attribute_(0) {}
 
-  explicit Module(ModuleIdentifier id)
-      : id_(id), enabled_module_(0), n_payload_(0), n_attribute_(0) {}
+  explicit Module(ModuleIdentifier id, ModuleType type)
+      : id_(id),
+        type_(type),
+        enabled_module_(0),
+        n_payload_(0),
+        n_attribute_(0) {}
 
   void EnableMiss() { enabled_module_ |= MODULE_ENABLE_MISS; }
 
@@ -77,6 +90,12 @@ class Module {
 
   void set_id(ModuleIdentifier id) { id_ = id; }
 
+  ModuleIdentifier get_id() const { return id_; }
+
+  void set_type(ModuleType type) { type_ = type; }
+
+  ModuleType get_type() const { return type_; }
+
   void set_program_path(const std::string& program_path) {
     program_path_ = program_path;
   }
@@ -95,10 +114,9 @@ class Module {
 
   int get_n_attribute() const { return n_attribute_; }
 
-  ModuleIdentifier get_id() const { return id_; }
-
  private:
   ModuleIdentifier id_;
+  ModuleType type_;
   std::string program_path_;
   std::string function_suffix_;
   int enabled_module_;
@@ -138,11 +156,11 @@ struct RTConfig {
 
 inline RTConfig get_default_rt_config(const std::string& ptx_root) {
   RTConfig config;
-
   {
     Module mod;
 
     mod.set_id(ModuleIdentifier::MODULE_ID_PLAY);
+    mod.set_type(ModuleType::kCUSTOM);
     mod.set_program_path(ptx_root + "/float_shaders_play.ptx");
     mod.set_function_suffix("play");
     mod.EnableIsIntersection();
@@ -156,6 +174,7 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     Module mod;
 
     mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_2D);
+    mod.set_type(ModuleType::kCUSTOM);
     mod.set_program_path(ptx_root + "/float_shaders_nn_2d.ptx");
     mod.set_function_suffix("nn_2d");
     mod.EnableIsIntersection();
@@ -169,11 +188,11 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     config.AddModule(mod);
   }
 
-
   {
     Module mod;
 
     mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_3D);
+    mod.set_type(ModuleType::kCUSTOM);
     mod.set_program_path(ptx_root + "/float_shaders_nn_3d.ptx");
     mod.set_function_suffix("nn_3d");
     mod.EnableIsIntersection();
@@ -190,7 +209,25 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
   {
     Module mod;
 
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_GRID_2D);
+    mod.set_type(ModuleType::kCUSTOM);
+    mod.set_program_path(ptx_root + "/float_shaders_nn_grid_2d.ptx");
+    mod.set_function_suffix("nn_grid_2d");
+    mod.EnableClosestHit();
+    mod.set_n_payload(6);
+
+    config.AddModule(mod);
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_GRID_2D);
+    mod.set_program_path(ptx_root + "/double_shaders_nn_grid_2d.ptx");
+    config.AddModule(mod);
+  }
+
+  {
+    Module mod;
+
     mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_MULTICAST_2D);
+    mod.set_type(ModuleType::kCUSTOM);
     mod.set_program_path(ptx_root + "/float_shaders_nn_multicast_2d.ptx");
     mod.set_function_suffix("nn_multicast_2d");
     mod.EnableIsIntersection();
@@ -207,20 +244,20 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
   {
     Module mod;
 
-    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_CULL_2D);
-    mod.set_program_path(ptx_root + "/float_shaders_cull_2d.ptx");
-    mod.set_function_suffix("cull_2d");
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_RANDOMCAST_2D);
+    mod.set_type(ModuleType::kCUSTOM);
+    mod.set_program_path(ptx_root + "/float_shaders_nn_randomcast_2d.ptx");
+    mod.set_function_suffix("nn_randomcast_2d");
     mod.EnableIsIntersection();
     mod.EnableAnyHit();
-    mod.set_n_payload(2);
+    mod.set_n_payload(6);
 
     config.AddModule(mod);
 
-    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_CULL_2D);
-    mod.set_program_path(ptx_root + "/double_shaders_cull_2d.ptx");
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_RANDOMCAST_2D);
+    mod.set_program_path(ptx_root + "/double_shaders_nn_randomcast_2d.ptx");
     config.AddModule(mod);
   }
-
 #ifndef NDEBUG
   config.opt_level = OPTIX_COMPILE_OPTIMIZATION_LEVEL_0;
   config.dbg_level = OPTIX_COMPILE_DEBUG_LEVEL_FULL;
@@ -345,6 +382,15 @@ class RTEngine {
                                buf_offset, prefer_fast_build);
   }
 
+  OptixTraversableHandle BuildAccelSphere(cudaStream_t cuda_stream,
+                                          ArrayView<float3> vertices,
+                                          ArrayView<float> radii,
+                                          ReusableBuffer& buf,
+                                          bool prefer_fast_build = false) {
+    return buildAccel(cuda_stream, vertices, radii, buf, prefer_fast_build,
+                      false);
+  }
+
   void Render(cudaStream_t cuda_stream, ModuleIdentifier mod, dim3 dim) {
     void* launch_params = thrust::raw_pointer_cast(launch_params_.data());
 
@@ -412,6 +458,189 @@ class RTEngine {
            blas_buffer_sizes.tempSizeInBytes;
   }
 
+  size_t EstimateMemoryUsageForSphere(size_t num_vertices, size_t num_radii,
+                                      bool prefer_fast_build, bool compact) {
+    OptixBuildInput build_input = {};
+    uint32_t build_input_flags[1] = {OPTIX_GEOMETRY_FLAG_NONE};
+
+    build_input.type = OPTIX_BUILD_INPUT_TYPE_SPHERES;
+    build_input.sphereArray.vertexBuffers = nullptr;
+    build_input.sphereArray.vertexStrideInBytes = 0;
+    build_input.sphereArray.numVertices = num_vertices;
+    build_input.sphereArray.radiusBuffers = nullptr;
+    build_input.sphereArray.radiusStrideInBytes = 0;
+    build_input.sphereArray.singleRadius = num_vertices > 1 && num_radii == 1;
+    build_input.sphereArray.flags = build_input_flags;
+    build_input.sphereArray.numSbtRecords = 1;
+    build_input.sphereArray.sbtIndexOffsetBuffer = 0;
+    build_input.sphereArray.sbtIndexOffsetSizeInBytes = sizeof(uint32_t);
+    build_input.sphereArray.sbtIndexOffsetStrideInBytes = 0;
+    build_input.sphereArray.primitiveIndexOffset = 0;
+
+    OptixAccelBuildOptions accelOptions = {};
+    accelOptions.buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE;
+    if (prefer_fast_build) {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
+    } else {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
+    }
+    if (compact) {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
+    }
+    accelOptions.motionOptions.numKeys = 1;
+    accelOptions.operation = OPTIX_BUILD_OPERATION_BUILD;
+
+    OptixAccelBufferSizes blas_buffer_sizes;
+    OPTIX_CHECK(optixAccelComputeMemoryUsage(optix_context_, &accelOptions,
+                                             &build_input,
+                                             1,  // num_build_inputs
+                                             &blas_buffer_sizes));
+    return blas_buffer_sizes.outputSizeInBytes +
+           blas_buffer_sizes.tempSizeInBytes;
+  }
+
+  size_t EstimateMemoryUsageForTriangles(size_t num_vertices,
+                                         size_t num_indices,
+                                         bool prefer_fast_build, bool compact) {
+    OptixBuildInput build_input = {};
+    uint32_t build_input_flags[1] = {OPTIX_GEOMETRY_FLAG_NONE};
+
+    build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+    build_input.triangleArray.vertexBuffers = NULL;
+    build_input.triangleArray.numVertices = num_vertices;
+    build_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
+    build_input.triangleArray.vertexStrideInBytes = 0;
+    build_input.triangleArray.indexBuffer = 0;
+    build_input.triangleArray.numIndexTriplets = num_indices;
+    build_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+    build_input.triangleArray.indexStrideInBytes = 0;
+    build_input.triangleArray.preTransform = 0;
+    build_input.triangleArray.flags = build_input_flags;
+    build_input.triangleArray.numSbtRecords = 1;
+    build_input.triangleArray.sbtIndexOffsetBuffer = 0;
+    build_input.triangleArray.primitiveIndexOffset = 0;
+
+    OptixAccelBuildOptions accelOptions = {};
+    accelOptions.buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE;
+    if (prefer_fast_build) {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
+    } else {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
+    }
+    if (compact) {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
+    }
+    accelOptions.motionOptions.numKeys = 1;
+    accelOptions.operation = OPTIX_BUILD_OPERATION_BUILD;
+
+    OptixAccelBufferSizes blas_buffer_sizes;
+    OPTIX_CHECK(optixAccelComputeMemoryUsage(optix_context_, &accelOptions,
+                                             &build_input,
+                                             1,  // num_build_inputs
+                                             &blas_buffer_sizes));
+    return blas_buffer_sizes.outputSizeInBytes +
+           blas_buffer_sizes.tempSizeInBytes;
+  }
+
+  OptixTraversableHandle BuildAccelTriangles(cudaStream_t cuda_stream,
+                                             ArrayView<float3> vertices,
+                                             ArrayView<uint3> indices,
+                                             ReusableBuffer& buf,
+                                             bool prefer_fast_build,
+                                             bool compact = false) {
+    OptixTraversableHandle traversable;
+    OptixBuildInput build_input = {};
+    CUdeviceptr d_vertex_buffer = THRUST_TO_CUPTR(vertices.data());
+    CUdeviceptr d_indices_buffer = THRUST_TO_CUPTR(indices.data());
+    // Setup AABB build input. Don't disable AH.
+    uint32_t build_input_flags[1] = {
+        OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT |
+        OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL};
+
+    build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+    build_input.triangleArray.vertexBuffers = &d_vertex_buffer;
+    build_input.triangleArray.numVertices = vertices.size();
+    build_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
+    build_input.triangleArray.vertexStrideInBytes = 0;
+    build_input.triangleArray.indexBuffer = d_indices_buffer;
+    build_input.triangleArray.numIndexTriplets = indices.size();
+    build_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+    build_input.triangleArray.indexStrideInBytes = 0;
+    build_input.triangleArray.preTransform = 0;
+    build_input.triangleArray.flags = build_input_flags;
+    build_input.triangleArray.numSbtRecords = 1;
+    build_input.triangleArray.sbtIndexOffsetBuffer = 0;
+    build_input.triangleArray.primitiveIndexOffset = 0;
+
+    OptixAccelBuildOptions accelOptions = {};
+    accelOptions.buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE;
+
+    if (prefer_fast_build) {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
+    } else {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
+    }
+    if (compact) {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
+    }
+
+    accelOptions.motionOptions.numKeys = 1;
+    accelOptions.operation = OPTIX_BUILD_OPERATION_BUILD;
+
+    OptixAccelBufferSizes blas_buffer_sizes;
+    OPTIX_CHECK(optixAccelComputeMemoryUsage(optix_context_, &accelOptions,
+                                             &build_input,
+                                             1,  // num_build_inputs
+                                             &blas_buffer_sizes));
+
+    // Alignment
+    buf.Acquire(getAccelAlignedSize(buf.GetTail()) - buf.GetTail());
+
+    OptixAccelEmitDesc emitDesc;
+    emitDesc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
+    emitDesc.result = reinterpret_cast<CUdeviceptr>(compacted_size_.data());
+
+    if (compact) {
+      // Layout: |Out Buf|Temp Buf|Compact Buf|
+      char* compressed_buf = buf.Acquire(blas_buffer_sizes.outputSizeInBytes);
+      char* out_buf = buf.Acquire(blas_buffer_sizes.outputSizeInBytes);
+      char* temp_buf = buf.Acquire(blas_buffer_sizes.tempSizeInBytes);
+
+      OPTIX_CHECK(optixAccelBuild(
+          optix_context_, cuda_stream, &accelOptions, &build_input, 1,
+          reinterpret_cast<CUdeviceptr>(temp_buf),
+          blas_buffer_sizes.tempSizeInBytes,
+          reinterpret_cast<CUdeviceptr>(out_buf),
+          blas_buffer_sizes.outputSizeInBytes, &traversable, &emitDesc, 1));
+
+      auto compacted_size = compacted_size_.get(cuda_stream);
+
+      OPTIX_CHECK(
+          optixAccelCompact(optix_context_, cuda_stream, traversable,
+                            reinterpret_cast<CUdeviceptr>(compressed_buf),
+                            compacted_size, &traversable));
+
+      buf.Release(blas_buffer_sizes.outputSizeInBytes +
+                  blas_buffer_sizes.tempSizeInBytes);
+    } else {
+      char* out_buf = buf.Acquire(blas_buffer_sizes.outputSizeInBytes);
+      auto tail = buf.GetTail();
+      buf.Acquire(getAccelAlignedSize(buf.GetTail()) - buf.GetTail());
+      char* temp_buf = buf.Acquire(blas_buffer_sizes.tempSizeInBytes);
+
+      OPTIX_CHECK(optixAccelBuild(
+          optix_context_, cuda_stream, &accelOptions, &build_input, 1,
+          reinterpret_cast<CUdeviceptr>(temp_buf),
+          blas_buffer_sizes.tempSizeInBytes,
+          reinterpret_cast<CUdeviceptr>(out_buf),
+          blas_buffer_sizes.outputSizeInBytes, &traversable, nullptr, 0));
+
+      buf.SetTail(tail);
+    }
+
+    return traversable;
+  }
+
  private:
   void initOptix(const RTConfig& config) {
     // https://stackoverflow.com/questions/10415204/how-to-create-a-cuda-context
@@ -461,10 +690,12 @@ class RTEngine {
     pipeline_compile_options_.resize(ModuleIdentifier::NUM_MODULE_IDENTIFIERS);
 
     pipeline_link_options_.maxTraceDepth = config.max_trace_depth;
-
     modules_.resize(ModuleIdentifier::NUM_MODULE_IDENTIFIERS);
+    module_sphere_ = nullptr;
 
     for (auto& pair : config.modules) {
+      auto& module = config.modules.at(pair.first);
+
       std::vector<char> programData = readData(pair.second.get_program_path());
       auto& pipeline_compile_options = pipeline_compile_options_[pair.first];
 
@@ -480,15 +711,30 @@ class RTEngine {
       pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
       pipeline_compile_options.pipelineLaunchParamsVariableName =
           RTSPATIAL_OPTIX_LAUNCH_PARAMS_NAME;
-      //    pipeline_compile_options.usesPrimitiveTypeFlags =
-      //        OPTIX_PRIMITIVE_TYPE_CUSTOM | OPTIX_PRIMITIVE_TYPE_SPHERE;
 
+      pipeline_compile_options.usesPrimitiveTypeFlags =
+          OPTIX_PRIMITIVE_TYPE_FLAGS_CUSTOM;
+      if (module.get_type() == ModuleType::kSPHERE) {
+        pipeline_compile_options.usesPrimitiveTypeFlags |=
+            OPTIX_PRIMITIVE_TYPE_FLAGS_SPHERE;
+      }
       char log[2048];
       size_t sizeof_log = sizeof(log);
       OPTIX_CHECK(optixModuleCreate(optix_context_, &module_compile_options_,
                                     &pipeline_compile_options,
                                     programData.data(), programData.size(), log,
                                     &sizeof_log, &modules_[pair.first]));
+
+      if (module.get_type() == ModuleType::kSPHERE &&
+          module_sphere_ == nullptr) {
+        OptixBuiltinISOptions builtinISOptions = {};
+        builtinISOptions.builtinISModuleType = OPTIX_PRIMITIVE_TYPE_SPHERE;
+        builtinISOptions.usesMotionBlur = false;
+
+        OPTIX_CHECK(optixBuiltinISModuleGet(
+            optix_context_, &module_compile_options_, &pipeline_compile_options,
+            &builtinISOptions, &module_sphere_));
+      }
 #ifndef NDEBUG
       if (sizeof_log > 1) {
         std::cout << log << std::endl;
@@ -578,9 +824,14 @@ class RTEngine {
       pg_desc.hitgroup.moduleCH = nullptr;
       pg_desc.hitgroup.entryFunctionNameCH = nullptr;
 
-      if (conf_mod.IsIsIntersectionEnabled()) {
-        pg_desc.hitgroup.moduleIS = modules_[pair.first];
-        pg_desc.hitgroup.entryFunctionNameIS = f_name_intersect.c_str();
+      if (pair.second.get_type() == ModuleType::kCUSTOM) {
+        if (conf_mod.IsIsIntersectionEnabled()) {
+          pg_desc.hitgroup.moduleIS = modules_[pair.first];
+          pg_desc.hitgroup.entryFunctionNameIS = f_name_intersect.c_str();
+        }
+      } else if (pair.second.get_type() == ModuleType::kSPHERE) {
+        pg_desc.hitgroup.moduleIS = module_sphere_;
+        pg_desc.hitgroup.entryFunctionNameIS = nullptr;  // builtin IS
       }
 
       if (conf_mod.IsAnyHitEnable()) {
@@ -1013,6 +1264,102 @@ class RTEngine {
     return traversable;
   }
 
+  OptixTraversableHandle buildAccel(cudaStream_t cuda_stream,
+                                    ArrayView<float3> vertices,
+                                    ArrayView<float> radii, ReusableBuffer& buf,
+                                    bool prefer_fast_build,
+                                    bool compact = false) {
+    OptixTraversableHandle traversable;
+    OptixBuildInput build_input = {};
+    CUdeviceptr d_vertex_buffer = THRUST_TO_CUPTR(vertices.data());
+    CUdeviceptr d_radius_buffer = THRUST_TO_CUPTR(radii.data());
+    // Setup AABB build input. Don't disable AH.
+    uint32_t build_input_flags[1] = {OPTIX_GEOMETRY_FLAG_NONE};
+
+    build_input.type = OPTIX_BUILD_INPUT_TYPE_SPHERES;
+    build_input.sphereArray.vertexBuffers = &d_vertex_buffer;
+    build_input.sphereArray.vertexStrideInBytes = 0;
+    build_input.sphereArray.numVertices = vertices.size();
+    build_input.sphereArray.radiusBuffers = &d_radius_buffer;
+    build_input.sphereArray.radiusStrideInBytes = 0;
+    build_input.sphereArray.singleRadius =
+        vertices.size() > 1 && radii.size() == 1;
+    build_input.sphereArray.flags = build_input_flags;
+    build_input.sphereArray.numSbtRecords = 1;
+    build_input.sphereArray.sbtIndexOffsetBuffer = 0;
+    build_input.sphereArray.sbtIndexOffsetSizeInBytes = sizeof(uint32_t);
+    build_input.sphereArray.sbtIndexOffsetStrideInBytes = 0;
+    build_input.sphereArray.primitiveIndexOffset = 0;
+
+    OptixAccelBuildOptions accelOptions = {};
+    accelOptions.buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE;
+
+    if (prefer_fast_build) {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
+    } else {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
+    }
+    if (compact) {
+      accelOptions.buildFlags |= OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
+    }
+
+    accelOptions.motionOptions.numKeys = 1;
+    accelOptions.operation = OPTIX_BUILD_OPERATION_BUILD;
+
+    OptixAccelBufferSizes blas_buffer_sizes;
+    OPTIX_CHECK(optixAccelComputeMemoryUsage(optix_context_, &accelOptions,
+                                             &build_input,
+                                             1,  // num_build_inputs
+                                             &blas_buffer_sizes));
+
+    // Alignment
+    buf.Acquire(getAccelAlignedSize(buf.GetTail()) - buf.GetTail());
+
+    OptixAccelEmitDesc emitDesc;
+    emitDesc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
+    emitDesc.result = reinterpret_cast<CUdeviceptr>(compacted_size_.data());
+
+    if (compact) {
+      // Layout: |Out Buf|Temp Buf|Compact Buf|
+      char* compressed_buf = buf.Acquire(blas_buffer_sizes.outputSizeInBytes);
+      char* out_buf = buf.Acquire(blas_buffer_sizes.outputSizeInBytes);
+      char* temp_buf = buf.Acquire(blas_buffer_sizes.tempSizeInBytes);
+
+      OPTIX_CHECK(optixAccelBuild(
+          optix_context_, cuda_stream, &accelOptions, &build_input, 1,
+          reinterpret_cast<CUdeviceptr>(temp_buf),
+          blas_buffer_sizes.tempSizeInBytes,
+          reinterpret_cast<CUdeviceptr>(out_buf),
+          blas_buffer_sizes.outputSizeInBytes, &traversable, &emitDesc, 1));
+
+      auto compacted_size = compacted_size_.get(cuda_stream);
+
+      OPTIX_CHECK(
+          optixAccelCompact(optix_context_, cuda_stream, traversable,
+                            reinterpret_cast<CUdeviceptr>(compressed_buf),
+                            compacted_size, &traversable));
+
+      buf.Release(blas_buffer_sizes.outputSizeInBytes +
+                  blas_buffer_sizes.tempSizeInBytes);
+    } else {
+      char* out_buf = buf.Acquire(blas_buffer_sizes.outputSizeInBytes);
+      auto tail = buf.GetTail();
+      buf.Acquire(getAccelAlignedSize(buf.GetTail()) - buf.GetTail());
+      char* temp_buf = buf.Acquire(blas_buffer_sizes.tempSizeInBytes);
+
+      OPTIX_CHECK(optixAccelBuild(
+          optix_context_, cuda_stream, &accelOptions, &build_input, 1,
+          reinterpret_cast<CUdeviceptr>(temp_buf),
+          blas_buffer_sizes.tempSizeInBytes,
+          reinterpret_cast<CUdeviceptr>(out_buf),
+          blas_buffer_sizes.outputSizeInBytes, &traversable, nullptr, 0));
+
+      buf.SetTail(tail);
+    }
+
+    return traversable;
+  }
+
   static size_t getAccelAlignedSize(size_t size) {
     if (size % OPTIX_ACCEL_BUFFER_BYTE_ALIGNMENT == 0) {
       return size;
@@ -1055,6 +1402,7 @@ class RTEngine {
 
   // modules that contains device program
   std::vector<OptixModule> modules_;
+  OptixModule module_sphere_;
   OptixModuleCompileOptions module_compile_options_ = {};
 
   std::vector<OptixPipeline> pipelines_;

@@ -3,13 +3,55 @@
 
 #include <utils/stream.h>
 
+#include "distance.h"
 #include "utils/derived_atomic_functions.h"
 #include "utils/shared_value.h"
-#include "utils/stream.h"
 #include "utils/type_traits.h"
 #include "utils/util.h"
 
 namespace hd {
+
+namespace details {
+
+template <typename COORD_T, int N_DIMS>
+struct CornerPointsGetter {
+  DEV_HOST_INLINE void operator()(
+      const typename cuda_vec<COORD_T, N_DIMS>::type& lower,
+      const typename cuda_vec<COORD_T, N_DIMS>::type& upper,
+      typename cuda_vec<COORD_T, N_DIMS>::type* corners) {}
+};
+
+template <typename COORD_T>
+struct CornerPointsGetter<COORD_T, 2> {
+  using point_t = typename cuda_vec<COORD_T, 2>::type;
+  static constexpr int N_CORNERS = 4;
+  DEV_HOST_INLINE void operator()(const point_t& lower, const point_t& upper,
+                                  point_t* corners) {
+    corners[0] = point_t{lower.x, lower.y};
+    corners[1] = point_t{lower.x, upper.y};
+    corners[2] = point_t{upper.x, lower.y};
+    corners[3] = point_t{upper.x, upper.y};
+  }
+};
+
+template <typename COORD_T>
+struct CornerPointsGetter<COORD_T, 3> {
+  using point_t = typename cuda_vec<COORD_T, 3>::type;
+  static constexpr int N_CORNERS = 8;
+  DEV_HOST_INLINE void operator()(const point_t& lower, const point_t& upper,
+                                  point_t* corners) {
+    corners[0] = point_t{lower.x, lower.y, lower.z};
+    corners[1] = point_t{lower.x, lower.y, upper.z};
+    corners[2] = point_t{lower.x, upper.y, lower.z};
+    corners[3] = point_t{lower.x, upper.y, upper.z};
+    corners[4] = point_t{upper.x, lower.y, lower.z};
+    corners[5] = point_t{upper.x, lower.y, upper.z};
+    corners[6] = point_t{upper.x, upper.y, lower.z};
+    corners[7] = point_t{upper.x, upper.y, upper.z};
+  }
+};
+}  // namespace details
+
 template <typename COORD_T, int N_DIMS>
 class Mbr {
  public:
@@ -48,6 +90,10 @@ class Mbr {
   DEV_HOST_INLINE COORD_T upper(int dim) const {
     assert(dim >= 0 && dim < N_DIMS);
     return reinterpret_cast<const COORD_T*>(&upper_.x)[dim];
+  }
+
+  DEV_HOST_INLINE COORD_T get_extent(int dim) const {
+    return upper(dim) - lower(dim);
   }
 
   DEV_HOST_INLINE void set_lower(int dim, COORD_T val) {
@@ -162,6 +208,21 @@ class Mbr {
     return dist2;
   }
 
+  DEV_HOST_INLINE COORD_T GetMaxDist2(const point_t& p) const {
+    using getter_t = details::CornerPointsGetter<COORD_T, N_DIMS>;
+    getter_t getter;
+    point_t corners[getter_t::N_CORNERS];
+
+    getter(lower_, upper_, corners);
+    COORD_T max_dist2 = 0;
+
+    for (int i = 0; i < getter_t::N_CORNERS; i++) {
+      auto dist2 = EuclideanDistance2(corners[i], p);
+      max_dist2 = std::max(max_dist2, dist2);
+    }
+    return max_dist2;
+  }
+
   DEV_HOST_INLINE COORD_T GetMaxDist2(const Mbr& other) const {
     COORD_T dist2 = 0;
 
@@ -179,6 +240,17 @@ class Mbr {
       dist2 += diff * diff;
     }
     return dist2;
+  }
+
+  DEV_HOST_INLINE point_t get_center() const {
+    point_t c;
+
+    for (uint32_t i = 0; i < N_DIMS; ++i) {
+      auto v_min = lower(i);
+      auto v_max = upper(i);
+      reinterpret_cast<COORD_T*>(&c.x)[i] = (v_min + v_max) / 2;
+    }
+    return c;
   }
 
  private:

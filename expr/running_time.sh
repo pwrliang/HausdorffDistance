@@ -104,17 +104,71 @@ function vary_datasets() {
   done
 }
 
-vary_dist "eb" "serial"
-vary_dist "eb" "parallel"
-vary_dist "eb" "gpu"
-vary_dist "zorder" "serial"
-vary_dist "rt" "gpu"
-vary_dist "nf" "gpu"
+function medical_image() {
+  variant=$1
+  execution=$2
+  dataset_root="/local/storage/liang/BraTS2020_TrainingData"
+  mapfile -t dataset_list < <(find "$dataset_root" -name '*t1.nii')
+  # Set a random seed
+  #    SEED=1234
+  # shuffled=($(printf "%s\n" "${dataset_list[@]}" | sort --random-source=<(echo "$SEED") | shuf))
+
+  for ((i = 1; i <= ${#dataset_list[@]} - 2; i += 2)); do
+    file1=${dataset_list[i]}
+    file2=${dataset_list[i + 1]}
+    name1=$(basename $file1)
+    name2=$(basename $file2)
+    log="${log_dir}/BraTS20/${variant}_${execution}_${name1}_${name2}.log"
+    if [[ $variant == "nf" ]]; then
+      real_variant="rt"
+      nf=true
+    else
+      real_variant=$variant
+      nf=false
+    fi
+
+    if [[ ! -f "${log}" ]]; then
+      echo "${log}" | xargs dirname | xargs mkdir -p
+
+      cmd="$PROG_ROOT/hd_exec \
+            -input1 $file1 \
+            -input2 $file2 \
+            -input_type image \
+            -n_dims 3 \
+            -serialize $SERIALIZE_ROOT \
+            -variant $real_variant \
+            -execution $execution \
+            -nf=$nf \
+            -v=1"
+
+      echo "$cmd" >"${log}.tmp"
+      eval "$cmd" 2>&1 | tee -a "${log}.tmp"
+
+      if grep -q "Running Time" "${log}.tmp"; then
+        mv "${log}.tmp" "${log}"
+      fi
+    fi
+  done
+}
+
+medical_image "eb" "parallel"
+medical_image "eb" "gpu"
+medical_image "zorder" "gpu"
+medical_image "rt" "gpu"
+medical_image "nf" "gpu"
+medical_image "itk" "serial"
+
+#vary_dist "eb" "serial"
+#vary_dist "eb" "parallel"
+#vary_dist "eb" "gpu"
+#vary_dist "zorder" "serial"
+#vary_dist "rt" "gpu"
+#vary_dist "nf" "gpu"
 
 #vary_datasets "eb" "serial"
 #vary_datasets "zorder" "serial"
 #vary_datasets "yuan" "serial"
 
-vary_datasets "eb" "gpu"
-vary_datasets "rt" "gpu"
-vary_datasets "nf" "gpu"
+#vary_datasets "eb" "gpu"
+#vary_datasets "rt" "gpu"
+#vary_datasets "nf" "gpu"

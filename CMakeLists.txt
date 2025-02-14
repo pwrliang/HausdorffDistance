@@ -105,6 +105,7 @@ FUNCTION(OPTIX_COMPILE_SHADERS OUTPUT_DIR GENERATED_FILES)
                 "--gpu-architecture=compute_${ENABLED_ARCHS}"
                 "--relocatable-device-code=true"
                 "--expt-relaxed-constexpr"
+                "--extended-lambda"
                 "-Wno-deprecated-gpu-targets"
                 "--fmad=false" # For consistency to the CPU results
                 "-I${OptiX_INCLUDE}"

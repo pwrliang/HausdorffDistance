@@ -24,4 +24,5 @@ DECLARE_int32(raymulticast);
 DECLARE_bool(nf);
 DECLARE_int32(grid);
 DECLARE_bool(auto_grid);
+DECLARE_int32(batch);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

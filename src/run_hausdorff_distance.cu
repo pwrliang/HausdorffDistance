@@ -1,7 +1,8 @@
+#include <optix_function_table_definition.h>  // for g_optixFunctionTable
+
 #include <algorithm>  // For std::shuffle
 #include <cstdio>
 #include <random>  // For random number generators
-#include <optix_function_table_definition.h>  // for g_optixFunctionTable
 
 #include "hausdorff_distance_cpu.h"
 #include "hausdorff_distance_gpu.h"
@@ -95,6 +96,8 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
   Stopwatch sw;
+  double loading_time_ms = 0;
+
   sw.start();
   for (int i = 0; i < config.repeat; i++) {
     switch (config.variant) {
@@ -134,17 +137,21 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::kRT: {
-      if (config.nf) {
-        dist =
-            hdist_rt.CalculateDistanceNearFar(stream, d_points_a, d_points_b);
-      } else {
-        if (config.ray_multicast == 1) {
-          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
-        } else {
-          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
-                                            config.ray_multicast);
-        }
-      }
+      dist = hdist_rt.CalculateDistanceGrid(stream, d_points_a, d_points_b);
+      // dist = hdist_rt.CalculateDistanceRandom(stream, d_points_a, d_points_b,
+                                              // config.ray_multicast);
+      // if (config.nf) {
+      //   dist =
+      //       hdist_rt.CalculateDistanceNearFar(stream, d_points_a,
+      //       d_points_b);
+      // } else {
+      //   if (config.ray_multicast == 1) {
+      //     dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+      //   } else {
+      //     dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
+      //                                       config.ray_multicast);
+      //   }
+      // }
       break;
     }
     case Variant::kBRANCH_BOUND: {
@@ -153,15 +160,19 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::kITK: {
+      double curr_loading_time = 0;
       dist = CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
-                                                   config.input_file2.c_str());
+                                                   config.input_file2.c_str(),
+                                                   curr_loading_time);
+      loading_time_ms += curr_loading_time;
       break;
     }
     }
-    sw.stop();
   }
+  sw.stop();
 
-  LOG(INFO) << "Running Time " << sw.ms() / config.repeat << " ms";
+  LOG(INFO) << "Running Time " << (sw.ms() - loading_time_ms) / config.repeat
+            << " ms";
 
   if (config.check) {
     auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);

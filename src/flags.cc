@@ -20,3 +20,4 @@ DEFINE_int32(raymulticast, 1, "Parallelism for casting rays (RT only)");
 DEFINE_bool(nf, false, "Use near-far optimization");
 DEFINE_int32(grid, 1024, "Grid size");
 DEFINE_bool(auto_grid, false, "Auto tune grid size");
+DEFINE_int32(batch, 1, "Number of batches");

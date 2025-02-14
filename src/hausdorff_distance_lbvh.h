@@ -157,7 +157,7 @@ Real best_first_hd(
 
   assert(tree_a.query_host_enabled() && tree_b.query_host_enabled());
   AABBToMbr<Real, N_DIMS> aabb_to_mbr;
-  std::priority_queue<PQElement<Real>> pq;
+  std::priority_queue<PQElement<Real>> pq; // max heap
   auto mbr_b = aabb_to_mbr(tree_b.aabbs_host()[0]);
 
   pq.push(PQElement<Real>(0, std::numeric_limits<Real>::max()));
@@ -170,6 +170,63 @@ Real best_first_hd(
   Stopwatch sw;
   double total_nn_time = 0;
 
+  while (!pq.empty()) {
+    PQElement<Real> e = pq.top();
+    index_type curr_node_idx = e.node;
+    printf("%.8f\n", e.dist);
+
+    pq.pop();
+    bool is_internal =
+        tree_a.nodes_host()[curr_node_idx].object_idx == 0xFFFFFFFF;
+
+    auto handle_child = [&](const index_type node_idx) {
+      const auto obj_idx = tree_a.nodes_host()[node_idx].object_idx;
+      Real dist2;
+      if (obj_idx != 0xFFFFFFFF) {  // leaf node
+        sw.start();
+        const auto& obj = tree_a.objects_host()[obj_idx];
+        auto nn = lbvh::query_host(
+            tree_b, lbvh::nearest(obj),
+            [&visited_point_pairs](const vector_type& a, const Objects& b) {
+              visited_point_pairs++;
+              return EuclideanDistance2(*reinterpret_cast<const Objects*>(&a.x),
+                                        b);
+            });
+        sw.stop();
+        total_nn_time += sw.ms();
+        dist2 = nn.second;
+        CHECK_LE(dist2, e.dist);
+        visited_leaves++;
+      } else {  // internal node
+        auto mbr = aabb_to_mbr(tree_a.aabbs_host()[node_idx]);
+        HdBounds<Real, N_DIMS> bounds(mbr);
+        dist2 = bounds.GetUpperBound2(mbr_b);
+        visited_nodes++;
+      }
+      pq.push(PQElement<Real>(node_idx, dist2));
+    };
+
+    if (is_internal) {
+      index_type children[2] = {tree_a.nodes_host()[curr_node_idx].left_idx,
+                                tree_a.nodes_host()[curr_node_idx].right_idx};
+      for (auto child : children) {
+        if (child < tree_a.nodes_host().size()) {
+          handle_child(child);
+        }
+        if (child < tree_a.nodes_host().size()) {
+          handle_child(child);
+        }
+      }
+    } else {
+      LOG(INFO) << "Visited Nodes " << visited_nodes << " Visited Leaves "
+                << visited_leaves << " Visited Point Pairs "
+                << visited_point_pairs << " Total NN time " << total_nn_time
+                << " ms";
+      return e.dist;
+    }
+  }
+
+#if 0
   while (!pq.empty()) {
     PQElement<Real> e = pq.top();
     index_type curr_node_idx = e.node;
@@ -242,6 +299,8 @@ Real best_first_hd(
       handle_child(R_idx);
     }
   }
+#endif
+
   // Should not be here
   return -1;
 }

@@ -5,12 +5,13 @@
 #include "itkImage.h"
 #include "itkImageFileReader.h"
 #include "itkImageFileWriter.h"
-
-
-
-
+#include "utils/stopwatch.h"
+namespace hd {
 template <int N_DIMS>
-double CalculateHausdorffDistanceITK(const char* input1, const char* input2) {
+double CalculateHausdorffDistanceITK(const char* input1, const char* input2,
+                                     double& loading_time_ms) {
+  Stopwatch sw;
+  sw.start();
   using PixelType = unsigned char;
   using ImageType = itk::Image<PixelType, 3>;
   using ReaderType = itk::ImageFileReader<ImageType>;
@@ -23,8 +24,16 @@ double CalculateHausdorffDistanceITK(const char* input1, const char* input2) {
   typename HausdorffFilterType::Pointer hausdorffFilter =
       HausdorffFilterType::New();
 
+  try {
+    sourceReader->Update();
+    targetReader->Update();
+  } catch (itk::ExceptionObject& err) {
+    std::cerr << "Error: " << err << std::endl;
+    return EXIT_FAILURE;
+  }
   hausdorffFilter->SetInput1(sourceReader->GetOutput());
   hausdorffFilter->SetInput2(targetReader->GetOutput());
+  sw.stop();
 
   try {
     hausdorffFilter->Update();
@@ -33,8 +42,10 @@ double CalculateHausdorffDistanceITK(const char* input1, const char* input2) {
     return EXIT_FAILURE;
   }
 
+  loading_time_ms = sw.ms();
   double distance = hausdorffFilter->GetDirectedHausdorffDistance();
   return distance;
 }
+}  // namespace hd
 
 #endif  // HAUSDORFF_DISTANCE_ITK_H
