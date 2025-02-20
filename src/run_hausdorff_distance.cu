@@ -72,7 +72,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   }
 
   if (config.move_offset != 0) {
-    MovePoints(points_a, points_b, config.move_offset);
+    MovePoints(points_a, points_b, config.move_offset, config.seed, config.distribution, config.bothSide);
   }
 
   COORD_T dist = -1;
@@ -172,6 +172,8 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
 
   LOG(INFO) << "Running Time " << (sw.ms() - loading_time_ms) / config.repeat
             << " ms";
+
+  printf("Time: %f ms\n",  (sw.ms() - loading_time_ms) / config.repeat);
 
   if (config.check) {
     auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);

@@ -31,6 +31,9 @@ struct RunConfig {
   bool nf;
   int grid_size;
   bool auto_grid;
+  int seed;
+  int distribution;
+  bool bothSide;
 };
 
 #endif  // HAUSDORFF_DISTANCE_RUN_CONFIG_H

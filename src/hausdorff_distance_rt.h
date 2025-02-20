@@ -738,6 +738,7 @@ class HausdorffDistanceRT {
   COORD_T CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) {
+    Stopwatch sw;
     auto n_points_a = points_a.size();
     auto n_points_b = points_b.size();
     const auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
@@ -758,16 +759,39 @@ class HausdorffDistanceRT {
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
-    COORD_T radius = hd_lb;
+    COORD_T radius;
 
-    if (radius == 0) {
-      radius = hd_ub / 100;
-    }
-
-    radius *= sqrt(N_DIMS);  // Refer RTNN Fig10c
     COORD_T max_radius = hd_ub;
+    cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
     LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub;
+		sw.start();
+		Queue<uint32_t> pre_queue_;
+		pre_queue_.Init(n_points_a);
+	  	pre_queue_.Clear(stream.cuda_stream());
+
+		int device;
+    	cudaGetDevice(&device);
+
+    	cudaDeviceProp prop;
+    	cudaGetDeviceProperties(&prop, device);
+
+		int presize = prop.multiProcessorCount;
+
+      	auto d_pre_queue = pre_queue_.DeviceObject();
+      	thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                        thrust::counting_iterator<uint32_t>(0), 
+                 		thrust::counting_iterator<uint32_t>(presize), 
+                 		[=] __device__(uint32_t point_id) mutable {
+                           d_pre_queue.Append(point_id);
+                 		}); 
+		
+    	CalculateHDEarlyBreak(stream, points_a, points_b,
+    	                      ArrayView<uint32_t>(pre_queue_.data(), pre_queue_.size(stream.cuda_stream())));
+    	stream.Sync();
+		radius = sqrt(cmax2_.get(stream.cuda_stream())/N_DIMS);
+    	sw.stop();
+    	LOG(INFO) << "Pre-HD Time: " << sw.ms() << " currentHD: " << sqrt(cmax2_.get(stream.cuda_stream()));
 
     auto union_mbr = mbr_a;
     COORD_T min_extent = std::numeric_limits<COORD_T>::max();
@@ -811,8 +835,8 @@ class HausdorffDistanceRT {
     int iter = 0;
     uint64_t total_hits = 0;
     uint64_t total_compared_pairs = 0;
-
-    cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
+	
+	double step = radius * (config_.radius_step - 1);
 
     while (in_size > 0) {
       iter++;
@@ -853,7 +877,6 @@ class HausdorffDistanceRT {
       }
 
       dim3 dims{1, 1, 1};
-      Stopwatch sw;
       sw.start();
       dims.x = in_size;
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
@@ -882,7 +905,7 @@ class HausdorffDistanceRT {
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
 
-      radius *= config_.radius_step;
+	  radius = max(cmax/sqrt(N_DIMS), radius + step);
       in_size = in_queue_.size(stream.cuda_stream());
       if (in_size > 0) {
         if (config_.rebuild_bvh) {

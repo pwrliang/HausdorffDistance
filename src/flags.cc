@@ -21,3 +21,7 @@ DEFINE_bool(nf, false, "Use near-far optimization");
 DEFINE_int32(grid, 1024, "Grid size");
 DEFINE_bool(auto_grid, false, "Auto tune grid size");
 DEFINE_int32(batch, 1, "Number of batches");
+DEFINE_int32(seed, 123456, "Random seed for move point");
+DEFINE_int32(distribution, 0, "Distribution for moving points, 0 for uniform, 1 for normal");
+DEFINE_bool(bothSide, true, "Moving Points to only one direction (positive)?");
+

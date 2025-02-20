@@ -75,6 +75,9 @@ int main(int argc, char* argv[]) {
   config.nf = FLAGS_nf;
   config.grid_size = FLAGS_grid;
   config.auto_grid = FLAGS_auto_grid;
+  config.seed = FLAGS_seed;
+  config.distribution = FLAGS_distribution;
+  config.bothSide = FLAGS_bothSide;
 
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";

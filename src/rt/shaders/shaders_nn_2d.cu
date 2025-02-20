@@ -22,23 +22,25 @@ extern "C" __global__ void __intersection__nn_2d() {
   const auto& point_b = params.points_b[point_b_id];
   auto radius = params.radius;
 
-  if (params.n_hits != nullptr) {
-  	atomicAdd(params.n_hits, 1);
-  }
   FLOAT_TYPE min_x = point_b.x - radius;
   FLOAT_TYPE max_x = point_b.x + radius;
   FLOAT_TYPE min_y = point_b.y - radius;
   FLOAT_TYPE max_y = point_b.y + radius;
-
   if (point_a.x >= min_x && point_a.x <= max_x &&
       point_a.y >= min_y && point_a.y <= max_y) {
+  	auto cmax2 = *params.cmax2;
     FLOAT_TYPE cmin2;
-    auto dist2 = hd::EuclideanDistance2(point_a, point_b);
+
     if (params.n_compared_pairs != nullptr) {
     	atomicAdd(params.n_compared_pairs, 1);
     }
+	auto dist2 = hd::EuclideanDistance2(point_a, point_b);
 
-    // point is within the circle
+  	if (params.n_hits != nullptr) {
+  		atomicAdd(params.n_hits, 1);
+  	}
+    
+	// point is within the circle
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
       auto cmin2_storage = optixGetPayload_2();
       cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
@@ -62,9 +64,7 @@ extern "C" __global__ void __intersection__nn_2d() {
 
     optixSetPayload_1(skip_idx + 1);
 
-    auto cmax2 = *params.cmax2;
-
-    if (dist2 < cmax2) {
+    if (cmin2 < cmax2) {
       if (params.skip_count != nullptr) {
       	atomicAdd(params.skip_count, 1);
       }

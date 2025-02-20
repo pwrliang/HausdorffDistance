@@ -25,4 +25,7 @@ DECLARE_bool(nf);
 DECLARE_int32(grid);
 DECLARE_bool(auto_grid);
 DECLARE_int32(batch);
+DECLARE_int32(seed);
+DECLARE_int32(distribution);
+DECLARE_bool(bothSide);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

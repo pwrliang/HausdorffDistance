@@ -62,7 +62,7 @@ extern "C" __global__ void __intersection__nn_3d() {
 
     auto cmax2 = *params.cmax2;
 
-    if (dist2 < cmax2) {
+    if (cmin2 < cmax2) {
       atomicAdd(params.skip_count, 1);
       atomicAdd(params.skip_total_idx, skip_idx);
       optixReportIntersection(0, 0);
