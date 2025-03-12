@@ -2,6 +2,7 @@
 #define GRID_H
 
 #include <optix.h>
+#include <thrust/binary_search.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
@@ -61,7 +62,7 @@ DEV_HOST_INLINE uint3 DecodeCellIdx<3>(uint32_t cell_idx, uint32_t grid_size) {
   cell_pos.y = cell_idx / grid_size;
   return cell_pos;
 }
-}
+}  // namespace details
 
 template <typename COORD_T, int N_DIMS>
 class Grid {
@@ -72,12 +73,11 @@ class Grid {
  public:
   Grid() = default;
 
-  DEV_HOST Grid(const mbr_t& mbr, const ArrayView<mbr_t>& mbrs,
-                uint32_t grid_size, const ArrayView<uint32_t>& n_primitives,
+  DEV_HOST Grid(const mbr_t& mbr, uint32_t grid_size,
+                const ArrayView<uint32_t>& n_primitives,
                 const ArrayView<uint32_t>& row_offset,
                 const ArrayView<point_t>& points)
       : mbr_(mbr),
-        mbrs_(mbrs),
         grid_size_(grid_size),
         n_primitives_(n_primitives),
         row_offset_(row_offset),
@@ -135,9 +135,9 @@ class Grid {
     auto lower_cell_p = CalculateCellPos(lower_p);
     auto upper_cell_p = CalculateCellPos(upper_p);
 
-    for (int j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
-      for (int i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
-        auto cell_idx = i + j * grid_size_;
+    for (auto i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
+      for (auto j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
+        auto cell_idx = EncodeCellPos(uint2{i, j});
 
         atomicAdd(&n_primitives_[cell_idx], 1);
       }
@@ -152,10 +152,10 @@ class Grid {
     auto lower_cell_p = CalculateCellPos(lower_p);
     auto upper_cell_p = CalculateCellPos(upper_p);
 
-    for (int k = lower_cell_p.z; k <= upper_cell_p.z; k++) {
-      for (int j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
-        for (int i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
-          auto cell_idx = i + j * grid_size_ + k * grid_size_ * grid_size_;
+    for (auto i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
+      for (auto j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
+        for (auto k = lower_cell_p.z; k <= upper_cell_p.z; k++) {
+          auto cell_idx = EncodeCellPos(uint2{i, j, k});
           atomicAdd(&n_primitives_[cell_idx], 1);
         }
       }
@@ -205,10 +205,6 @@ class Grid {
 
   DEV_HOST_INLINE const mbr_t& get_mbr() const { return mbr_; }
 
-  DEV_INLINE const mbr_t& get_mbr(uint32_t cell_idx) const {
-    return mbrs_[cell_idx];
-  }
-
   DEV_HOST_INLINE COORD_T get_cell_extent(int dim) const {
     return mbr_.get_extent(dim) / grid_size_;
   }
@@ -223,7 +219,6 @@ class Grid {
 
  private:
   mbr_t mbr_;
-  ArrayView<mbr_t> mbrs_;
   uint32_t grid_size_;
   ArrayView<uint32_t> n_primitives_;
   ArrayView<uint32_t> row_offset_;
@@ -282,17 +277,15 @@ class Grid {
     }
 
     n_primitives_.resize(total_cells);
-    mbrs_.resize(total_cells);
   }
 
   void Clear(const Stream& stream) {
     thrust::fill(thrust::cuda::par.on(stream.cuda_stream()),
                  n_primitives_.begin(), n_primitives_.end(), 0);
-    thrust::fill(thrust::cuda::par.on(stream.cuda_stream()), mbrs_.begin(),
-                 mbrs_.end(), mbr_t());
     row_offset_.clear();
     points_.clear();
     point_ids_.clear();
+    mbrs_.clear();
   }
 
   void Init(uint32_t grid_size, const mbr_t& mbr) {
@@ -305,16 +298,12 @@ class Grid {
               const thrust::device_vector<point_t>& points,
               bool store_points = false) {
     auto d_grid = DeviceObject();
-    auto* p_mbrs = thrust::raw_pointer_cast(mbrs_.data());
     auto* p_n_primitives = thrust::raw_pointer_cast(n_primitives_.data());
     auto n_cells = n_primitives_.size();
 
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
                      points.end(), [=] __device__(const point_t& p) mutable {
-                       auto cell_idx = d_grid.CalculateCellIdx(p);
                        d_grid.Insert(p);
-
-                       p_mbrs[cell_idx].ExpandAtomic(p);
                      });
 
     non_empty_cell_ids_.resize(n_cells);
@@ -330,13 +319,33 @@ class Grid {
 
     non_empty_cell_ids_.resize(n_non_empty);
     non_empty_cell_ids_.shrink_to_fit();
+    auto cell_ids_begin = non_empty_cell_ids_.begin();
+    auto cell_ids_end = non_empty_cell_ids_.end();
+    // non_empty_cell_ids_ should be sorted
+
+    mbrs_.resize(n_non_empty, mbr_t());
+    auto* p_mbrs = thrust::raw_pointer_cast(mbrs_.data());
+
+    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
+                     points.end(), [=] __device__(const point_t& p) mutable {
+                       auto cell_idx = d_grid.CalculateCellIdx(p);
+                       auto offset =
+                           thrust::lower_bound(thrust::seq, cell_ids_begin,
+                                               cell_ids_end, cell_idx) -
+                           cell_ids_begin;
+                       assert(offset >= 0 && offset < n_non_empty);
+                       p_mbrs[offset].ExpandAtomic(p);
+                     });
 
     VLOG(1) << "Non-empty cells: " << n_non_empty
-            << " pcnt: " << (float) n_non_empty / n_cells <<
-            " points/non-empty cell: " << points.size() / n_non_empty
-            << " max points/cell " << *(thrust::max_element(thrust::cuda::par.on(stream.cuda_stream()),
-                n_primitives_.begin(), n_primitives_.end()));
+            << " pcnt: " << (float) n_non_empty / n_cells
+            << " points/non-empty cell: " << points.size() / n_non_empty
+            << " max points/cell "
+            << *(thrust::max_element(thrust::cuda::par.on(stream.cuda_stream()),
+                                     n_primitives_.begin(),
+                                     n_primitives_.end()));
 
+    // FIXME
     if (store_points) {
       auto n_points = points.size();
       row_offset_.resize(n_cells + 1, 0);
@@ -350,14 +359,22 @@ class Grid {
       auto* p_points = thrust::raw_pointer_cast(points_.data());
       auto* p_point_ids = thrust::raw_pointer_cast(point_ids_.data());
 
+      auto n_row_offset = row_offset_.size();
+
       thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
                        thrust::make_counting_iterator<uint32_t>(0),
                        thrust::make_counting_iterator<uint32_t>(n_points),
                        [=] __device__(uint32_t id) mutable {
                          const point_t& p = p_points[id];
                          auto cell_idx = d_grid.CalculateCellIdx(p);
+                         assert(cell_idx < n_row_offset);
                          auto offset = atomicAdd(&p_row_offset[cell_idx], 1);
 
+                         if (offset >= n_points) {
+                           printf("%u vs %lu\n", offset, n_points);
+                         }
+
+                         assert(offset < n_points);
                          p_points[offset] = p;
                          p_point_ids[offset] = id;
                        });
@@ -425,11 +442,13 @@ class Grid {
   }
 
   dev::Grid<COORD_T, N_DIMS> DeviceObject() const {
-    return dev::Grid<COORD_T, N_DIMS>(mbr_, mbrs_, grid_size_, n_primitives_,
+    return dev::Grid<COORD_T, N_DIMS>(mbr_, grid_size_, n_primitives_,
                                       row_offset_, points_);
   }
 
   uint32_t get_grid_size() const { return grid_size_; }
+
+  size_t get_n_cells() const { return n_primitives_.size(); }
 
   ArrayView<mbr_t> get_mbrs() const { return {mbrs_}; }
 
@@ -443,6 +462,12 @@ class Grid {
 
   const thrust::device_vector<uint32_t>& get_non_empty_cell_ids() const {
     return non_empty_cell_ids_;
+  }
+
+  thrust::device_vector<uint32_t>& get_point_ids() { return point_ids_; }
+
+  const thrust::device_vector<uint32_t>& get_point_ids() const {
+    return point_ids_;
   }
 
  private:

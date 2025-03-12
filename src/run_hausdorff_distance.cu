@@ -37,15 +37,15 @@ void RunHausdorffDistance(const RunConfig& config) {
 
   if (config.is_double) {
     if (config.n_dims == 2) {
-      dist = RunHausdorffDistanceImpl<double, 2>(config);
+      // dist = RunHausdorffDistanceImpl<double, 2>(config);
     } else if (config.n_dims == 3) {
-      dist = RunHausdorffDistanceImpl<double, 3>(config);
+      // dist = RunHausdorffDistanceImpl<double, 3>(config);
     }
   } else {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      dist = RunHausdorffDistanceImpl<float, 3>(config);
+      // dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
@@ -85,11 +85,12 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   std::string ptx_root = config.exec_path + "/ptx";
 
   rt_config.ptx_root = ptx_root.c_str();
-  rt_config.shuffle = config.shuffle;
   rt_config.rebuild_bvh = config.rebuild_bvh;
   rt_config.radius_step = config.radius_step;
-  rt_config.max_grid_size = config.grid_size;
-  rt_config.auto_grid = config.auto_grid;
+  rt_config.init_radius = config.init_radius;
+  rt_config.sample_rate = config.sample_rate;
+  rt_config.max_hit = config.max_hit;
+
   hdist_rt.Init(rt_config);
   hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
 
@@ -137,20 +138,11 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::kRT: {
-      // dist = hdist_rt.CalculateDistanceGrid(stream, d_points_a, d_points_b);
-      // dist = hdist_rt.CalculateDistanceRandom(stream, d_points_a, d_points_b,
-      // config.ray_multicast);
-      if (config.nf) {
-        dist =
-            hdist_rt.CalculateDistanceNearFar(stream, d_points_a, d_points_b);
-      } else {
-        if (config.ray_multicast == 1) {
-          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
-        } else {
-          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b,
-                                            config.ray_multicast);
-        }
-      }
+      dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+      break;
+    }
+    case Variant::kHybrid: {
+      dist = hdist_rt.CalculateDistanceHybrid(stream, d_points_a, d_points_b);
       break;
     }
     case Variant::kBRANCH_BOUND: {

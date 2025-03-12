@@ -41,18 +41,6 @@ enum ModuleIdentifier {
   MODULE_ID_DOUBLE_NN_2D,
   MODULE_ID_FLOAT_NN_3D,
   MODULE_ID_DOUBLE_NN_3D,
-  MODULE_ID_FLOAT_NN_GRID_2D,
-  MODULE_ID_DOUBLE_NN_GRID_2D,
-  MODULE_ID_FLOAT_NN_MULTICAST_2D,
-  MODULE_ID_DOUBLE_NN_MULTICAST_2D,
-  MODULE_ID_FLOAT_NN_MULTICAST_3D,
-  MODULE_ID_DOUBLE_NN_MULTICAST_3D,
-  MODULE_ID_FLOAT_NN_RANDOMCAST_2D,
-  MODULE_ID_DOUBLE_NN_RANDOMCAST_2D,
-  MODULE_ID_FLOAT_SPHERE_2D,
-  MODULE_ID_DOUBLE_SPHERE_2D,
-  MODULE_ID_FLOAT_SPHERE_3D,
-  MODULE_ID_DOUBLE_SPHERE_3D,
   NUM_MODULE_IDENTIFIERS
 };
 
@@ -156,19 +144,6 @@ struct RTConfig {
 
 inline RTConfig get_default_rt_config(const std::string& ptx_root) {
   RTConfig config;
-  {
-    Module mod;
-
-    mod.set_id(ModuleIdentifier::MODULE_ID_PLAY);
-    mod.set_type(ModuleType::kCUSTOM);
-    mod.set_program_path(ptx_root + "/float_shaders_play.ptx");
-    mod.set_function_suffix("play");
-    mod.EnableIsIntersection();
-    mod.EnableAnyHit();
-    mod.set_n_payload(6);
-
-    config.AddModule(mod);
-  }
 
   {
     Module mod;
@@ -206,58 +181,6 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     config.AddModule(mod);
   }
 
-  {
-    Module mod;
-
-    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_GRID_2D);
-    mod.set_type(ModuleType::kCUSTOM);
-    mod.set_program_path(ptx_root + "/float_shaders_nn_grid_2d.ptx");
-    mod.set_function_suffix("nn_grid_2d");
-    mod.EnableClosestHit();
-    mod.set_n_payload(6);
-
-    config.AddModule(mod);
-
-    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_GRID_2D);
-    mod.set_program_path(ptx_root + "/double_shaders_nn_grid_2d.ptx");
-    config.AddModule(mod);
-  }
-
-  {
-    Module mod;
-
-    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_MULTICAST_2D);
-    mod.set_type(ModuleType::kCUSTOM);
-    mod.set_program_path(ptx_root + "/float_shaders_nn_multicast_2d.ptx");
-    mod.set_function_suffix("nn_multicast_2d");
-    mod.EnableIsIntersection();
-    mod.EnableAnyHit();
-    mod.set_n_payload(6);
-
-    config.AddModule(mod);
-
-    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_MULTICAST_2D);
-    mod.set_program_path(ptx_root + "/double_shaders_nn_multicast_2d.ptx");
-    config.AddModule(mod);
-  }
-
-  {
-    Module mod;
-
-    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_RANDOMCAST_2D);
-    mod.set_type(ModuleType::kCUSTOM);
-    mod.set_program_path(ptx_root + "/float_shaders_nn_randomcast_2d.ptx");
-    mod.set_function_suffix("nn_randomcast_2d");
-    mod.EnableIsIntersection();
-    mod.EnableAnyHit();
-    mod.set_n_payload(6);
-
-    config.AddModule(mod);
-
-    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_RANDOMCAST_2D);
-    mod.set_program_path(ptx_root + "/double_shaders_nn_randomcast_2d.ptx");
-    config.AddModule(mod);
-  }
 #ifndef NDEBUG
   config.opt_level = OPTIX_COMPILE_OPTIMIZATION_LEVEL_0;
   config.dbg_level = OPTIX_COMPILE_DEBUG_LEVEL_FULL;

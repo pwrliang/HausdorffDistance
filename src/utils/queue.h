@@ -21,6 +21,9 @@ class Queue {
 
   DEV_INLINE uint32_t Append(const T& item) {
     auto allocation = atomicAdd(last_pos_, 1);
+    if (allocation >= data_.size()) {
+      printf("out of bound, allocation %u, size %lu\n", allocation, data_.size());
+    }
     assert(allocation < data_.size());
     data_[allocation] = item;
     return allocation;

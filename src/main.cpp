@@ -43,6 +43,8 @@ int main(int argc, char* argv[]) {
     config.variant = Variant::kYUAN;
   } else if (FLAGS_variant == "rt") {
     config.variant = Variant::kRT;
+  } else if (FLAGS_variant == "hybrid") {
+    config.variant = Variant::kHybrid;
   } else if (FLAGS_variant == "branch-bound") {
     config.variant = Variant::kBRANCH_BOUND;
   } else if (FLAGS_variant == "itk") {
@@ -62,7 +64,6 @@ int main(int argc, char* argv[]) {
   }
 
   config.parallelism = FLAGS_parallelism;
-  config.shuffle = FLAGS_shuffle;
   config.check = FLAGS_check;
   config.n_dims = FLAGS_n_dims;
   config.is_double = FLAGS_is_double;
@@ -71,17 +72,14 @@ int main(int argc, char* argv[]) {
   config.repeat = FLAGS_repeat;
   config.radius_step = FLAGS_radius_step;
   config.rebuild_bvh = FLAGS_rebuild_bvh;
-  config.ray_multicast = FLAGS_raymulticast;
-  config.nf = FLAGS_nf;
-  config.grid_size = FLAGS_grid;
-  config.auto_grid = FLAGS_auto_grid;
+  config.init_radius = FLAGS_init_radius;
+  config.sample_rate = FLAGS_sample_rate;
+  config.max_hit = FLAGS_max_hit;
 
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";
 
   hd::RunHausdorffDistance(config);
-
-  // hd::Play(config);
 
   google::ShutdownGoogleLogging();
 }

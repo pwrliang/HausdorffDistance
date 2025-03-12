@@ -59,7 +59,7 @@ class Mbr {
   static constexpr int n_dims = N_DIMS;
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
 
-  Mbr() {
+  DEV_HOST Mbr() {
     auto* lower = reinterpret_cast<coord_t*>(&lower_.x);
     auto* upper = reinterpret_cast<coord_t*>(&upper_.x);
 
@@ -94,6 +94,14 @@ class Mbr {
 
   DEV_HOST_INLINE COORD_T get_extent(int dim) const {
     return upper(dim) - lower(dim);
+  }
+
+  DEV_HOST_INLINE COORD_T get_measure() const {
+    COORD_T measure = 1;
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      measure *= get_extent(dim);
+    }
+    return measure;
   }
 
   DEV_HOST_INLINE void set_lower(int dim, COORD_T val) {

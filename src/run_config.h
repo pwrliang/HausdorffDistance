@@ -1,7 +1,15 @@
 #ifndef HAUSDORFF_DISTANCE_RUN_CONFIG_H
 #define HAUSDORFF_DISTANCE_RUN_CONFIG_H
 #include <string>
-enum class Variant { kEARLY_BREAK, kZORDER, kYUAN, kRT, kBRANCH_BOUND, kITK };
+enum class Variant {
+  kEARLY_BREAK,
+  kZORDER,
+  kYUAN,
+  kRT,
+  kHybrid,
+  kBRANCH_BOUND,
+  kITK
+};
 
 enum class Execution { kSerial, kParallel, kGPU };
 
@@ -27,10 +35,9 @@ struct RunConfig {
   // RT only
   double radius_step;
   bool rebuild_bvh;
-  int ray_multicast;
-  bool nf;
-  int grid_size;
-  bool auto_grid;
+  double init_radius;
+  double sample_rate;
+  int max_hit;
 };
 
 #endif  // HAUSDORFF_DISTANCE_RUN_CONFIG_H
