@@ -35,7 +35,6 @@ extern "C" __global__ void __intersection__nn_3d() {
 
     auto dist2 = hd::EuclideanDistance2(point_a, point_b);
 
-
     if (dist2 <= radius * radius) {
       if (sizeof(FLOAT_TYPE) == sizeof(float)) {
         auto cmin2_storage = optixGetPayload_2();
@@ -47,19 +46,19 @@ extern "C" __global__ void __intersection__nn_3d() {
           optixSetPayload_2(cmin2_storage);
         }
       } else {
-                uint2 cmin2_storage{optixGetPayload_2(), optixGetPayload_3()};
-                hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
+        uint2 cmin2_storage{optixGetPayload_2(), optixGetPayload_3()};
+        hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
 
-                if (dist2 < cmin2) {
-                  cmin2 = dist2;
-                  hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
-                  optixSetPayload_2(cmin2_storage.x);
-                  optixSetPayload_3(cmin2_storage.y);
-                }
+        if (dist2 < cmin2) {
+          cmin2 = dist2;
+          hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
+          optixSetPayload_2(cmin2_storage.x);
+          optixSetPayload_3(cmin2_storage.y);
+        }
       }
     }
 
-    if (dist2 <= *params.cmax2 || n_hits >= params.max_hit) {
+    if (dist2 <= *params.cmax2 || n_hits > params.max_hit) {
       optixReportIntersection(0, 0);
     }
   }
@@ -97,20 +96,20 @@ extern "C" __global__ void __raygen__nn_3d() {
                  point_id_a, n_hits, cmin2_storage);
       cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
     } else {
-            uint2 cmin2_storage;
-            hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
-            optixTrace(params.handle, origin, dir, tmin, tmax, 0,
-                  OptixVisibilityMask(255),
-                  OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
-                  SURFACE_RAY_TYPE,     // SBT offset
-                  RAY_TYPE_COUNT,       // SBT stride
-                  SURFACE_RAY_TYPE,     // missSBTIndex
-                  point_id_a, n_hits, cmin2_storage.x, cmin2_storage.y);
-            hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
+      uint2 cmin2_storage;
+      hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
+      optixTrace(params.handle, origin, dir, tmin, tmax, 0,
+                 OptixVisibilityMask(255),
+                 OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
+                 SURFACE_RAY_TYPE,     // SBT offset
+                 RAY_TYPE_COUNT,       // SBT stride
+                 SURFACE_RAY_TYPE,     // missSBTIndex
+                 point_id_a, n_hits, cmin2_storage.x, cmin2_storage.y);
+      hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
     }
     atomicAdd(params.n_hits, n_hits);
 
-    if (n_hits >= params.max_hit) {
+    if (n_hits > params.max_hit) {
       params.term_queue.Append(point_id_a);
     } else {
       if (cmin2 != std::numeric_limits<FLOAT_TYPE>::max()) {

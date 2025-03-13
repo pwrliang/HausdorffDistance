@@ -138,7 +138,11 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::kRT: {
-      dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+      if (config.tensor) {
+        dist = hdist_rt.CalculateDistanceTensor(stream, d_points_a, d_points_b);
+      } else {
+        dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+      }
       break;
     }
     case Variant::kHybrid: {

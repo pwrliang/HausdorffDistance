@@ -22,5 +22,6 @@ DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
 DEFINE_double(
     init_radius, 0,
     "Initial radius for the RT method. If it is 0, it will be auto computed");
-DEFINE_double(sample_rate, 0.0001, "");
-DEFINE_int32(max_hit, 1000, "Max number of hit by RT method before using EB");
+DEFINE_double(sample_rate, 0.001, "");
+DEFINE_int32(max_hit, 128, "Max number of hit by RT method before using EB");
+DEFINE_bool(tensor, false, "Whether to use Tensor cores");
