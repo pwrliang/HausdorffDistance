@@ -48,7 +48,7 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceGPU(
     using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
     __shared__ typename BlockReduce::TempStorage temp_storage;
     __shared__ bool early_break;
-    __shared__ POINT_T point_a;
+    __shared__ const POINT_T *point_a;
 
     for (auto i = blockIdx.x; i < v_points_a.size(); i += gridDim.x) {
       auto size_b_roundup =
@@ -58,7 +58,7 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceGPU(
 
       if (threadIdx.x == 0) {
         early_break = false;
-        point_a = v_points_a[i];
+        point_a = &v_points_a[i];
       }
       __syncthreads();
 
@@ -67,7 +67,7 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceGPU(
         auto d = std::numeric_limits<coord_t>::max();
         if (j < v_points_b.size()) {
           const auto& point_b = v_points_b[j];
-          d = EuclideanDistance2(point_a, point_b);
+          d = EuclideanDistance2(*point_a, point_b);
           n_pairs++;
         }
 

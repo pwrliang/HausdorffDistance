@@ -37,15 +37,15 @@ void RunHausdorffDistance(const RunConfig& config) {
 
   if (config.is_double) {
     if (config.n_dims == 2) {
-      // dist = RunHausdorffDistanceImpl<double, 2>(config);
+      dist = RunHausdorffDistanceImpl<double, 2>(config);
     } else if (config.n_dims == 3) {
-      // dist = RunHausdorffDistanceImpl<double, 3>(config);
+      dist = RunHausdorffDistanceImpl<double, 3>(config);
     }
   } else {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      // dist = RunHausdorffDistanceImpl<float, 3>(config);
+      dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
   LOG(INFO) << "HausdorffDistance: distance is " << dist;

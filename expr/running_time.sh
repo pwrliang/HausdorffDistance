@@ -27,14 +27,6 @@ function vary_dist() {
       for dist in 0.05 0.1 0.2 0.4 0.8 1.6 3.2 6.4 12.8 25.6 51.2 102.4; do
         log="${log_dir}/vary_dist/${variant}_${execution}_${file1}_${file2}_dist_${dist}_limit_${LIMIT}.log"
 
-        if [[ $variant == "nf" ]]; then
-          real_variant="rt"
-          nf=true
-        else
-          real_variant=$variant
-          nf=false
-        fi
-
         if [[ ! -f "${log}" ]]; then
           echo "${log}" | xargs dirname | xargs mkdir -p
 
@@ -45,9 +37,7 @@ function vary_dist() {
                   -limit $LIMIT \
                   -move_offset $dist \
                   -variant $real_variant \
-                  -execution $execution \
-                  -raymulticast 1 \
-                  -nf=$nf"
+                  -execution $execution"
 
           echo "$cmd" >"${log}.tmp"
           eval "$cmd" 2>&1 | tee -a "${log}.tmp"
@@ -71,13 +61,6 @@ function vary_datasets() {
     for file2 in "${datasets[@]}"; do
       if [[ "$file1" != "$file2" ]]; then
         log="${log_dir}/vary_datasets/${variant}_${execution}_${file1}_${file2}_limit_${LIMIT}.log"
-        if [[ $variant == "nf" ]]; then
-          real_variant="rt"
-          nf=true
-        else
-          real_variant=$variant
-          nf=false
-        fi
 
         if [[ ! -f "${log}" ]]; then
           echo "${log}" | xargs dirname | xargs mkdir -p
@@ -87,10 +70,8 @@ function vary_datasets() {
                   -input2 $DATASET_ROOT/$file2 \
                   -serialize $SERIALIZE_ROOT \
                   -limit $LIMIT \
-                  -variant $real_variant \
-                  -execution $execution \
-                  -raymulticast 1 \
-                  -nf=$nf"
+                  -variant $variant \
+                  -execution $execution"
 
           echo "$cmd" >"${log}.tmp"
           eval "$cmd" 2>&1 | tee -a "${log}.tmp"
@@ -119,13 +100,6 @@ function medical_image() {
     name1=$(basename $file1)
     name2=$(basename $file2)
     log="${log_dir}/BraTS20/${variant}_${execution}_${name1}_${name2}.log"
-    if [[ $variant == "nf" ]]; then
-      real_variant="rt"
-      nf=true
-    else
-      real_variant=$variant
-      nf=false
-    fi
 
     if [[ ! -f "${log}" ]]; then
       echo "${log}" | xargs dirname | xargs mkdir -p
@@ -136,9 +110,8 @@ function medical_image() {
             -input_type image \
             -n_dims 3 \
             -serialize $SERIALIZE_ROOT \
-            -variant $real_variant \
+            -variant $variant \
             -execution $execution \
-            -nf=$nf \
             -v=1"
 
       echo "$cmd" >"${log}.tmp"
@@ -155,7 +128,7 @@ medical_image "eb" "parallel"
 medical_image "eb" "gpu"
 medical_image "zorder" "gpu"
 medical_image "rt" "gpu"
-medical_image "nf" "gpu"
+medical_image "hybrid" "gpu"
 medical_image "itk" "serial"
 
 #vary_dist "eb" "serial"
@@ -163,7 +136,6 @@ medical_image "itk" "serial"
 #vary_dist "eb" "gpu"
 #vary_dist "zorder" "serial"
 #vary_dist "rt" "gpu"
-#vary_dist "nf" "gpu"
 
 #vary_datasets "eb" "serial"
 #vary_datasets "zorder" "serial"
@@ -171,4 +143,3 @@ medical_image "itk" "serial"
 
 #vary_datasets "eb" "gpu"
 #vary_datasets "rt" "gpu"
-#vary_datasets "nf" "gpu"

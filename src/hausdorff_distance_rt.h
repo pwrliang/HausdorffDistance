@@ -620,11 +620,13 @@ class HausdorffDistanceRT {
         if (N_DIMS == 2) {
           mod_nn = details::MODULE_ID_FLOAT_NN_2D;
         } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_3D;
         }
       } else if (typeid(COORD_T) == typeid(double)) {
         if (N_DIMS == 2) {
           mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
         } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
         }
       }
 
@@ -756,7 +758,7 @@ class HausdorffDistanceRT {
         using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
         __shared__ typename BlockReduce::TempStorage temp_storage;
         __shared__ bool early_break;
-        __shared__ point_t point_a;
+        __shared__ const point_t *point_a;
 
         for (auto i = blockIdx.x; i < n_points_a; i += gridDim.x) {
           auto size_b_roundup =
@@ -767,10 +769,10 @@ class HausdorffDistanceRT {
           if (threadIdx.x == 0) {
             early_break = false;
             if (v_point_ids_a.empty()) {
-              point_a = v_points_a[i];
+              point_a = &v_points_a[i];
             } else {
               auto point_id_s = v_point_ids_a[i];
-              point_a = v_points_a[point_id_s];
+              point_a = &v_points_a[point_id_s];
             }
           }
           __syncthreads();
@@ -780,7 +782,7 @@ class HausdorffDistanceRT {
             auto d = std::numeric_limits<coord_t>::max();
             if (j < v_points_b.size()) {
               const auto& point_b = v_points_b[j];
-              d = EuclideanDistance2(point_a, point_b);
+              d = EuclideanDistance2(*point_a, point_b);
               n_pairs++;
             }
 
