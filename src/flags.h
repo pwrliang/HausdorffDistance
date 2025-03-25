@@ -23,4 +23,5 @@ DECLARE_double(init_radius);
 DECLARE_double(sample_rate);
 DECLARE_int32(max_hit);
 DECLARE_bool(tensor);
+DECLARE_int32(triangle);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

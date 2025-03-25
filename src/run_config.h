@@ -39,6 +39,7 @@ struct RunConfig {
   double sample_rate;
   int max_hit;
   bool tensor;
+  int triangle;
 };
 
 #endif  // HAUSDORFF_DISTANCE_RUN_CONFIG_H

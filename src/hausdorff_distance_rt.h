@@ -6,12 +6,14 @@
 #include <thrust/shuffle.h>
 
 #include <boost/geometry/algorithms/detail/partition.hpp>
+#include <cmath>
 #include <iomanip>
 
 #include "cukd/kdtree.h"
 #include "cukd/spatial-kdtree.h"
 #include "distance.h"
 #include "grid.h"
+#include "hdr/hdr_histogram.h"
 #include "kdtree/kd_tree_helpers.h"
 #include "kdtree/labeled_point.h"
 #include "rt/reusable_buffer.h"
@@ -26,6 +28,7 @@
 #include "utils/util.h"
 
 #define NEXT_AFTER_ROUNDS (2)
+#define PROFILING
 
 namespace hd {
 
@@ -239,8 +242,8 @@ class HausdorffDistanceRT {
     g_ = thrust::default_random_engine(config_.seed);
   }
 
-  // TODO: OptiX 9, using Tensor cores throught RT cores to calculate the
-  // distance
+  thrust::device_vector<uint32_t> hits_counters_;
+
   COORD_T CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) {
@@ -272,25 +275,9 @@ class HausdorffDistanceRT {
     LOG(INFO) << "Sampled HD " << sqrt(sampled_hd2) << " time " << sw.ms();
 
     COORD_T radius = sqrt(sampled_hd2);
-
-    // radius *= sqrt(N_DIMS);  // Refer RTNN Fig10c
     COORD_T max_radius = hd_ub;
 
     LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub << " Init Radius " << radius;
-
-    auto world_mbr = mbr_a;
-    COORD_T min_extent = std::numeric_limits<COORD_T>::max();
-    COORD_T max_extent = 0;
-    world_mbr.Expand(mbr_b);
-
-    for (int dim = 0; dim < N_DIMS; dim++) {
-      auto lower = world_mbr.lower(dim) - max_radius;
-      auto upper = world_mbr.upper(dim) + max_radius;
-      world_mbr.set_lower(dim, lower);
-      world_mbr.set_upper(dim, upper);
-      min_extent = std::min(min_extent, upper - lower);
-      max_extent = std::max(max_extent, upper - lower);
-    };
 
     in_queue_.Init(n_points_a);
     term_queue_.Init(n_points_a);
@@ -315,6 +302,14 @@ class HausdorffDistanceRT {
 
     SharedValue<uint32_t> iter_hits;
     int iter = 0;
+#ifdef PROFILING
+    struct hdr_histogram* histogram;
+    // Initialise the histogram
+    hdr_init(1,                     // Minimum value
+             (int64_t) n_points_b,  // Maximum value
+             3,                     // Number of significant figures
+             &histogram);           // Pointer to initialise
+#endif
 
     while (in_size > 0) {
       iter++;
@@ -330,6 +325,12 @@ class HausdorffDistanceRT {
       params.cmax2 = cmax2_.data();
       params.radius = radius;
       params.n_hits = iter_hits.data();
+#ifdef PROFILING
+      hits_counters_.resize(in_size, 0);
+      params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
+#else
+      params.hits_counters = nullptr;
+#endif
       params.max_hit = std::numeric_limits<uint32_t>::max();
 
       details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
@@ -357,6 +358,31 @@ class HausdorffDistanceRT {
       stream.Sync();
       sw.stop();
 
+#ifdef PROFILING
+      thrust::host_vector<uint32_t> h_hits_counters = hits_counters_;
+
+      for (auto val : h_hits_counters) {
+        if (val > 0)
+          hdr_record_value(histogram,  // Histogram to record to
+                           val);       // Value to record
+      }
+      std::ofstream ofs;
+      std::string path = "/tmp/iter_" + std::to_string(iter);
+      FILE* file = fopen(path.c_str(), "w");  // Open file in write mode
+
+      if (file == nullptr) {
+        printf("Error opening file!\n");
+        return 1;  // Exit with error
+      }
+
+      hdr_percentiles_print(histogram,
+                            file,  // File to write to
+                            3,     // Granularity of printed values
+                            1.0,   // Multiplier for results
+                            CSV);  // Format CLASSIC/CSV supported.
+      hdr_reset(histogram);
+      fclose(file);  // Close the file
+#endif
       auto cmax2 = cmax2_.get(stream.cuda_stream());
       auto cmax = sqrt(cmax2);
 
@@ -378,6 +404,177 @@ class HausdorffDistanceRT {
         } else {
           gas_handle = UpdateBVH(stream, gas_handle, points_b, radius);
         }
+      }
+    }
+    return sqrt(cmax2_.get(stream.cuda_stream()));
+  }
+
+  COORD_T CalculateDistanceTriangle(const Stream& stream,
+                                    thrust::device_vector<point_t>& points_a,
+                                    thrust::device_vector<point_t>& points_b,
+                                    int triangle) {
+    auto n_points_a = points_a.size();
+    auto n_points_b = points_b.size();
+    const auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
+    const auto mbr_b = CalculateMbr(stream, points_b.begin(), points_b.end());
+    int n_segs = triangle;
+    auto mem_bytes = rt_engine_.EstimateMemoryUsageForTriangles(
+        n_points_b * n_segs * 2, n_points_b * n_segs, config_.fast_build,
+        config_.compact);
+
+    buffer_.Init(mem_bytes * 1.5);
+    buffer_.Clear();
+
+    auto sampled_point_ids_a = sampler_.Sample(
+        stream.cuda_stream(), points_a.size(),
+        std::max(1u, (uint32_t) (points_a.size() * config_.sample_rate)));
+
+    HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
+    auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
+    auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
+
+    cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
+
+    Stopwatch sw;
+    sw.start();
+    CalculateHDEarlyBreak(stream, points_a, points_b, sampled_point_ids_a);
+    auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
+    sw.stop();
+    LOG(INFO) << "Sampled HD " << sqrt(sampled_hd2) << " time " << sw.ms();
+
+    COORD_T radius = sqrt(sampled_hd2);
+    COORD_T max_radius = hd_ub;
+
+    LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub << " Init Radius " << radius;
+
+    in_queue_.Init(n_points_a);
+    term_queue_.Init(n_points_a);
+    out_queue_.Init(n_points_a);
+    in_queue_.Clear(stream.cuda_stream());
+    out_queue_.Clear(stream.cuda_stream());
+
+    auto d_in_queue = in_queue_.DeviceObject();
+
+    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                     thrust::make_counting_iterator<uint32_t>(0),
+                     thrust::make_counting_iterator<uint32_t>(points_a.size()),
+                     [=] __device__(uint32_t point_id) mutable {
+                       d_in_queue.Append(point_id);
+                     });
+
+    uint32_t in_size = in_queue_.size(stream.cuda_stream());
+
+    buffer_.Clear();
+
+    auto gas_handle = BuildBVHTriangle(stream, points_b, radius, n_segs);
+    SharedValue<uint32_t> iter_hits;
+    int iter = 0;
+#ifdef PROFILING
+    struct hdr_histogram* histogram;
+    // Initialise the histogram
+    hdr_init(1,                     // Minimum value
+             (int64_t) n_points_b,  // Maximum value
+             3,                     // Number of significant figures
+             &histogram);           // Pointer to initialise
+#endif
+
+    while (in_size > 0) {
+      iter++;
+      iter_hits.set(stream.cuda_stream(), 0);
+      details::LaunchParamsNN<COORD_T, N_DIMS> params;
+      ArrayView<uint32_t> in(in_queue_.data(), in_size);
+
+      params.in_queue = in;
+      params.miss_queue = out_queue_.DeviceObject();
+      params.points_a = ArrayView<point_t>(points_a);
+      params.points_b = ArrayView<point_t>(points_b);
+      params.handle = gas_handle;
+      params.cmax2 = cmax2_.data();
+      params.radius = radius;
+      params.n_hits = iter_hits.data();
+#ifdef PROFILING
+      hits_counters_.resize(in_size, 0);
+      params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
+#else
+      params.hits_counters = nullptr;
+#endif
+      params.max_hit = std::numeric_limits<uint32_t>::max();
+      params.n_triangles = n_segs;
+      params.max_t = 2 * (params.radius / std::cos(M_PI / n_segs));
+
+      details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
+
+      if (typeid(COORD_T) == typeid(float)) {
+        if (N_DIMS == 2) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_TRIANGLE_2D;
+        } else if (N_DIMS == 3) {
+          // mod_nn = details::MODULE_ID_FLOAT_NN_3D;
+        }
+      } else if (typeid(COORD_T) == typeid(double)) {
+        // if (N_DIMS == 2) {
+        //   mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
+        // } else if (N_DIMS == 3) {
+        //   mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
+        // }
+      }
+
+      dim3 dims{1, 1, 1};
+      Stopwatch sw;
+      sw.start();
+      dims.x = in_size;
+      rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
+      rt_engine_.Render(stream.cuda_stream(), mod_nn, dims);
+      stream.Sync();
+      sw.stop();
+
+#ifdef PROFILING
+      thrust::host_vector<uint32_t> h_hits_counters = hits_counters_;
+      LOG(INFO) << "RT # of points within radius " << h_hits_counters[0];
+      for (auto val : h_hits_counters) {
+        if (val > 0)
+          hdr_record_value(histogram,  // Histogram to record to
+                           val);       // Value to record
+      }
+      std::ofstream ofs;
+      std::string path = "/tmp/iter_" + std::to_string(iter);
+      FILE* file = fopen(path.c_str(), "w");  // Open file in write mode
+
+      if (file == nullptr) {
+        printf("Error opening file!\n");
+        return 1;  // Exit with error
+      }
+
+      hdr_percentiles_print(histogram,
+                            file,  // File to write to
+                            3,     // Granularity of printed values
+                            1.0,   // Multiplier for results
+                            CSV);  // Format CLASSIC/CSV supported.
+      hdr_reset(histogram);
+      fclose(file);  // Close the file
+#endif
+      auto cmax2 = cmax2_.get(stream.cuda_stream());
+      auto cmax = sqrt(cmax2);
+
+      VLOG(1) << "Iter: " << iter << " radius: " << radius << std::fixed
+              << std::setprecision(8) << " cmax2: " << cmax2
+              << " cmax: " << cmax << " in_size: " << in_size
+              << " out_size: " << out_queue_.size(stream.cuda_stream())
+              << " Time: " << sw.ms() << " ms";
+
+      in_queue_.Clear(stream.cuda_stream());
+      in_queue_.Swap(out_queue_);
+
+      radius *= config_.radius_step;
+      in_size = in_queue_.size(stream.cuda_stream());
+      if (in_size > 0) {
+        buffer_.Clear();
+        gas_handle = BuildBVHTriangle(stream, points_b, radius, n_segs);
+        // if (config_.rebuild_bvh) {
+        //   buffer_.Clear();
+        //   gas_handle = BuildBVH(stream, points_b, radius);
+        // } else {
+        //   gas_handle = UpdateBVH(stream, gas_handle, points_b, radius);
+        // }
       }
     }
     return sqrt(cmax2_.get(stream.cuda_stream()));
@@ -420,20 +617,6 @@ class HausdorffDistanceRT {
 
     LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub << " Init Radius " << radius;
 
-    auto world_mbr = mbr_a;
-    COORD_T min_extent = std::numeric_limits<COORD_T>::max();
-    COORD_T max_extent = 0;
-    world_mbr.Expand(mbr_b);
-
-    for (int dim = 0; dim < N_DIMS; dim++) {
-      auto lower = world_mbr.lower(dim) - max_radius;
-      auto upper = world_mbr.upper(dim) + max_radius;
-      world_mbr.set_lower(dim, lower);
-      world_mbr.set_upper(dim, upper);
-      min_extent = std::min(min_extent, upper - lower);
-      max_extent = std::max(max_extent, upper - lower);
-    };
-
     in_queue_.Init(n_points_a);
     term_queue_.Init(n_points_a);
     out_queue_.Init(n_points_a);
@@ -464,10 +647,26 @@ class HausdorffDistanceRT {
       details::LaunchParamsNNTensor<COORD_T, N_DIMS> params;
       ArrayView<uint32_t> in(in_queue_.data(), in_size);
 
+      points_a_batched_.resize(in_size * TENSOR_2D_BATCH_SIZE);
+      points_b_batched_.resize(in_size * TENSOR_2D_BATCH_SIZE);
+
+      auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
+
+      thrust::transform(
+          thrust::cuda::par.on(stream.cuda_stream()),
+          thrust::make_counting_iterator<uint32_t>(0),
+          thrust::make_counting_iterator<uint32_t>(points_a_batched_.size()),
+          points_a_batched_.begin(), [=] __device__(uint32_t i) mutable {
+            auto point_id = in[i / TENSOR_2D_BATCH_SIZE];
+            return p_points_a[point_id];
+          });
+
       params.in_queue = in;
       params.miss_queue = out_queue_.DeviceObject();
       params.points_a = ArrayView<point_t>(points_a);
       params.points_b = ArrayView<point_t>(points_b);
+      params.points_a_batched = ArrayView<point_t>(points_a_batched_);
+      params.points_b_batched = ArrayView<point_t>(points_b_batched_);
       params.handle = gas_handle;
       params.cmax2 = cmax2_.data();
       params.radius = radius;
@@ -678,6 +877,68 @@ class HausdorffDistanceRT {
     return sqrt(cmax2_.get(stream.cuda_stream()));
   }
 
+  OptixTraversableHandle BuildBVHTriangle(const Stream& stream,
+                                          ArrayView<point_t> points,
+                                          COORD_T radius, int n_segs) {
+    uint32_t n_vertices = points.size() * n_segs * 2;
+    uint32_t n_triangles = points.size() * n_segs;
+
+    radius = radius / std::cos(M_PI / n_segs);
+
+    vertices_.resize(n_vertices);
+    indices_.resize(n_triangles);
+    ArrayView<float3> v_vertices(vertices_);
+    ArrayView<uint3> v_indices(indices_);
+
+    Stopwatch sw;
+    sw.start();
+    thrust::for_each(
+        thrust::cuda::par.on(stream.cuda_stream()),
+        thrust::make_counting_iterator<size_t>(0),
+        thrust::make_counting_iterator<size_t>(points.size()),
+        [=] __device__(size_t point_idx) mutable {
+          const point_t& p = points[point_idx];
+
+          auto get_endpoint = [=](int i) {
+            float theta = 2 * M_PI * i / n_segs;
+            float x = p.x + radius * std::cos(theta);
+            float y = p.y + radius * std::sin(theta);
+            return float2{x, y};
+          };
+          auto edge_len2 = EuclideanDistance2(get_endpoint(0), get_endpoint(1));
+
+          // use two triangles to represent a wall
+          for (int i = 0; i < n_segs; ++i) {
+            auto p1 = get_endpoint(i);
+
+            // bottom
+            v_vertices[point_idx * 2 * n_segs + i * 2].x = p1.x;
+            v_vertices[point_idx * 2 * n_segs + i * 2].y = p1.y;
+            v_vertices[point_idx * 2 * n_segs + i * 2].z = 0;
+            // top
+            v_vertices[point_idx * 2 * n_segs + i * 2 + 1].x = p1.x;
+            v_vertices[point_idx * 2 * n_segs + i * 2 + 1].y = p1.y;
+            v_vertices[point_idx * 2 * n_segs + i * 2 + 1].z = sqrt(edge_len2);
+            // clock-wise
+            // top point
+            v_indices[point_idx * n_segs + i].x =
+                point_idx * 2 * n_segs + i * 2 + 1;
+            // next bottom point
+            v_indices[point_idx * n_segs + i].y =
+                point_idx * 2 * n_segs + ((i + 1) % n_segs) * 2;
+            // bottom point
+            v_indices[point_idx * n_segs + i].z =
+                point_idx * 2 * n_segs + i * 2;
+          }
+        });
+    stream.Sync();
+    sw.stop();
+    LOG(INFO) << "Compute triangle time " << sw.ms();
+    return rt_engine_.BuildAccelTriangles(stream.cuda_stream(), v_vertices,
+                                          v_indices, buffer_,
+                                          config_.fast_build, config_.compact);
+  }
+
   OptixTraversableHandle BuildBVH(const Stream& stream,
                                   ArrayView<point_t> points, COORD_T radius) {
     aabbs_.resize(points.size());
@@ -758,7 +1019,7 @@ class HausdorffDistanceRT {
         using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
         __shared__ typename BlockReduce::TempStorage temp_storage;
         __shared__ bool early_break;
-        __shared__ const point_t *point_a;
+        __shared__ const point_t* point_a;
 
         for (auto i = blockIdx.x; i < n_points_a; i += gridDim.x) {
           auto size_b_roundup =
@@ -818,6 +1079,8 @@ class HausdorffDistanceRT {
   thrust::default_random_engine g_;
   thrust::device_vector<OptixAabb> aabbs_;
   thrust::device_vector<COORD_T> cmin2_;
+  thrust::device_vector<float3> vertices_;
+  thrust::device_vector<uint3> indices_;
   thrust::device_vector<point_t> points_a_batched_;
   thrust::device_vector<point_t> points_b_batched_;
   SharedValue<mbr_t> mbr_;

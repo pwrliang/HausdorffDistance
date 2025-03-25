@@ -11,7 +11,7 @@
 enum { SURFACE_RAY_TYPE = 0, RAY_TYPE_COUNT };
 // FLOAT_TYPE is defined by CMakeLists.txt
 extern "C" __constant__ hd::details::LaunchParamsNNTensor<FLOAT_TYPE, 2> params;
-#if 0
+
 extern "C" __global__ void __intersection__nn_tensor_2d() {
   using coopvec_t = OptixCoopVec<float, TENSOR_2D_BATCH_SIZE * 2>;
   using point_t = typename decltype(params)::point_t;
@@ -30,7 +30,8 @@ extern "C" __global__ void __intersection__nn_tensor_2d() {
   FLOAT_TYPE max_y = point_b.y + radius;
 
   if (point_a.x >= min_x && point_a.x <= max_x && point_a.y >= min_y &&
-      point_a.y <= max_y) {
+          point_a.y <= max_y ||
+      true) {
     optixSetPayload_1(n_hits + 1);
     FLOAT_TYPE cmin2;
 
@@ -43,6 +44,7 @@ extern "C" __global__ void __intersection__nn_tensor_2d() {
           &params.points_a_batched[ray_idx * TENSOR_2D_BATCH_SIZE]);
       auto points_b_batched = optixCoopVecLoad<coopvec_t>(
           &params.points_b_batched[ray_idx * TENSOR_2D_BATCH_SIZE]);
+
       // x_a1 - x_b1, y_a1 - y_b1, x_a2 - x_b2, y_a2 - y_b2...
       auto points_a_b = optixCoopVecSub(points_a_batched, points_b_batched);
       // (x_a1 - x_b1)^2, (y_a1 - y_b1)^2, (x_a2 - x_b2)^2, (y_a2 - y_b2)^2...
@@ -50,27 +52,32 @@ extern "C" __global__ void __intersection__nn_tensor_2d() {
 
       auto cmin2_storage = optixGetPayload_2();
       cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
-      auto cmax2 = *params.cmax2;
+      bool term = false;
 
       for (auto i = 0; i < TENSOR_2D_BATCH_SIZE; i++) {
+        auto ref_dist2 = hd::EuclideanDistance2(
+            point_a,
+            params.points_b_batched[ray_idx * TENSOR_2D_BATCH_SIZE + i]);
+        // (x_ai - x_bi)^2, (y_ai - y_bi)^2
         auto dist2 = points_a_b[i * 2] + points_a_b[i * 2 + 1];
+        assert(dist2 == ref_dist2);
         // dist2 and radius*radius to vectors, use step function to filter out
         // out-of-circle distances
         if (dist2 <= radius * radius) {
-          if (dist2 <= cmax2) {
-            optixReportIntersection(0, 0);
-          }
           if (dist2 < cmin2) {
             cmin2 = dist2;
+            cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
+            optixSetPayload_2(cmin2_storage);
+          }
+          if (dist2 <= *params.cmax2 || n_hits > params.max_hit) {
+            term = true;
           }
         }
       }
-      cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
-      optixSetPayload_2(cmin2_storage);
-    }
 
-    if (n_hits > params.max_hit) {
-      optixReportIntersection(0, 0);
+      if (term) {
+        optixReportIntersection(0, 0);
+      }
     }
   }
 }
@@ -95,8 +102,8 @@ extern "C" __global__ void __raygen__nn_tensor_2d() {
 
     auto cmin2 = std::numeric_limits<FLOAT_TYPE>::max();
     unsigned int n_hits = 0;
-
     auto cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
+
     optixTrace(params.handle, origin, dir, tmin, tmax, 0,
                OptixVisibilityMask(255),
                OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
@@ -114,20 +121,25 @@ extern "C" __global__ void __raygen__nn_tensor_2d() {
       // handle remaining accumulated points
       // TODO: Do Tensor cores help, here?
       for (int offset = 0; offset < n_hits % TENSOR_2D_BATCH_SIZE; offset++) {
-        auto dist2 = EuclideanDistance2(point_a, params.points_a_b[i * 2]);
-        // dist2 and radius*radius to vectors, use step function to filter out
+        auto dist2 = hd::EuclideanDistance2(
+            point_a,
+            params.points_b_batched[i * TENSOR_2D_BATCH_SIZE + offset]);
+        // dist2 and radius*radius to vectors, use step function to  filter out
         // out-of-circle distances
         if (dist2 <= radius * radius) {
-          if (dist2 <= *params.cmax2) {
-            break;
-          }
           if (dist2 < cmin2) {
             cmin2 = dist2;
+          }
+          if (dist2 <= *params.cmax2) {
+            break;
           }
         }
       }
 
       if (cmin2 != std::numeric_limits<FLOAT_TYPE>::max()) {
+        if (cmin2 > 2.00000763) {
+          //          printf("Set wrong dist %.6f\n", cmin2);
+        }
         atomicMax(params.cmax2, cmin2);
       } else {
         params.miss_queue.Append(point_id_a);
@@ -135,4 +147,3 @@ extern "C" __global__ void __raygen__nn_tensor_2d() {
     }
   }
 }
-#endif

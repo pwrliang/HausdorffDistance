@@ -52,6 +52,41 @@ function vary_dist() {
 }
 
 function vary_datasets() {
+  LIMIT=5000000
+  variant=$1
+  execution=$2
+  datasets=(dtl_cnty.wkt lakes.bz2.wkt parks.bz2.wkt parks_Europe.wkt USACensusBlockGroupBoundaries.wkt USADetailedWaterBodies.wkt)
+
+  for file1 in "${datasets[@]}"; do
+    for file2 in "${datasets[@]}"; do
+      if [[ "$file1" != "$file2" ]]; then
+        log="${log_dir}/vary_datasets/${variant}_${execution}_${file1}_${file2}_limit_${LIMIT}.log"
+
+        if [[ ! -f "${log}" ]]; then
+          echo "${log}" | xargs dirname | xargs mkdir -p
+
+          cmd="$PROG_ROOT/hd_exec \
+                  -input1 $DATASET_ROOT/$file1 \
+                  -input2 $DATASET_ROOT/$file2 \
+                  -serialize $SERIALIZE_ROOT \
+                  -n_dims 2 \
+                  -limit $LIMIT \
+                  -variant $variant \
+                  -execution $execution"
+
+          echo "$cmd" >"${log}.tmp"
+          eval "$cmd" 2>&1 | tee -a "${log}.tmp"
+
+          if grep -q "Running Time" "${log}.tmp"; then
+            mv "${log}.tmp" "${log}"
+          fi
+        fi
+      fi
+    done
+  done
+}
+
+function vary_datasets_profile() {
   LIMIT=500000
   variant=$1
   execution=$2
@@ -69,15 +104,24 @@ function vary_datasets() {
                   -input1 $DATASET_ROOT/$file1 \
                   -input2 $DATASET_ROOT/$file2 \
                   -serialize $SERIALIZE_ROOT \
+                  -n_dims 2 \
                   -limit $LIMIT \
                   -variant $variant \
-                  -execution $execution"
+                  -execution $execution \
+                  -repeat 1"
 
           echo "$cmd" >"${log}.tmp"
           eval "$cmd" 2>&1 | tee -a "${log}.tmp"
 
           if grep -q "Running Time" "${log}.tmp"; then
             mv "${log}.tmp" "${log}"
+            for iter in $(seq 1 10); do
+              if [[ -f "/tmp/iter_${iter}" ]]; then
+                mv "/tmp/iter_${iter}" "${log_dir}/vary_datasets/${variant}_${execution}_${file1}_${file2}_limit_${LIMIT}_iter_${iter}.log"
+              else
+                break
+              fi
+            done
           fi
         fi
       fi
@@ -124,12 +168,60 @@ function medical_image() {
   done
 }
 
-medical_image "eb" "parallel"
-medical_image "eb" "gpu"
-medical_image "zorder" "gpu"
-medical_image "rt" "gpu"
-medical_image "hybrid" "gpu"
-medical_image "itk" "serial"
+function medical_image_profile() {
+  variant=$1
+  execution=$2
+  dataset_root="/local/storage/liang/BraTS2020_TrainingData"
+  mapfile -t dataset_list < <(find "$dataset_root" -name '*t1.nii')
+  # Set a random seed
+  #    SEED=1234
+  # shuffled=($(printf "%s\n" "${dataset_list[@]}" | sort --random-source=<(echo "$SEED") | shuf))
+
+  for ((i = 1; i <= ${#dataset_list[@]} - 2; i += 2)); do
+    file1=${dataset_list[i]}
+    file2=${dataset_list[i + 1]}
+    name1=$(basename $file1)
+    name2=$(basename $file2)
+    log="${log_dir}/BraTS20/${variant}_${execution}_${name1}_${name2}.log"
+
+    if [[ ! -f "${log}" ]]; then
+      echo "${log}" | xargs dirname | xargs mkdir -p
+
+      cmd="$PROG_ROOT/hd_exec \
+            -input1 $file1 \
+            -input2 $file2 \
+            -input_type image \
+            -n_dims 3 \
+            -serialize $SERIALIZE_ROOT \
+            -variant $variant \
+            -execution $execution \
+            -v=1"
+      echo "$cmd" >"${log}.tmp"
+      eval "$cmd" 2>&1 | tee -a "${log}.tmp"
+
+      if grep -q "Running Time" "${log}.tmp"; then
+        mv "${log}.tmp" "${log}"
+        for iter in $(seq 1 10); do
+          if [[ -f "/tmp/iter_${iter}" ]]; then
+            mv "/tmp/iter_${iter}" "${log_dir}/BraTS20/${variant}_${execution}_${name1}_${name2}_iter_${iter}.log"
+          else
+            break
+          fi
+        done
+      fi
+    fi
+  done
+}
+
+#medical_image_profile "rt" "gpu"
+#vary_datasets_profile "rt" "gpu"
+
+#medical_image "eb" "parallel"
+#medical_image "eb" "gpu"
+#medical_image "zorder" "gpu"
+#medical_image "rt" "gpu"
+#medical_image "hybrid" "gpu"
+#medical_image "itk" "serial"
 
 #vary_dist "eb" "serial"
 #vary_dist "eb" "parallel"
@@ -141,5 +233,7 @@ medical_image "itk" "serial"
 #vary_datasets "zorder" "serial"
 #vary_datasets "yuan" "serial"
 
-#vary_datasets "eb" "gpu"
-#vary_datasets "rt" "gpu"
+vary_datasets "eb" "parallel"
+vary_datasets "eb" "gpu"
+vary_datasets "rt" "gpu"
+vary_datasets "hybrid" "gpu"

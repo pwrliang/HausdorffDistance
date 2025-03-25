@@ -76,6 +76,7 @@ int main(int argc, char* argv[]) {
   config.sample_rate = FLAGS_sample_rate;
   config.max_hit = FLAGS_max_hit;
   config.tensor = FLAGS_tensor;
+  config.triangle = FLAGS_triangle;
 
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";

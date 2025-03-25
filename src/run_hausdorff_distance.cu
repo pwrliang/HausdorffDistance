@@ -37,15 +37,15 @@ void RunHausdorffDistance(const RunConfig& config) {
 
   if (config.is_double) {
     if (config.n_dims == 2) {
-      dist = RunHausdorffDistanceImpl<double, 2>(config);
+      // dist = RunHausdorffDistanceImpl<double, 2>(config);
     } else if (config.n_dims == 3) {
-      dist = RunHausdorffDistanceImpl<double, 3>(config);
+      // dist = RunHausdorffDistanceImpl<double, 3>(config);
     }
   } else {
     if (config.n_dims == 2) {
       dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      dist = RunHausdorffDistanceImpl<float, 3>(config);
+      // dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
   }
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
@@ -92,7 +92,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   rt_config.max_hit = config.max_hit;
 
   hdist_rt.Init(rt_config);
-  hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
+  // hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
 
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
@@ -120,11 +120,11 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
     case Variant::kZORDER: {
       switch (config.execution) {
       case Execution::kSerial:
-        dist = CalculateHausdorffDistanceZOrder(points_a, points_b);
+        // dist = CalculateHausdorffDistanceZOrder(points_a, points_b);
         break;
       case Execution::kGPU:
-        dist =
-            CalculateHausdorffDistanceZorderGPU(stream, d_points_a, d_points_b);
+        // dist =
+            // CalculateHausdorffDistanceZorderGPU(stream, d_points_a, d_points_b);
         break;
       }
       break;
@@ -132,33 +132,38 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
     case Variant::kYUAN: {
       switch (config.execution) {
       case Execution::kSerial:
-        dist = CalculateHausdorffDistanceYuan(points_a, points_b);
+        // dist = CalculateHausdorffDistanceYuan(points_a, points_b);
         break;
       }
       break;
     }
     case Variant::kRT: {
       if (config.tensor) {
-        dist = hdist_rt.CalculateDistanceTensor(stream, d_points_a, d_points_b);
+        // dist = hdist_rt.CalculateDistanceTensor(stream, d_points_a, d_points_b);
       } else {
-        dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+        if (config.triangle > 3) {
+          dist = hdist_rt.CalculateDistanceTriangle(stream, d_points_a,
+                                                    d_points_b, config.triangle);
+        } else {
+          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
+        }
       }
       break;
     }
     case Variant::kHybrid: {
-      dist = hdist_rt.CalculateDistanceHybrid(stream, d_points_a, d_points_b);
+      // dist = hdist_rt.CalculateDistanceHybrid(stream, d_points_a, d_points_b);
       break;
     }
     case Variant::kBRANCH_BOUND: {
-      dist = hdist_lbvh.CalculateDistanceFrom(stream, points_a.begin(),
-                                              points_a.end());
+      // dist = hdist_lbvh.CalculateDistanceFrom(stream, points_a.begin(),
+                                              // points_a.end());
       break;
     }
     case Variant::kITK: {
       double curr_loading_time = 0;
-      dist = CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
-                                                   config.input_file2.c_str(),
-                                                   curr_loading_time);
+      // dist = CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
+      //                                              config.input_file2.c_str(),
+      //                                              curr_loading_time);
       loading_time_ms += curr_loading_time;
       break;
     }

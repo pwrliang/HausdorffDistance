@@ -8,7 +8,7 @@
 #include "utils/type_traits.h"
 #define RTSPATIAL_OPTIX_LAUNCH_PARAMS_NAME "params"
 // Total length of a Tensor cannot be grater than 64*4 bytes
-#define TENSOR_2D_BATCH_SIZE (16) // 16*2 = 32 FLOATS
+#define TENSOR_2D_BATCH_SIZE (8) // 16*2 = 32 FLOATS
 
 namespace hd {
 namespace details {
@@ -25,8 +25,11 @@ struct LaunchParamsNN {
   OptixTraversableHandle handle;
   COORD_T* cmax2;
   COORD_T radius;
+  COORD_T max_t;
   uint32_t* n_hits;
+  uint32_t* hits_counters;
   uint32_t max_hit;
+  uint32_t n_triangles;
 };
 
 

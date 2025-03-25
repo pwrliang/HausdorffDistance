@@ -32,7 +32,9 @@ extern "C" __global__ void __intersection__nn_3d() {
       point_a.y <= max_y && point_a.z >= min_z && point_a.z <= max_z) {
     optixSetPayload_1(n_hits + 1);
     FLOAT_TYPE cmin2;
-
+    if (params.hits_counters != nullptr) {
+      params.hits_counters[optixGetLaunchIndex().x]++;
+    }
     auto dist2 = hd::EuclideanDistance2(point_a, point_b);
 
     if (dist2 <= radius * radius) {

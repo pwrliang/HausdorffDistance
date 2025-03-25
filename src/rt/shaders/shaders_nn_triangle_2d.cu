@@ -12,11 +12,11 @@ enum { SURFACE_RAY_TYPE = 0, RAY_TYPE_COUNT };
 // FLOAT_TYPE is defined by CMakeLists.txt
 extern "C" __constant__ hd::details::LaunchParamsNN<FLOAT_TYPE, 2> params;
 
-extern "C" __global__ void __intersection__nn_2d() {
+extern "C" __global__ void __anyhit__nn_triangle_2d() {
+  auto point_b_id = optixGetPrimitiveIndex() / params.n_triangles;
   using point_t = typename decltype(params)::point_t;
   auto point_a_id = optixGetPayload_0();
   auto n_hits = optixGetPayload_1();
-  auto point_b_id = optixGetPrimitiveIndex();
   const auto& point_a = params.points_a[point_a_id];
   const auto& point_b = params.points_b[point_b_id];
   auto radius = params.radius;
@@ -26,53 +26,48 @@ extern "C" __global__ void __intersection__nn_2d() {
   FLOAT_TYPE min_y = point_b.y - radius;
   FLOAT_TYPE max_y = point_b.y + radius;
 
-  if (point_a.x >= min_x && point_a.x <= max_x && point_a.y >= min_y &&
-          point_a.y <= max_y ||
-      true) {
-    if (params.hits_counters != nullptr) {
-      params.hits_counters[optixGetLaunchIndex().x]++;
-    }
+  optixSetPayload_1(n_hits + 1);
+  FLOAT_TYPE cmin2;
 
-    optixSetPayload_1(n_hits + 1);
-    FLOAT_TYPE cmin2;
+  auto dist2 = hd::EuclideanDistance2(point_a, point_b);
+  if (params.hits_counters != nullptr) {
+    params.hits_counters[optixGetLaunchIndex().x]++;
+  }
 
-    auto dist2 = hd::EuclideanDistance2(point_a, point_b);
+  if (dist2 <= radius * radius) {
+    if (sizeof(FLOAT_TYPE) == sizeof(float)) {
+      auto cmin2_storage = optixGetPayload_2();
+      cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
 
-    if (dist2 <= radius * radius) {
-      if (sizeof(FLOAT_TYPE) == sizeof(float)) {
-        auto cmin2_storage = optixGetPayload_2();
-        cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
+      if (dist2 < cmin2) {
+        cmin2 = dist2;
+        cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
+        optixSetPayload_2(cmin2_storage);
+      }
+    } else {
+      uint2 cmin2_storage{optixGetPayload_2(), optixGetPayload_3()};
+      hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
 
-        if (dist2 < cmin2) {
-          cmin2 = dist2;
-          cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
-          optixSetPayload_2(cmin2_storage);
-        }
-      } else {
-        uint2 cmin2_storage{optixGetPayload_2(), optixGetPayload_3()};
-        hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
-
-        if (dist2 < cmin2) {
-          cmin2 = dist2;
-          hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
-          optixSetPayload_2(cmin2_storage.x);
-          optixSetPayload_3(cmin2_storage.y);
-        }
+      if (dist2 < cmin2) {
+        cmin2 = dist2;
+        hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
+        optixSetPayload_2(cmin2_storage.x);
+        optixSetPayload_3(cmin2_storage.y);
       }
     }
+  }
 
-    if (dist2 <= *params.cmax2 || n_hits > params.max_hit) {
-      optixReportIntersection(0, 0);
-    }
+  if (dist2 <= *params.cmax2 || n_hits > params.max_hit) {
+     optixTerminateRay();
+  } else {
+    optixIgnoreIntersection();
   }
 }
 
-extern "C" __global__ void __anyhit__nn_2d() { optixTerminateRay(); }
-
-extern "C" __global__ void __raygen__nn_2d() {
+extern "C" __global__ void __raygen__nn_triangle_2d() {
   const auto& in_queue = params.in_queue;
   float tmin = 0;
-  float tmax = FLT_MIN;
+  float tmax = params.max_t;
 
   for (auto i = optixGetLaunchIndex().x; i < in_queue.size();
        i += optixGetLaunchDimensions().x) {
@@ -82,33 +77,34 @@ extern "C" __global__ void __raygen__nn_2d() {
     float3 origin;
     origin.x = point_a.x;
     origin.y = point_a.y;
-    origin.z = 0;
-    float3 dir = {0, 0, 1};
+    origin.z = FLT_MIN;
+    float3 dir = {0, 1, 0};
 
     auto cmin2 = std::numeric_limits<FLOAT_TYPE>::max();
     unsigned int n_hits = 0;
 
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
       auto cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
+      // OPTIX_RAY_FLAG_CULL_BACK_FACING_TRIANGLES
       optixTrace(params.handle, origin, dir, tmin, tmax, 0,
                  OptixVisibilityMask(255),
-                 OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
+                 OPTIX_RAY_FLAG_CULL_BACK_FACING_TRIANGLES,  // OPTIX_RAY_FLAG_NONE,
                  SURFACE_RAY_TYPE,     // SBT offset
                  RAY_TYPE_COUNT,       // SBT stride
                  SURFACE_RAY_TYPE,     // missSBTIndex
                  point_id_a, n_hits, cmin2_storage);
       cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
     } else {
-      uint2 cmin2_storage;
-      hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
-      optixTrace(params.handle, origin, dir, tmin, tmax, 0,
-                 OptixVisibilityMask(255),
-                 OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
-                 SURFACE_RAY_TYPE,     // SBT offset
-                 RAY_TYPE_COUNT,       // SBT stride
-                 SURFACE_RAY_TYPE,     // missSBTIndex
-                 point_id_a, n_hits, cmin2_storage.x, cmin2_storage.y);
-      hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
+      //      uint2 cmin2_storage;
+      //      hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
+      //      optixTrace(params.handle, origin, dir, tmin, tmax, 0,
+      //                 OptixVisibilityMask(255),
+      //                 OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
+      //                 SURFACE_RAY_TYPE,     // SBT offset
+      //                 RAY_TYPE_COUNT,       // SBT stride
+      //                 SURFACE_RAY_TYPE,     // missSBTIndex
+      //                 point_id_a, n_hits, cmin2_storage.x, cmin2_storage.y);
+      //      hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
     }
     atomicAdd(params.n_hits, n_hits);
 
