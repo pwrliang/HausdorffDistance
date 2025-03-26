@@ -461,6 +461,7 @@ class Grid {
                             1.0,   // Multiplier for results
                             CSV);  // Format CLASSIC/CSV supported.
                                   hdr_close(histogram);
+    LOG(INFO) << "Avg points/cell " << hdr_mean(histogram);
   }
 
  private:

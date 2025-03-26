@@ -24,7 +24,7 @@
 #include "utils/util.h"
 
 #define NEXT_AFTER_ROUNDS (2)
-#define PROFILING
+// #define PROFILING
 
 namespace hd {
 
@@ -109,7 +109,6 @@ class HausdorffDistanceRT {
   using coord_t = COORD_T;
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
-  using labeled_point_t = LabeledPoint<N_DIMS>;
 
  public:
   HausdorffDistanceRT() = default;
