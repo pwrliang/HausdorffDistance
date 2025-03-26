@@ -1,7 +1,6 @@
 #include <glog/logging.h>
 
 #include "flags.h"
-#include "play.cuh"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
 
