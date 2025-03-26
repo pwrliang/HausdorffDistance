@@ -5,17 +5,12 @@
 #include <thrust/random.h>
 #include <thrust/shuffle.h>
 
-#include <boost/geometry/algorithms/detail/partition.hpp>
 #include <cmath>
 #include <iomanip>
 
-#include "cukd/kdtree.h"
-#include "cukd/spatial-kdtree.h"
 #include "distance.h"
 #include "grid.h"
 #include "hdr/hdr_histogram.h"
-#include "kdtree/kd_tree_helpers.h"
-#include "kdtree/labeled_point.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
 #include "sampler.h"
@@ -29,7 +24,7 @@
 #include "utils/util.h"
 
 #define NEXT_AFTER_ROUNDS (2)
-// #define PROFILING
+#define PROFILING
 
 namespace hd {
 
@@ -337,6 +332,10 @@ class HausdorffDistanceRT {
     sw.stop();
     LOG(INFO) << "Grid time " << sw.ms() << " ms";
 
+#ifdef PROFILING
+    grid_.PrintHistogram();
+#endif
+
     auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
         mbrs_b.size(), config_.fast_build, config_.compact);
     LOG(INFO) << "Primitives " << mbrs_b.size() << " BVH Mem "
@@ -359,10 +358,9 @@ class HausdorffDistanceRT {
     auto gas_handle = BuildBVH(stream, mbrs_b, radius);
     stream.Sync();
 
-    SharedValue<uint32_t> iter_hits;
     int iter = 0;
 #ifdef PROFILING
-    struct hdr_histogram* histogram;
+    hdr_histogram* histogram;
     // Initialise the histogram
     hdr_init(1,                     // Minimum value
              (int64_t) n_points_b,  // Maximum value
@@ -372,7 +370,6 @@ class HausdorffDistanceRT {
 
     while (in_size > 0) {
       iter++;
-      iter_hits.set(stream.cuda_stream(), 0);
       details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
       ArrayView<uint32_t> in(in_queue_.data(), in_size);
 
@@ -386,7 +383,6 @@ class HausdorffDistanceRT {
       params.mbrs_b = thrust::raw_pointer_cast(mbrs_b.data());
       params.prefix_sum = grid_.get_prefix_sum().data();
       params.point_b_ids = grid_.get_point_ids().data();
-      params.n_hits = iter_hits.data();
 
 #ifdef PROFILING
       hits_counters_.resize(in_size, 0);
@@ -466,6 +462,10 @@ class HausdorffDistanceRT {
         }
       }
     }
+#ifdef PROFILING
+    hdr_close(histogram);
+#endif
+
     return sqrt(cmax2_.get(stream.cuda_stream()));
   }
 

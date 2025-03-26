@@ -6,11 +6,13 @@
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
-#include <utils/bitset.h>
+
+#include "hdr/hdr_histogram.h"
 
 #include "glog/logging.h"
 #include "mbr.h"
 #include "utils/array_view.h"
+#include "utils/bitset.h"
 #include "utils/launcher.h"
 #include "utils/util.h"
 
@@ -437,6 +439,29 @@ class Grid {
   ArrayView<uint32_t> get_prefix_sum() { return prefix_sum_; }
 
   ArrayView<uint32_t> get_point_ids() { return point_ids_; }
+
+  void PrintHistogram() {
+    auto n_nonempty = cell_ids_.size();
+    hdr_histogram* histogram;
+    // Initialise the histogram
+    hdr_init(1,                     // Minimum value
+             (int64_t) n_nonempty,  // Maximum value
+             3,                     // Number of significant figures
+             &histogram);           // Pointer to initialise
+    thrust::host_vector<uint32_t> prefix_sum = prefix_sum_;
+    for (uint32_t i = 0; i < n_nonempty; i++) {
+        auto n_points = prefix_sum[i + 1] - prefix_sum[i];
+                  hdr_record_value(histogram,  // Histogram to record to
+                           n_points);       // Value to record
+    }
+
+      hdr_percentiles_print(histogram,
+                            stdout,  // File to write to
+                            3,     // Granularity of printed values
+                            1.0,   // Multiplier for results
+                            CSV);  // Format CLASSIC/CSV supported.
+                                  hdr_close(histogram);
+  }
 
  private:
   Bitset<uint64_t> occupied_cells_;

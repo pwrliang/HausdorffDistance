@@ -13,6 +13,7 @@ enum { SURFACE_RAY_TYPE = 0, RAY_TYPE_COUNT };
 extern "C" __constant__ hd::details::LaunchParamsNNCompress<FLOAT_TYPE, 2>
     params;
 
+
 extern "C" __global__ void __intersection__nn_compress_2d() {
   using point_t = typename decltype(params)::point_t;
   auto point_a_id = optixGetPayload_0();
@@ -124,7 +125,6 @@ extern "C" __global__ void __raygen__nn_compress_2d() {
                  point_id_a, n_hits, cmin2_storage.x, cmin2_storage.y);
       hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
     }
-    atomicAdd(params.n_hits, n_hits);
 
     if (n_hits > params.max_hit) {
       params.term_queue.Append(point_id_a);
