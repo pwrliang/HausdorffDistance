@@ -10,10 +10,10 @@
 
 enum { SURFACE_RAY_TYPE = 0, RAY_TYPE_COUNT };
 // FLOAT_TYPE is defined by CMakeLists.txt
-extern "C" __constant__ hd::details::LaunchParamsNNCompress<FLOAT_TYPE, 2>
+extern "C" __constant__ hd::details::LaunchParamsNNCompress<FLOAT_TYPE, 3>
     params;
 
-extern "C" __global__ void __intersection__nn_compress_2d() {
+extern "C" __global__ void __intersection__nn_compress_3d() {
   using point_t = typename decltype(params)::point_t;
   auto point_a_id = optixGetPayload_0();
   auto n_hits = optixGetPayload_1();
@@ -80,9 +80,9 @@ extern "C" __global__ void __intersection__nn_compress_2d() {
   }
 }
 
-extern "C" __global__ void __anyhit__nn_compress_2d() { optixTerminateRay(); }
+extern "C" __global__ void __anyhit__nn_compress_3d() { optixTerminateRay(); }
 
-extern "C" __global__ void __raygen__nn_compress_2d() {
+extern "C" __global__ void __raygen__nn_compress_3d() {
   const auto& in_queue = params.in_queue;
   float tmin = 0;
   float tmax = FLT_MIN;
@@ -95,7 +95,7 @@ extern "C" __global__ void __raygen__nn_compress_2d() {
     float3 origin;
     origin.x = point_a.x;
     origin.y = point_a.y;
-    origin.z = 0;
+    origin.z = point_a.z;
     float3 dir = {0, 0, 1};
 
     auto cmin2 = std::numeric_limits<FLOAT_TYPE>::max();

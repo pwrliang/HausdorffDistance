@@ -397,10 +397,13 @@ class HausdorffDistanceRT {
         if (N_DIMS == 2) {
           mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_2D;
         } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_3D;
         }
       } else if (typeid(COORD_T) == typeid(double)) {
         if (N_DIMS == 2) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_2D;
         } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_3D;
         }
       }
 
