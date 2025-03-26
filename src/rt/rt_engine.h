@@ -40,8 +40,7 @@ enum ModuleIdentifier {
   MODULE_ID_PLAY,
   MODULE_ID_FLOAT_NN_2D,
   MODULE_ID_DOUBLE_NN_2D,
-  MODULE_ID_FLOAT_NN_TRIANGLE_2D,
-  MODULE_ID_FLOAT_NN_TENSOR_2D,
+  MODULE_ID_FLOAT_NN_COMPRESS_2D,
   MODULE_ID_FLOAT_NN_3D,
   MODULE_ID_DOUBLE_NN_3D,
   NUM_MODULE_IDENTIFIERS
@@ -183,32 +182,17 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     mod.set_program_path(ptx_root + "/double_shaders_nn_3d.ptx");
     config.AddModule(mod);
   }
+
   {
     Module mod;
 
-    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_TRIANGLE_2D);
-    mod.set_type(ModuleType::kTriangle);
-    mod.set_program_path(ptx_root + "/float_shaders_nn_triangle_2d.ptx");
-    mod.set_function_suffix("nn_triangle_2d");
-    mod.EnableAnyHit();
-    mod.set_n_payload(4);
-
-    config.AddModule(mod);
-
-    // mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_2D);
-    // mod.set_program_path(ptx_root + "/double_shaders_nn_2d.ptx");
-    // config.AddModule(mod);
-  }
-  {
-    Module mod;
-
-    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_TENSOR_2D);
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_COMPRESS_2D);
     mod.set_type(ModuleType::kCUSTOM);
-    mod.set_program_path(ptx_root + "/float_shaders_nn_tensor_2d.ptx");
-    mod.set_function_suffix("nn_tensor_2d");
+    mod.set_program_path(ptx_root + "/float_shaders_nn_compress_2d.ptx");
+    mod.set_function_suffix("nn_compress_2d");
     mod.EnableIsIntersection();
     mod.EnableAnyHit();
-    mod.set_n_payload(6);
+    mod.set_n_payload(4);
 
     config.AddModule(mod);
   }

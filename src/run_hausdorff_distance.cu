@@ -89,7 +89,9 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   rt_config.radius_step = config.radius_step;
   rt_config.init_radius = config.init_radius;
   rt_config.sample_rate = config.sample_rate;
+  rt_config.max_reg_count = config.max_reg_count;
   rt_config.max_hit = config.max_hit;
+  rt_config.grid_size = config.grid_size;
 
   hdist_rt.Init(rt_config);
   // hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
@@ -124,7 +126,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
         break;
       case Execution::kGPU:
         // dist =
-            // CalculateHausdorffDistanceZorderGPU(stream, d_points_a, d_points_b);
+        // CalculateHausdorffDistanceZorderGPU(stream, d_points_a, d_points_b);
         break;
       }
       break;
@@ -138,30 +140,28 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::kRT: {
-      if (config.tensor) {
-        // dist = hdist_rt.CalculateDistanceTensor(stream, d_points_a, d_points_b);
+      if (config.grid_size > 0) {
+        dist =
+            hdist_rt.CalculateDistanceCompress(stream, d_points_a, d_points_b);
       } else {
-        if (config.triangle > 3) {
-          dist = hdist_rt.CalculateDistanceTriangle(stream, d_points_a,
-                                                    d_points_b, config.triangle);
-        } else {
-          dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
-        }
+        dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
       }
       break;
     }
     case Variant::kHybrid: {
-      // dist = hdist_rt.CalculateDistanceHybrid(stream, d_points_a, d_points_b);
+      // dist = hdist_rt.CalculateDistanceHybrid(stream, d_points_a,
+      // d_points_b);
       break;
     }
     case Variant::kBRANCH_BOUND: {
       // dist = hdist_lbvh.CalculateDistanceFrom(stream, points_a.begin(),
-                                              // points_a.end());
+      // points_a.end());
       break;
     }
     case Variant::kITK: {
       double curr_loading_time = 0;
-      // dist = CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
+      // dist =
+      // CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
       //                                              config.input_file2.c_str(),
       //                                              curr_loading_time);
       loading_time_ms += curr_loading_time;

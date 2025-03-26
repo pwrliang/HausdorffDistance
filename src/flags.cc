@@ -24,5 +24,5 @@ DEFINE_double(
     "Initial radius for the RT method. If it is 0, it will be auto computed");
 DEFINE_double(sample_rate, 0.001, "");
 DEFINE_int32(max_hit, 128, "Max number of hit by RT method before using EB");
-DEFINE_bool(tensor, false, "Whether to use Tensor cores");
-DEFINE_int32(triangle, 0, "# of triangles per serach range");
+DEFINE_int32(max_reg, 0, "Max # of registers for RT");
+DEFINE_int32(grid_size, 0, "grid resolution");
