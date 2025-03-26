@@ -126,6 +126,5 @@ ENDFUNCTION()
 # ------------------------------------------------------------------
 # and final build rules for the project
 # ------------------------------------------------------------------
-include_directories(thirdparty/cudaKDTree)
 
 add_subdirectory(src)
