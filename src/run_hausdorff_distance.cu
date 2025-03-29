@@ -17,17 +17,6 @@
 #include "utils/type_traits.h"
 #include "wkt_loader.h"
 
-// TODO: Idea
-
-/**
- * Build a grid over points B, each cell turns into cell.xyz +/- radius
- *
- * cast a ray from A to know a point intersects how many points from B
- *
- * for a given point A that has a high number of intersections -> early break
- * otherwise, use RT method
- *
- */
 namespace hd {
 template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(const RunConfig& config);
@@ -37,9 +26,9 @@ void RunHausdorffDistance(const RunConfig& config) {
 
   if (config.is_double) {
     if (config.n_dims == 2) {
-      dist = RunHausdorffDistanceImpl<double, 2>(config);
+      // dist = RunHausdorffDistanceImpl<double, 2>(config);
     } else if (config.n_dims == 3) {
-      dist = RunHausdorffDistanceImpl<double, 3>(config);
+      // dist = RunHausdorffDistanceImpl<double, 3>(config);
     }
   } else {
     if (config.n_dims == 2) {

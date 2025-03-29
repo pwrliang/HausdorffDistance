@@ -201,11 +201,15 @@ class Grid {
   void Init(const cell_pos_t& grid_size, const mbr_t& mbr) {
     grid_size_ = grid_size;
     mbr_ = mbr;
+    occupied_cells_.Init(get_grid_size());
+  }
+
+  uint64_t get_grid_size() const {
     uint64_t total_cells = 1;
     for (int dim = 0; dim < N_DIMS; dim++) {
-      total_cells *= reinterpret_cast<const unsigned int*>(&grid_size.x)[dim];
+      total_cells *= reinterpret_cast<const unsigned int*>(&grid_size_.x)[dim];
     }
-    occupied_cells_.Init(total_cells);
+    return total_cells;
   }
 
   void Insert(const Stream& stream,
@@ -399,15 +403,22 @@ class Grid {
       hdr_record_value(histogram,  // Histogram to record to
                        n_points);  // Value to record
     }
-
+    FILE* file = fopen("/tmp/grid", "w");  // Open file in write mode
+    CHECK(file != nullptr) << "Error opening file " << "/tmp/grid";
     hdr_percentiles_print(histogram,
-                          stdout,  // File to write to
-                          3,       // Granularity of printed values
-                          1.0,     // Multiplier for results
-                          CSV);    // Format CLASSIC/CSV supported.
+                          file,  // File to write to
+                          3,     // Granularity of printed values
+                          1.0,   // Multiplier for results
+                          CSV);  // Format CLASSIC/CSV supported.
     hdr_close(histogram);
-    LOG(INFO) << "Avg points/non empty cell "
-              << prefix_sum[prefix_sum.size() - 1] / n_nonempty;
+    fclose(file);
+    VLOG(1) << "Non empty cells " << n_nonempty << " Total cells "
+            << get_grid_size() << " Occupancy "
+            << (double) n_nonempty / get_grid_size();
+    VLOG(1) << "Avg points/non empty cell "
+            << prefix_sum[prefix_sum.size() - 1] / n_nonempty
+            << " Avg points/all cells "
+            << prefix_sum[prefix_sum.size() - 1] / get_grid_size();
   }
 
  private:

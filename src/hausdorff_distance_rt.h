@@ -24,7 +24,7 @@
 #include "utils/util.h"
 
 #define NEXT_AFTER_ROUNDS (2)
-// #define PROFILING
+#define PROFILING
 
 namespace hd {
 
@@ -129,37 +129,38 @@ class HausdorffDistanceRT {
     auto n_points_b = points_b.size();
     const auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
     const auto mbr_b = CalculateMbr(stream, points_b.begin(), points_b.end());
-    auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
-        n_points_b, config_.fast_build, config_.compact);
-    LOG(INFO) << "Primitives " << n_points_b << " BVH Mem " << mem_bytes / 1024
-              << " KB";
-    buffer_.Init(mem_bytes * 1.5);
-    buffer_.Clear();
-
-    auto sampled_point_ids_a = sampler_.Sample(
-        stream.cuda_stream(), points_a.size(),
-        std::max(1u, (uint32_t) (points_a.size() * config_.sample_rate)));
 
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
+    COORD_T radius = hd_lb;
 
     Stopwatch sw;
-    sw.start();
-    CalculateHDEarlyBreak(stream, points_a, points_b, sampled_point_ids_a);
-    auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
-    sw.stop();
-    LOG(INFO) << "Sampled HD " << sqrt(sampled_hd2) << " time " << sw.ms();
 
-    COORD_T radius = sqrt(sampled_hd2);
+    // Sample points for a better initial HD
+    {
+      sw.start();
+      auto sampled_point_ids_a = sampler_.Sample(
+          stream.cuda_stream(), points_a.size(),
+          std::max(1u, (uint32_t) ceil(points_a.size() * config_.sample_rate)));
+      thrust::device_vector<point_t> backup_points_b = points_b;
+      thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                      points_b.begin(), points_b.end(), g_);
+      CalculateHDEarlyBreak(stream, points_a, points_b, sampled_point_ids_a);
+      auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
+      radius = sqrt(sampled_hd2);
+      points_b = backup_points_b;
+      sw.stop();
+      LOG(INFO) << "Sampled HD " << sqrt(sampled_hd2) << " time " << sw.ms();
+    }
+
     COORD_T max_radius = hd_ub;
 
     LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub << " Init Radius " << radius;
 
     in_queue_.Init(n_points_a);
-    term_queue_.Init(n_points_a);
     out_queue_.Init(n_points_a);
     in_queue_.Clear(stream.cuda_stream());
     out_queue_.Clear(stream.cuda_stream());
@@ -175,6 +176,12 @@ class HausdorffDistanceRT {
 
     uint32_t in_size = n_points_a;
 
+    buffer_.Clear();
+    auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
+        n_points_b, config_.fast_build, config_.compact);
+    LOG(INFO) << "Primitives " << n_points_b << " BVH Mem " << mem_bytes / 1024
+              << " KB";
+    buffer_.Init(mem_bytes * 1.5);
     buffer_.Clear();
     auto gas_handle = BuildBVH(stream, points_b, radius);
     stream.Sync();
@@ -228,10 +235,8 @@ class HausdorffDistanceRT {
         }
       }
 
-      dim3 dims{1, 1, 1};
-      Stopwatch sw;
+      dim3 dims{in_size, 1, 1};
       sw.start();
-      dims.x = in_size;
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
       rt_engine_.Render(stream.cuda_stream(), mod_nn, dims);
       stream.Sync();
@@ -249,10 +254,7 @@ class HausdorffDistanceRT {
       std::string path = "/tmp/iter_" + std::to_string(iter);
       FILE* file = fopen(path.c_str(), "w");  // Open file in write mode
 
-      if (file == nullptr) {
-        printf("Error opening file!\n");
-        return 1;  // Exit with error
-      }
+      CHECK(file != nullptr) << "Error opening file " << path;
 
       hdr_percentiles_print(histogram,
                             file,  // File to write to
@@ -301,26 +303,32 @@ class HausdorffDistanceRT {
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
+    COORD_T radius = hd_lb;
 
     Stopwatch sw;
-    sw.start();
-    auto sampled_point_ids_a = sampler_.Sample(
-        stream.cuda_stream(), points_a.size(),
-        std::max(1u, (uint32_t) (points_a.size() * config_.sample_rate)));
-    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
-                points_b.begin(), points_b.end(), g_);
-    CalculateHDEarlyBreak(stream, points_a, points_b, sampled_point_ids_a);
-    auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
-    sw.stop();
-    LOG(INFO) << "Sampled HD " << sqrt(sampled_hd2) << " time " << sw.ms();
 
-    COORD_T radius = sqrt(sampled_hd2);
+    // Sample points for a better initial HD
+    {
+      sw.start();
+      auto sampled_point_ids_a = sampler_.Sample(
+          stream.cuda_stream(), points_a.size(),
+          std::max(1u, (uint32_t) ceil(points_a.size() * config_.sample_rate)));
+      thrust::device_vector<point_t> backup_points_b = points_b;
+      thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                      points_b.begin(), points_b.end(), g_);
+      CalculateHDEarlyBreak(stream, points_a, points_b, sampled_point_ids_a);
+      auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
+      radius = sqrt(sampled_hd2);
+      points_b = backup_points_b;
+      sw.stop();
+      LOG(INFO) << "Sampled HD " << sqrt(sampled_hd2) << " time " << sw.ms();
+    }
+
     COORD_T max_radius = hd_ub;
 
     LOG(INFO) << "LB " << hd_lb << " UB " << hd_ub << " Init Radius " << radius;
 
     in_queue_.Init(n_points_a);
-    term_queue_.Init(n_points_a);
     out_queue_.Init(n_points_a);
     in_queue_.Clear(stream.cuda_stream());
     out_queue_.Clear(stream.cuda_stream());
@@ -417,10 +425,8 @@ class HausdorffDistanceRT {
         }
       }
 
-      dim3 dims{1, 1, 1};
-      Stopwatch sw;
+      dim3 dims{in_size, 1, 1};
       sw.start();
-      dims.x = in_size;
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
       rt_engine_.Render(stream.cuda_stream(), mod_nn, dims);
       stream.Sync();
@@ -438,10 +444,7 @@ class HausdorffDistanceRT {
       std::string path = "/tmp/iter_" + std::to_string(iter);
       FILE* file = fopen(path.c_str(), "w");  // Open file in write mode
 
-      if (file == nullptr) {
-        printf("Error opening file!\n");
-        return 1;  // Exit with error
-      }
+      CHECK(file != nullptr) << "Error opening file " << path;
 
       hdr_percentiles_print(histogram,
                             file,  // File to write to
@@ -704,89 +707,57 @@ class HausdorffDistanceRT {
       n_points_a = points_a.size();
     }
 
-    if (n_points_a < 1024 && points_b.size() > n_points_a && false) {
-      compared_pairs_.set(stream.cuda_stream(),
-                          points_a.size() * points_b.size());
-      cmin2_.resize(n_points_a, std::numeric_limits<COORD_T>::max());
-      auto* p_cmin2 = thrust::raw_pointer_cast(cmin2_.data());
+    compared_pairs_.set(stream.cuda_stream(), 0);
 
-      thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
-                       points_b.begin(), points_b.end(),
-                       [=] __device__(const point_t& point_b) {
-                         auto cmin2 = std::numeric_limits<COORD_T>::max();
+    LaunchKernel(stream, [=] __device__() {
+      using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
+      __shared__ typename BlockReduce::TempStorage temp_storage;
+      __shared__ bool early_break;
+      __shared__ const point_t* point_a;
 
-                         for (size_t i = 0; i < n_points_a; i++) {
-                           auto point_a_idx = i;
-                           if (!v_point_ids_a.empty()) {
-                             point_a_idx = v_point_ids_a[i];
-                           }
+      for (auto i = blockIdx.x; i < n_points_a; i += gridDim.x) {
+        auto size_b_roundup =
+            div_round_up(v_points_b.size(), blockDim.x) * blockDim.x;
+        coord_t cmin = std::numeric_limits<coord_t>::max();
+        uint32_t n_pairs = 0;
 
-                           const auto& point_a = v_points_a[point_a_idx];
-
-                           auto d = EuclideanDistance2(point_a, point_b);
-                           atomicMin(&p_cmin2[i], d);
-                         }
-                       });
-      thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
-                       cmin2_.begin(), cmin2_.end(),
-                       [=] __device__(coord_t cmin2) mutable {
-                         if (cmin2 != std::numeric_limits<COORD_T>::max()) {
-                           atomicMax(p_cmax2, cmin2);
-                         }
-                       });
-    } else {
-      compared_pairs_.set(stream.cuda_stream(), 0);
-
-      LaunchKernel(stream, [=] __device__() {
-        using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
-        __shared__ typename BlockReduce::TempStorage temp_storage;
-        __shared__ bool early_break;
-        __shared__ const point_t* point_a;
-
-        for (auto i = blockIdx.x; i < n_points_a; i += gridDim.x) {
-          auto size_b_roundup =
-              div_round_up(v_points_b.size(), blockDim.x) * blockDim.x;
-          coord_t cmin = std::numeric_limits<coord_t>::max();
-          uint32_t n_pairs = 0;
-
-          if (threadIdx.x == 0) {
-            early_break = false;
-            if (v_point_ids_a.empty()) {
-              point_a = &v_points_a[i];
-            } else {
-              auto point_id_s = v_point_ids_a[i];
-              point_a = &v_points_a[point_id_s];
-            }
-          }
-          __syncthreads();
-
-          for (auto j = threadIdx.x; j < size_b_roundup && !early_break;
-               j += blockDim.x) {
-            auto d = std::numeric_limits<coord_t>::max();
-            if (j < v_points_b.size()) {
-              const auto& point_b = v_points_b[j];
-              d = EuclideanDistance2(*point_a, point_b);
-              n_pairs++;
-            }
-
-            auto agg_min = BlockReduce(temp_storage).Reduce(d, cub::Min());
-
-            if (threadIdx.x == 0) {
-              cmin = std::min(cmin, agg_min);
-              if (cmin <= *p_cmax2) {
-                early_break = true;
-              }
-            }
-            __syncthreads();
-          }
-          atomicAdd(p_compared_pairs, n_pairs);
-          __syncthreads();
-          if (threadIdx.x == 0 && cmin != std::numeric_limits<coord_t>::max()) {
-            atomicMax(p_cmax2, cmin);
+        if (threadIdx.x == 0) {
+          early_break = false;
+          if (v_point_ids_a.empty()) {
+            point_a = &v_points_a[i];
+          } else {
+            auto point_id_s = v_point_ids_a[i];
+            point_a = &v_points_a[point_id_s];
           }
         }
-      });
-    }
+        __syncthreads();
+
+        for (auto j = threadIdx.x; j < size_b_roundup && !early_break;
+             j += blockDim.x) {
+          auto d = std::numeric_limits<coord_t>::max();
+          if (j < v_points_b.size()) {
+            const auto& point_b = v_points_b[j];
+            d = EuclideanDistance2(*point_a, point_b);
+            n_pairs++;
+          }
+
+          auto agg_min = BlockReduce(temp_storage).Reduce(d, cub::Min());
+
+          if (threadIdx.x == 0) {
+            cmin = std::min(cmin, agg_min);
+            if (cmin <= *p_cmax2) {
+              early_break = true;
+            }
+          }
+          __syncthreads();
+        }
+        atomicAdd(p_compared_pairs, n_pairs);
+        __syncthreads();
+        if (threadIdx.x == 0 && cmin != std::numeric_limits<coord_t>::max()) {
+          atomicMax(p_cmax2, cmin);
+        }
+      }
+    });
     auto n_compared_pairs = compared_pairs_.get(stream.cuda_stream());
     // auto coefficient = n_compared_pairs / points_b.size();
 
@@ -801,10 +772,8 @@ class HausdorffDistanceRT {
   thrust::default_random_engine g_;
   Grid<COORD_T, N_DIMS> grid_;
   thrust::device_vector<OptixAabb> aabbs_;
-  thrust::device_vector<COORD_T> cmin2_;
   thrust::device_vector<uint32_t> hits_counters_;
   SharedValue<mbr_t> mbr_;
-  OptixTraversableHandle gas_handle_;
   Queue<uint32_t> in_queue_, out_queue_;
   Queue<uint32_t> term_queue_;
   ReusableBuffer buffer_;
