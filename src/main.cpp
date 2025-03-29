@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
   config.sample_rate = FLAGS_sample_rate;
   config.max_hit = FLAGS_max_hit;
   config.max_reg_count = FLAGS_max_reg;
-  config.grid_size = FLAGS_grid_size;
+  config.n_points_cell = FLAGS_n_points_cell;
 
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";

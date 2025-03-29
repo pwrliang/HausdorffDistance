@@ -25,4 +25,4 @@ DEFINE_double(
 DEFINE_double(sample_rate, 0.001, "");
 DEFINE_int32(max_hit, 128, "Max number of hit by RT method before using EB");
 DEFINE_int32(max_reg, 0, "Max # of registers for RT");
-DEFINE_int32(grid_size, 0, "grid resolution");
+DEFINE_int32(n_points_cell, 0, "Number of points per cell");

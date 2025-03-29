@@ -7,9 +7,8 @@
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
 
-#include "hdr/hdr_histogram.h"
-
 #include "glog/logging.h"
+#include "hdr/hdr_histogram.h"
 #include "mbr.h"
 #include "utils/array_view.h"
 #include "utils/bitset.h"
@@ -23,46 +22,49 @@ namespace details {
 template <int N_DIMS>
 DEV_HOST_INLINE uint64_t
 EncodeCellPos(const typename cuda_vec<unsigned int, N_DIMS>::type& cell_pos,
-              uint32_t grid_size) {
+              const typename cuda_vec<unsigned int, N_DIMS>::type& grid_size) {
   assert(false);
   return -1;
 }
 
 template <>
 DEV_HOST_INLINE uint64_t EncodeCellPos<2>(const uint2& cell_pos,
-                                          uint32_t grid_size) {
-  return (uint64_t) cell_pos.y * grid_size + cell_pos.x;
+                                          const uint2& grid_size) {
+  return (uint64_t) cell_pos.y * grid_size.x + cell_pos.x;
 }
 
 template <>
 DEV_HOST_INLINE uint64_t EncodeCellPos<3>(const uint3& cell_pos,
-                                          uint32_t grid_size) {
-  return (uint64_t) cell_pos.z * grid_size * grid_size +
-         (uint64_t) cell_pos.y * grid_size + cell_pos.x;
+                                          const uint3& grid_size) {
+  return (uint64_t) cell_pos.z * grid_size.x * grid_size.y +
+         (uint64_t) cell_pos.y * grid_size.x + cell_pos.x;
 }
 
 template <int N_DIMS>
 DEV_HOST_INLINE typename cuda_vec<unsigned int, N_DIMS>::type DecodeCellIdx(
-    uint64_t cell_idx, uint32_t grid_size) {
+    uint64_t cell_idx,
+    const typename cuda_vec<unsigned int, N_DIMS>::type& grid_size) {
   assert(false);
   return typename cuda_vec<unsigned int, N_DIMS>::type();
 }
 
 template <>
-DEV_HOST_INLINE uint2 DecodeCellIdx<2>(uint64_t cell_idx, uint32_t grid_size) {
+DEV_HOST_INLINE uint2 DecodeCellIdx<2>(uint64_t cell_idx,
+                                       const uint2& grid_size) {
   uint2 cell_pos;
-  cell_pos.x = cell_idx % grid_size;
-  cell_pos.y = cell_idx / grid_size;
+  cell_pos.x = cell_idx % grid_size.x;
+  cell_pos.y = cell_idx / grid_size.x;
   return cell_pos;
 }
 
 template <>
-DEV_HOST_INLINE uint3 DecodeCellIdx<3>(uint64_t cell_idx, uint32_t grid_size) {
+DEV_HOST_INLINE uint3 DecodeCellIdx<3>(uint64_t cell_idx,
+                                       const uint3& grid_size) {
   uint3 cell_pos;
-  cell_pos.z = cell_idx / ((uint64_t) grid_size * grid_size);
-  cell_idx %= (uint64_t) grid_size * grid_size;
-  cell_pos.x = cell_idx % grid_size;
-  cell_pos.y = cell_idx / grid_size;
+  cell_pos.z = cell_idx / ((uint64_t) grid_size.x * grid_size.y);
+  cell_idx %= (uint64_t) grid_size.x * grid_size.y;
+  cell_pos.x = cell_idx % grid_size.x;
+  cell_pos.y = cell_idx / grid_size.x;
   return cell_pos;
 }
 }  // namespace details
@@ -76,32 +78,9 @@ class Grid {
  public:
   Grid() = default;
 
-  DEV_HOST Grid(const mbr_t& mbr, uint32_t grid_size,
+  DEV_HOST Grid(const mbr_t& mbr, const cell_pos_t& grid_size,
                 const dev::Bitset<uint64_t>& occupied_cells)
       : mbr_(mbr), grid_size_(grid_size), occupied_cells_(occupied_cells) {}
-
-  // DEV_INLINE uint32_t CalculateCellIdx(const point_t& p) const {
-  //   auto cell_pos = CalculateCellPos(p);
-  //   return CellPosTo1D(cell_pos);
-  // }
-
-  // DEV_INLINE uint32_t Query(const point_t& p) const {
-  //   auto cell_pos = CalculateCellPos(p);
-  //   auto cell_idx = CellPosTo1D(cell_pos);
-  //   return n_primitives_[cell_idx];
-  // }
-
-  // DEV_INLINE uint32_t begin(uint32_t cell_idx) const {
-  //   return row_offset_[cell_idx];
-  // }
-  //
-  // DEV_INLINE uint32_t end(uint32_t cell_idx) const {
-  //   return row_offset_[cell_idx + 1];
-  // }
-  //
-  // DEV_INLINE const point_t& get_point(uint32_t offset) const {
-  //   return points_[offset];
-  // }
 
   DEV_INLINE bool Insert(const point_t& p) {
     auto cell_p = CalculateCellPos(p);
@@ -111,49 +90,15 @@ class Grid {
     return occupied_cells_.set_bit_atomic(cell_idx);
   }
 
-  // template <typename U = void,
-  //           typename std::enable_if<N_DIMS == 2, U>::type* = nullptr>
-  // DEV_INLINE void Insert(const OptixAabb& aabb) {
-  //   auto lower_p = GetLowerPoint(aabb);
-  //   auto upper_p = GetUpperPoint(aabb);
-  //   auto lower_cell_p = CalculateCellPos(lower_p);
-  //   auto upper_cell_p = CalculateCellPos(upper_p);
-  //
-  //   for (auto i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
-  //     for (auto j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
-  //       auto cell_idx = EncodeCellPos(uint2{i, j});
-  //
-  //       atomicAdd(&n_primitives_[cell_idx], 1);
-  //     }
-  //   }
-  // }
-
-  // template <typename U = void,
-  //           typename std::enable_if<N_DIMS == 3, U>::type* = nullptr>
-  // DEV_INLINE void Insert(const OptixAabb& aabb) {
-  //   auto lower_p = GetLowerPoint(aabb);
-  //   auto upper_p = GetUpperPoint(aabb);
-  //   auto lower_cell_p = CalculateCellPos(lower_p);
-  //   auto upper_cell_p = CalculateCellPos(upper_p);
-  //
-  //   for (auto i = lower_cell_p.x; i <= upper_cell_p.x; i++) {
-  //     for (auto j = lower_cell_p.y; j <= upper_cell_p.y; j++) {
-  //       for (auto k = lower_cell_p.z; k <= upper_cell_p.z; k++) {
-  //         auto cell_idx = EncodeCellPos(uint2{i, j, k});
-  //         atomicAdd(&n_primitives_[cell_idx], 1);
-  //       }
-  //     }
-  //   }
-  // }
-
   DEV_INLINE mbr_t GetCellBounds(const cell_pos_t& cell_pos) const {
     point_t lower_p, upper_p;
 
     for (int dim = 0; dim < N_DIMS; dim++) {
       auto extent = mbr_.get_extent(dim);
-      auto unit = extent / grid_size_;
+      auto grid_size = get_grid_size(dim);
+      auto unit = extent / grid_size;
       auto idx = reinterpret_cast<const unsigned int*>(&cell_pos.x)[dim];
-      assert(idx < grid_size_);
+      assert(idx < grid_size);
       auto begin = unit * idx + mbr_.lower(dim);
       auto end = std::min(begin + unit, mbr_.upper(dim));
       begin = nextafter(begin, begin - 1);
@@ -170,7 +115,9 @@ class Grid {
     return GetCellBounds(DecodeCellIdx(cell_idx));
   }
 
-  DEV_HOST_INLINE uint32_t get_grid_size() const { return grid_size_; }
+  DEV_HOST_INLINE unsigned int get_grid_size(int dim) const {
+    return reinterpret_cast<const unsigned int*>(&grid_size_.x)[dim];
+  }
 
   DEV_INLINE typename cuda_vec<unsigned int, N_DIMS>::type CalculateCellPos(
       const point_t& p) const {
@@ -179,6 +126,7 @@ class Grid {
     for (int dim = 0; dim < N_DIMS; dim++) {
       auto lower = mbr_.lower(dim);
       auto upper = mbr_.upper(dim);
+      auto grid_size = get_grid_size(dim);
       auto val = reinterpret_cast<const COORD_T*>(&p.x)[dim];
 
       assert(val >= lower && val <= upper);
@@ -186,18 +134,15 @@ class Grid {
 
       assert(norm_val >= 0);
       assert(norm_val <= 1);
+
       reinterpret_cast<unsigned int*>(&cell_pos.x)[dim] =
-          std::min(std::max(norm_val * grid_size_, (COORD_T) 0.0),
-                   grid_size_ - (COORD_T) 1.0);
+          std::min(std::max(norm_val * grid_size, (COORD_T) 0.0),
+                   grid_size - (COORD_T) 1.0);
     }
     return cell_pos;
   }
 
   DEV_HOST_INLINE const mbr_t& get_mbr() const { return mbr_; }
-
-  DEV_HOST_INLINE COORD_T get_cell_extent(int dim) const {
-    return mbr_.get_extent(dim) / grid_size_;
-  }
 
   DEV_HOST_INLINE uint64_t EncodeCellPos(const cell_pos_t& pos) const {
     return details::EncodeCellPos<N_DIMS>(pos, grid_size_);
@@ -209,28 +154,8 @@ class Grid {
 
  private:
   mbr_t mbr_;
-  uint32_t grid_size_;
+  cell_pos_t grid_size_;
   dev::Bitset<uint64_t> occupied_cells_;
-
-  DEV_INLINE point_t GetLowerPoint(const OptixAabb& aabb) const {
-    point_t p;
-
-    for (int dim = 0; dim < N_DIMS; dim++) {
-      reinterpret_cast<COORD_T*>(&p.x)[dim] =
-          reinterpret_cast<const float*>(&aabb.minX)[dim];
-    }
-    return p;
-  }
-
-  DEV_INLINE point_t GetUpperPoint(const OptixAabb& aabb) const {
-    point_t p;
-
-    for (int dim = 0; dim < N_DIMS; dim++) {
-      reinterpret_cast<COORD_T*>(&p.x)[dim] =
-          reinterpret_cast<const float*>(&aabb.maxX)[dim];
-    }
-    return p;
-  }
 };
 
 }  // namespace dev
@@ -239,10 +164,33 @@ template <typename COORD_T, int N_DIMS>
 class Grid {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
+  using cell_pos_t = typename cuda_vec<uint32_t, N_DIMS>::type;
+
   static_assert(N_DIMS == 2 || N_DIMS == 3, "Invalid N_DIMS");
 
  public:
   Grid() = default;
+
+  typename cuda_vec<unsigned int, N_DIMS>::type CalculateGridResolution(
+      const mbr_t& mbr, unsigned int n_points, int n_points_per_cell) {
+    double volume = 1;
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      volume *= mbr.get_extent(dim);
+    }
+    double s = 0;
+
+    if (N_DIMS == 2) {
+      s = sqrt(volume * n_points_per_cell / n_points);
+    } else if (N_DIMS == 3) {
+      s = cbrt(volume * n_points_per_cell / n_points);
+    }
+    typename cuda_vec<unsigned int, N_DIMS>::type dims;
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      reinterpret_cast<unsigned int*>(&dims.x)[dim] =
+          ceil(mbr.get_extent(dim) / s);
+    }
+    return dims;
+  }
 
   void Clear(const Stream& stream) {
     occupied_cells_.Clear(stream.cuda_stream());
@@ -250,14 +198,13 @@ class Grid {
     point_ids_.clear();
   }
 
-  void Init(uint32_t grid_size, const mbr_t& mbr) {
+  void Init(const cell_pos_t& grid_size, const mbr_t& mbr) {
     grid_size_ = grid_size;
     mbr_ = mbr;
     uint64_t total_cells = 1;
     for (int dim = 0; dim < N_DIMS; dim++) {
-      total_cells *= grid_size;
+      total_cells *= reinterpret_cast<const unsigned int*>(&grid_size.x)[dim];
     }
-    VLOG(1) << "Bitset size " << total_cells / 8 / 1024 / 1024 << " MB";
     occupied_cells_.Init(total_cells);
   }
 
@@ -384,8 +331,6 @@ class Grid {
                                       occupied_cells_.DeviceObject());
   }
 
-  uint32_t get_grid_size() const { return grid_size_; }
-
   static uint32_t EstimatedMaxCells(uint32_t memory_quota_mb) {
     return (uint64_t) memory_quota_mb * 1024 * 1024 / sizeof(uint32_t);
   }
@@ -450,18 +395,19 @@ class Grid {
              &histogram);           // Pointer to initialise
     thrust::host_vector<uint32_t> prefix_sum = prefix_sum_;
     for (uint32_t i = 0; i < n_nonempty; i++) {
-        auto n_points = prefix_sum[i + 1] - prefix_sum[i];
-                  hdr_record_value(histogram,  // Histogram to record to
-                           n_points);       // Value to record
+      auto n_points = prefix_sum[i + 1] - prefix_sum[i];
+      hdr_record_value(histogram,  // Histogram to record to
+                       n_points);  // Value to record
     }
 
-      hdr_percentiles_print(histogram,
-                            stdout,  // File to write to
-                            3,     // Granularity of printed values
-                            1.0,   // Multiplier for results
-                            CSV);  // Format CLASSIC/CSV supported.
-                                  hdr_close(histogram);
-    LOG(INFO) << "Avg points/cell " << hdr_mean(histogram);
+    hdr_percentiles_print(histogram,
+                          stdout,  // File to write to
+                          3,       // Granularity of printed values
+                          1.0,     // Multiplier for results
+                          CSV);    // Format CLASSIC/CSV supported.
+    hdr_close(histogram);
+    LOG(INFO) << "Avg points/non empty cell "
+              << prefix_sum[prefix_sum.size() - 1] / n_nonempty;
   }
 
  private:
@@ -470,7 +416,7 @@ class Grid {
   thrust::device_vector<uint32_t> prefix_sum_;  // offsets point to point ids
   thrust::device_vector<uint32_t> point_ids_;   // point ids
   mbr_t mbr_;
-  uint32_t grid_size_;
+  cell_pos_t grid_size_;
 };
 }  // namespace hd
 #endif  // GRID_H

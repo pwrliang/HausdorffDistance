@@ -39,7 +39,7 @@ struct RunConfig {
   double sample_rate;
   int max_hit;
   int max_reg_count;
-  int grid_size;
+  int n_points_cell;
 };
 
 #endif  // HAUSDORFF_DISTANCE_RUN_CONFIG_H

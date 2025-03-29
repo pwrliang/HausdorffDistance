@@ -98,7 +98,7 @@ struct HausdorffDistanceRTConfig {
   float radius_step = 2;
   float sample_rate = 0.0001;
   float init_radius = 0;
-  int grid_size = 1024;
+  int n_points_cell = 8;
   int max_samples = 100 * 1000;
   int max_hit = 1000;
   int max_reg_count = 0;
@@ -121,7 +121,6 @@ class HausdorffDistanceRT {
     sampler_.Init(hd_config.max_samples);
     g_ = thrust::default_random_engine(config_.seed);
   }
-
 
   COORD_T CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
@@ -296,9 +295,6 @@ class HausdorffDistanceRT {
     auto n_points_b = points_b.size();
     const auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
     const auto mbr_b = CalculateMbr(stream, points_b.begin(), points_b.end());
-    auto sampled_point_ids_a = sampler_.Sample(
-        stream.cuda_stream(), points_a.size(),
-        std::max(1u, (uint32_t) (points_a.size() * config_.sample_rate)));
 
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
@@ -308,6 +304,11 @@ class HausdorffDistanceRT {
 
     Stopwatch sw;
     sw.start();
+    auto sampled_point_ids_a = sampler_.Sample(
+        stream.cuda_stream(), points_a.size(),
+        std::max(1u, (uint32_t) (points_a.size() * config_.sample_rate)));
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                points_b.begin(), points_b.end(), g_);
     CalculateHDEarlyBreak(stream, points_a, points_b, sampled_point_ids_a);
     auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
     sw.stop();
@@ -324,7 +325,16 @@ class HausdorffDistanceRT {
     in_queue_.Clear(stream.cuda_stream());
     out_queue_.Clear(stream.cuda_stream());
     sw.start();
-    grid_.Init(config_.grid_size, mbr_b);
+
+    auto grid_size =
+        grid_.CalculateGridResolution(mbr_b, n_points_b, config_.n_points_cell);
+
+    LOG(INFO) << "N Points/Cell " << config_.n_points_cell;
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      LOG(INFO) << "Dim " << dim << " grid resolution "
+                << reinterpret_cast<unsigned int*>(&grid_size)[dim];
+    }
+    grid_.Init(grid_size, mbr_b);
     grid_.Insert(stream, points_b);
     auto mbrs_b = grid_.GetCellMbrs(stream);
     stream.Sync();

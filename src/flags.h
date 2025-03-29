@@ -23,5 +23,5 @@ DECLARE_double(init_radius);
 DECLARE_double(sample_rate);
 DECLARE_int32(max_hit);
 DECLARE_int32(max_reg);
-DECLARE_int32(grid_size);
+DECLARE_int32(n_points_cell);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

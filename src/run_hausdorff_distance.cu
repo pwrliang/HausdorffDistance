@@ -91,7 +91,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   rt_config.sample_rate = config.sample_rate;
   rt_config.max_reg_count = config.max_reg_count;
   rt_config.max_hit = config.max_hit;
-  rt_config.grid_size = config.grid_size;
+  rt_config.n_points_cell = config.n_points_cell;
 
   hdist_rt.Init(rt_config);
   // hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
@@ -140,7 +140,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::kRT: {
-      if (config.grid_size > 0) {
+      if (config.n_points_cell > 0) {
         dist =
             hdist_rt.CalculateDistanceCompress(stream, d_points_a, d_points_b);
       } else {
