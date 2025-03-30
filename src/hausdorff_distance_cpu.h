@@ -75,7 +75,6 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceParallel(
   auto thread_count = std::thread::hardware_concurrency();
   auto avg_points = (points_a.size() + thread_count - 1) / thread_count;
   std::atomic<coord_t> cmax;
-  std::atomic_uint64_t compared_pairs{0};
 
   cmax = 0;
 
@@ -83,13 +82,11 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceParallel(
     threads.emplace_back(std::thread([&, tid]() {
       auto begin = tid * avg_points;
       auto end = std::min(begin + avg_points, points_a.size());
-      uint64_t local_compared_pairs = 0;
 
       for (int i = begin; i < end; i++) {
         auto cmin = std::numeric_limits<coord_t>::max();
         for (size_t j = 0; j < points_b.size(); j++) {
           auto d = EuclideanDistance2(points_a[i], points_b[j]);
-          local_compared_pairs++;
           if (d < cmin) {
             cmin = d;
           }
@@ -101,14 +98,12 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceParallel(
           detail::update_maximum(cmax, cmin);
         }
       }
-      compared_pairs += local_compared_pairs;
     }));
   }
 
   for (auto& thread : threads) {
     thread.join();
   }
-  LOG(INFO) << "Compared Pairs: " << compared_pairs;
   return sqrt(cmax);
 }
 

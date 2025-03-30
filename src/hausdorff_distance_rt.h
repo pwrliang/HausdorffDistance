@@ -118,11 +118,12 @@ class HausdorffDistanceRT {
     auto rt_config = details::get_default_rt_config(hd_config.ptx_root);
     rt_config.max_reg_count = hd_config.max_reg_count;
     rt_engine_.Init(rt_config);
+    sampler_ = Sampler(config_.seed);
     sampler_.Init(hd_config.max_samples);
     g_ = thrust::default_random_engine(config_.seed);
   }
 
-  nlohmann::json GetStats() const { return stats_; }
+  const nlohmann::json& GetStats() const { return stats_; }
 
   COORD_T CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
@@ -748,15 +749,16 @@ class HausdorffDistanceRT {
                                         0, config_.fast_build, config_.compact);
   }
 
-  uint32_t CalculateHDEarlyBreak(
+  uint64_t CalculateHDEarlyBreak(
       const Stream& stream, const thrust::device_vector<point_t>& points_a,
       const thrust::device_vector<point_t>& points_b,
       ArrayView<uint32_t> v_point_ids_a = ArrayView<uint32_t>()) {
+    SharedValue<unsigned long long int> compared_pairs;
     auto* p_cmax2 = cmax2_.data();
     ArrayView<point_t> v_points_a(points_a);
     ArrayView<point_t> v_points_b(points_b);
 
-    auto* p_compared_pairs = compared_pairs_.data();
+    auto* p_compared_pairs = compared_pairs.data();
 
     uint32_t n_points_a = v_point_ids_a.size();
 
@@ -764,19 +766,19 @@ class HausdorffDistanceRT {
       n_points_a = points_a.size();
     }
 
-    compared_pairs_.set(stream.cuda_stream(), 0);
+    compared_pairs.set(stream.cuda_stream(), 0);
 
     LaunchKernel(stream, [=] __device__() {
       using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
       __shared__ typename BlockReduce::TempStorage temp_storage;
       __shared__ bool early_break;
       __shared__ const point_t* point_a;
+      uint64_t n_pairs = 0;
 
       for (auto i = blockIdx.x; i < n_points_a; i += gridDim.x) {
         auto size_b_roundup =
             div_round_up(v_points_b.size(), blockDim.x) * blockDim.x;
         coord_t cmin = std::numeric_limits<coord_t>::max();
-        uint32_t n_pairs = 0;
 
         if (threadIdx.x == 0) {
           early_break = false;
@@ -808,14 +810,15 @@ class HausdorffDistanceRT {
           }
           __syncthreads();
         }
-        atomicAdd(p_compared_pairs, n_pairs);
+
         __syncthreads();
         if (threadIdx.x == 0 && cmin != std::numeric_limits<coord_t>::max()) {
           atomicMax(p_cmax2, cmin);
         }
       }
+      atomicAdd(p_compared_pairs, n_pairs);
     });
-    return compared_pairs_.get(stream.cuda_stream());
+    return compared_pairs.get(stream.cuda_stream());
   }
 
  private:
@@ -831,7 +834,6 @@ class HausdorffDistanceRT {
   ReusableBuffer buffer_;
   details::RTEngine rt_engine_;
   SharedValue<COORD_T> cmax2_;
-  SharedValue<uint32_t> compared_pairs_;
   Sampler sampler_;
 };
 }  // namespace hd

@@ -142,6 +142,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   HausdorffDistanceRTConfig rt_config;
   std::string ptx_root = config.exec_path + "/ptx";
 
+  rt_config.seed = config.seed;
   rt_config.ptx_root = ptx_root.c_str();
   rt_config.fast_build = config.fast_build_bvh;
   rt_config.rebuild_bvh = config.rebuild_bvh;
@@ -223,7 +224,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       break;
     }
     case Variant::kHybrid: {
-      json_run["Variant"] = "RT";
+      json_run["Variant"] = "Hybrid";
       json_run["Execution"] = "GPU";
       CHECK_GT(config.n_points_cell, 0) << "Avg points / cell cannot be zero";
       dist = hdist_rt.CalculateDistanceCompressHybrid(stream, d_points_a,
@@ -242,19 +243,21 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       dist = CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
                                                    config.input_file2.c_str(),
                                                    loading_time_ms);
-      json_run["LoadingTime"] = loading_time_ms;
+      json_repeat["LoadingTime"] = loading_time_ms;
       break;
     }
     }
     sw.stop();
-    json_run["TotalTime"] = sw.ms();
+    json_repeat["TotalTime"] = sw.ms() - loading_time_ms;
     running_time += sw.ms() - loading_time_ms;
   }
 
-  LOG(INFO) << "Avg Running Time " << running_time / config.repeat << " ms";
+  json_run["AvgTime"] = running_time / config.repeat;
+  LOG(INFO) << "Avg Running Time " << json_run["AvgTime"] << " ms";
 
   stats.Log("HDResult", dist);
   auto& json_check = stats.Log("Check");
+
   if (config.check) {
     auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
     auto diff = answer_dist - dist;
