@@ -12,7 +12,7 @@ add_executable(hd_exec
         ${PROGRAM_MODULES}
 )
 
-target_link_libraries(hd_exec
+target_link_libraries(hd_exec PRIVATE
         cuda
         ${CUDA_LIBRARIES}
         ${CUDA_CUDA_LIBRARY}
@@ -21,7 +21,7 @@ target_link_libraries(hd_exec
         ${GLOG_LIBRARIES}
         ${ITK_LIBRARIES}
         ${HdrHistogram_LIBRARIES}
+        nlohmann_json::nlohmann_json
 )
 target_compile_options(hd_exec PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr --fmad=false>)
 set_target_properties(hd_exec PROPERTIES CUDA_ARCHITECTURES "${ENABLED_ARCHS}" CUDA_SEPARABLE_COMPILATION ON)
-message("ITK_LIBRARIES: ${ITK_LIBRARIES}")

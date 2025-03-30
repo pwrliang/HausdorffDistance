@@ -6,6 +6,12 @@
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/sort.h>
+#include <thrust/transform_reduce.h>
+
+#include <iostream>
+#include <nlohmann/json.hpp>
 
 #include "glog/logging.h"
 #include "hdr/hdr_histogram.h"
@@ -67,6 +73,20 @@ DEV_HOST_INLINE uint3 DecodeCellIdx<3>(uint64_t cell_idx,
   cell_pos.y = cell_idx / grid_size.x;
   return cell_pos;
 }
+
+// Weighted index term: (2i - n + 1) * x_i
+struct weighted_index_term_uint {
+  const uint32_t* data;
+  uint32_t n;
+
+  weighted_index_term_uint(const uint32_t* _data, uint32_t _n)
+      : data(_data), n(_n) {}
+
+  __host__ __device__ float operator()(uint32_t i) const {
+    return (2.0f * i - n + 1) * data[i];
+  }
+};
+
 }  // namespace details
 
 template <typename COORD_T, int N_DIMS>
@@ -229,6 +249,9 @@ class Grid {
     auto non_empty_cells =
         occupied_cells_.GetPositiveCount(stream.cuda_stream());
 
+    stats_["TotalCells"] = get_grid_size();
+    stats_["NonEmptyCells"] = non_empty_cells;
+
     cell_ids_.resize(non_empty_cells);
     n_primitives.resize(non_empty_cells, 0);
     prefix_sum_.resize(non_empty_cells + 1, 0);
@@ -266,9 +289,24 @@ class Grid {
                        atomicAdd(&p_n_primitives[cell_renumbered_idx], 1);
                      });
 
+    SharedValue<uint32_t> min_points, max_points;
+    auto* p_min_points = min_points.data();
+    auto* p_max_points = max_points.data();
+
+    min_points.set(stream.cuda_stream(), std::numeric_limits<uint32_t>::max());
+    max_points.set(stream.cuda_stream(), 0);
+
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
                      n_primitives.begin(), n_primitives.end(),
-                     [] __device__(uint32_t n) { assert(n > 0); });
+                     [=] __device__(uint32_t n) {
+                       assert(n > 0);
+                       atomicMin(p_min_points, n);
+                       atomicMax(p_max_points, n);
+                     });
+    stats_["MinPoints"] = min_points.get(stream.cuda_stream());
+    stats_["MaxPoints"] = max_points.get(stream.cuda_stream());
+    stats_["AvgPoints"] = points.size() / non_empty_cells;
+    stats_["GiniIndex"] = gini_index_thrust(stream, n_primitives);
 
     thrust::inclusive_scan(thrust::cuda::par.on(stream.cuda_stream()),
                            n_primitives.begin(), n_primitives.end(),
@@ -307,6 +345,7 @@ class Grid {
     thrust::inclusive_scan(thrust::cuda::par.on(stream.cuda_stream()),
                            n_primitives.begin(), n_primitives.end(),
                            prefix_sum_.begin() + 1);
+
 #ifndef NDEBUG
     auto* p_points = thrust::raw_pointer_cast(points.data());
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
@@ -421,13 +460,48 @@ class Grid {
             << prefix_sum[prefix_sum.size() - 1] / get_grid_size();
   }
 
+  nlohmann::json GetStats() const { return stats_; }
+
  private:
   Bitset<uint64_t> occupied_cells_;
   thrust::device_vector<uint64_t> cell_ids_;
   thrust::device_vector<uint32_t> prefix_sum_;  // offsets point to point ids
   thrust::device_vector<uint32_t> point_ids_;   // point ids
+  nlohmann::json stats_;
   mbr_t mbr_;
   cell_pos_t grid_size_;
+
+  // Gini index function for unsigned int input
+  float gini_index_thrust(const Stream& stream,
+                          thrust::device_vector<uint32_t> d_values) {
+    uint32_t n = d_values.size();
+    if (n == 0)
+      return 0.0f;
+
+    // Sort values
+    thrust::sort(thrust::cuda::par.on(stream.cuda_stream()), d_values.begin(),
+                 d_values.end());
+
+    // Total sum of values
+    auto total = thrust::transform_reduce(
+        thrust::cuda::par.on(stream.cuda_stream()), d_values.begin(),
+        d_values.end(), thrust::identity<uint32_t>(), 0.0f,
+        thrust::plus<float>());
+
+    if (total == 0)
+      return 0.0f;
+
+    // Compute weighted sum
+    auto* raw_ptr = thrust::raw_pointer_cast(d_values.data());
+    auto weighted_sum = thrust::transform_reduce(
+        thrust::cuda::par.on(stream.cuda_stream()),
+        thrust::counting_iterator<uint32_t>(0),
+        thrust::counting_iterator<uint32_t>(n),
+        dev::details::weighted_index_term_uint(raw_ptr, n), 0.0f,
+        thrust::plus<float>());
+
+    return weighted_sum / (n * total);
+  }
 };
 }  // namespace hd
 #endif  // GRID_H

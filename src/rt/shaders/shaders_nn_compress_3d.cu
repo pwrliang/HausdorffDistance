@@ -123,6 +123,7 @@ extern "C" __global__ void __raygen__nn_compress_3d() {
                  point_id_a, n_hits, cmin2_storage.x, cmin2_storage.y);
       hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
     }
+    atomicAdd(params.n_hits, n_hits);
 
     if (n_hits > params.max_hit) {
       params.term_queue.Append(point_id_a);

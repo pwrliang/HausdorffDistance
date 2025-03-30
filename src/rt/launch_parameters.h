@@ -45,6 +45,7 @@ struct LaunchParamsNNCompress {
   OptixTraversableHandle handle;
   COORD_T* cmax2;
   COORD_T radius;
+  uint32_t* n_hits;
   uint32_t* hits_counters;
   uint32_t max_hit;
 };

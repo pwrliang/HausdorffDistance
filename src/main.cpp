@@ -63,6 +63,7 @@ int main(int argc, char* argv[]) {
   }
 
   config.parallelism = FLAGS_parallelism;
+  config.seed = FLAGS_seed;
   config.check = FLAGS_check;
   config.n_dims = FLAGS_n_dims;
   config.is_double = FLAGS_is_double;
@@ -70,12 +71,13 @@ int main(int argc, char* argv[]) {
   config.move_offset = FLAGS_move_offset;
   config.repeat = FLAGS_repeat;
   config.radius_step = FLAGS_radius_step;
+  config.fast_build_bvh = FLAGS_fast_build_bvh;
   config.rebuild_bvh = FLAGS_rebuild_bvh;
-  config.init_radius = FLAGS_init_radius;
   config.sample_rate = FLAGS_sample_rate;
   config.max_hit = FLAGS_max_hit;
   config.max_reg_count = FLAGS_max_reg;
   config.n_points_cell = FLAGS_n_points_cell;
+  config.json_file = FLAGS_json;
 
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";

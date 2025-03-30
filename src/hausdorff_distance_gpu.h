@@ -6,6 +6,7 @@
 #include <utils/type_traits.h>
 
 #include <cub/cub.cuh>
+#include <nlohmann/json.hpp>
 
 #include "distance.h"
 #include "flags.h"
@@ -23,32 +24,39 @@ namespace hd {
 template <typename POINT_T>
 typename vec_info<POINT_T>::type CalculateHausdorffDistanceGPU(
     const Stream& stream, thrust::device_vector<POINT_T>& points_a,
-    thrust::device_vector<POINT_T>& points_b) {
+    thrust::device_vector<POINT_T>& points_b, int seed, nlohmann::json& stats) {
   using coord_t = typename vec_info<POINT_T>::type;
-  thrust::default_random_engine g;
+  Stopwatch sw;
+  sw.start();
+  thrust::default_random_engine g(seed);
   SharedValue<coord_t> cmax;
+  SharedValue<uint32_t> compared_pairs;
   auto* p_cmax = cmax.data();
+  auto* p_compared_pairs = compared_pairs.data();
   ArrayView<POINT_T> v_points_a(points_a);
   ArrayView<POINT_T> v_points_b(points_b);
 
-  cmax.set(stream.cuda_stream(), 0);
+  cudaEvent_t ev_start, ev_shuffle, ev_compute;
+  cudaEventCreate(&ev_start);
+  cudaEventCreate(&ev_shuffle);
+  cudaEventCreate(&ev_compute);
 
+  cmax.set(stream.cuda_stream(), 0);
+  compared_pairs.set(stream.cuda_stream(), 0);
+
+  cudaEventRecord(ev_start, stream.cuda_stream());
   thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()), points_a.begin(),
                   points_a.end(), g);
 
   thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()), points_b.begin(),
                   points_b.end(), g);
-
-  SharedValue<uint32_t> compared_pairs;
-  auto* p_compared_pairs = compared_pairs.data();
-
-  compared_pairs.set(stream.cuda_stream(), 0);
+  cudaEventRecord(ev_shuffle, stream.cuda_stream());
 
   LaunchKernel(stream, [=] __device__() {
     using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
     __shared__ typename BlockReduce::TempStorage temp_storage;
     __shared__ bool early_break;
-    __shared__ const POINT_T *point_a;
+    __shared__ const POINT_T* point_a;
 
     for (auto i = blockIdx.x; i < v_points_a.size(); i += gridDim.x) {
       auto size_b_roundup =
@@ -88,9 +96,18 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceGPU(
       }
     }
   });
+  cudaEventRecord(ev_compute, stream.cuda_stream());
+  auto n_compared_pairs = compared_pairs.get(stream.cuda_stream());
+  sw.stop();
 
-  LOG(INFO) << "Compared Pairs: " << compared_pairs.get(stream.cuda_stream())
-            << " cmax2 " << cmax.get(stream.cuda_stream());
+  float ms;
+  cudaEventElapsedTime(&ms, ev_start, ev_shuffle);
+
+  stats["ShuffleTime"] = ms;
+  cudaEventElapsedTime(&ms, ev_shuffle, ev_compute);
+
+  stats["ComputeTime"] = ms;
+  stats["ComparedPairs"] = n_compared_pairs;
 
   return sqrt(cmax.get(stream.cuda_stream()));
 }
@@ -164,7 +181,6 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceZorderGPU(
       int64_t right_begin = curr_dc;
       int64_t right_end =
           std::min(curr_dc + blockDim.x, (int64_t) v_points_b.size());
-
 
       while (!early_break &&
              (left_begin < left_end || right_begin < right_end)) {

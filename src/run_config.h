@@ -20,11 +20,13 @@ struct RunConfig {
   std::string input_file1;
   std::string input_file2;
   std::string serialize_folder;
+  std::string json_file;
   InputType input_type;
   Variant variant;
   Execution execution;
 
   int parallelism;
+  int seed;
   bool shuffle;
   bool check;
   int n_dims;
@@ -34,8 +36,8 @@ struct RunConfig {
   int repeat;
   // RT only
   double radius_step;
+  bool fast_build_bvh;
   bool rebuild_bvh;
-  double init_radius;
   double sample_rate;
   int max_hit;
   int max_reg_count;
