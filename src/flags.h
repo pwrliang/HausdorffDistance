@@ -22,6 +22,7 @@ DECLARE_int32(repeat);
 DECLARE_double(radius_step);
 DECLARE_bool(fast_build_bvh);
 DECLARE_bool(rebuild_bvh);
+DECLARE_bool(sort_rays);
 DECLARE_double(sample_rate);
 DECLARE_int32(max_hit);
 DECLARE_int32(max_reg);

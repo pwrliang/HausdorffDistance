@@ -17,7 +17,7 @@ int main(int argc, char* argv[]) {
 
   google::InitGoogleLogging(argv[0]);
   google::InstallFailureSignalHandler();
-
+  using namespace hd;
   RunConfig config;
   std::string exec_path = argv[0];
 
@@ -28,6 +28,8 @@ int main(int argc, char* argv[]) {
 
   if (FLAGS_input_type == "wkt") {
     config.input_type = InputType::kWKT;
+  } else if (FLAGS_input_type == "off") {
+    config.input_type = InputType::kOFF;
   } else if (FLAGS_input_type == "image") {
     config.input_type = InputType::kImage;
   } else {
@@ -71,6 +73,7 @@ int main(int argc, char* argv[]) {
   config.move_offset = FLAGS_move_offset;
   config.repeat = FLAGS_repeat;
   config.radius_step = FLAGS_radius_step;
+  config.sort_rays = FLAGS_sort_rays;
   config.fast_build_bvh = FLAGS_fast_build_bvh;
   config.rebuild_bvh = FLAGS_rebuild_bvh;
   config.sample_rate = FLAGS_sample_rate;

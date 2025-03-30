@@ -17,10 +17,13 @@
 #include <fstream>
 #include <vector>
 
+#include "input_type.h"
 #include "utils/type_traits.h"
 
+namespace hd {
+
 template <typename COORD_T, int N_DIMS>
-std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadPoints(
+std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadWKTPoints(
     const std::string& path, int limit = std::numeric_limits<int>::max()) {
   std::ifstream ifs(path);
   std::string line;
@@ -40,6 +43,9 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadPoints(
         for (auto& poly : multi_poly) {
           for (auto& p : poly.outer()) {
             points.push_back(*reinterpret_cast<point_t*>(&p));
+            if (points.size() >= limit) {
+              break;
+            }
           }
         }
       } else if (line.rfind("POLYGON", 0) == 0) {
@@ -48,24 +54,65 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadPoints(
 
         for (auto& p : poly.outer()) {
           points.push_back(*reinterpret_cast<point_t*>(&p));
+          if (points.size() >= limit) {
+            break;
+          }
         }
       } else if (line.rfind("POINT", 0) == 0) {
         boost_point_t p;
         boost::geometry::read_wkt(line, p);
 
         points.push_back(*reinterpret_cast<point_t*>(&p));
+        if (points.size() >= limit) {
+          break;
+        }
       } else {
         std::cerr << "Bad Geometry " << line << "\n";
         abort();
       }
-      if (points.size() % 1000 == 0) {
-        std::cout << "Loaded geometries " << points.size() / 1000 << std::endl;
-      }
-      if (points.size() >= limit) {
-        break;
-      }
     }
   }
+  ifs.close();
+  return points;
+}
+
+template <typename COORD_T, int N_DIMS>
+std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadOFFPoints(
+    const std::string& path, int limit = std::numeric_limits<int>::max()) {
+  std::ifstream ifs(path);
+  std::string line;
+  using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
+  std::vector<point_t> points;
+  size_t numVertices = 0, numFaces = 0, numEdges = 0;
+
+  CHECK(ifs.is_open()) << "Could not open file " << path;
+
+  std::getline(ifs, line);
+
+  CHECK(line.substr(0, 3) == "OFF")
+      << "Not a valid OFF file. First token must be 'OFF'.";
+  line = line.substr(3);
+  std::istringstream headerStream(line);
+
+  // Read the counts either from the same line or next line
+  headerStream >> numVertices >> numFaces >> numEdges;
+
+  CHECK_GT(numVertices, 0) << "Vertex count is zero or not found.";
+
+  for (size_t i = 0; i < numVertices; ++i) {
+    COORD_T coord;
+    point_t p;
+
+    for (int dim = 0; dim < N_DIMS; ++dim) {
+      ifs >> coord;
+      reinterpret_cast<COORD_T*>(&p.x)[dim] = coord;
+    }
+    points.push_back(p);
+    if (points.size() >= limit) {
+      break;
+    }
+  }
+
   ifs.close();
   return points;
 }
@@ -110,7 +157,7 @@ std::vector<POINT_T> DeserializePoints(const char* file) {
 template <typename COORD_T, int N_DIMS>
 std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadPoints(
     const std::string& path, const std::string& serialize_prefix,
-    int limit = std::numeric_limits<int>::max()) {
+    InputType input_type, int limit = std::numeric_limits<int>::max()) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   std::string escaped_path;
   std::replace_copy(path.begin(), path.end(), std::back_inserter(escaped_path),
@@ -138,12 +185,24 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadPoints(
   if (access(ser_path.c_str(), R_OK) == 0) {
     points = DeserializePoints<point_t>(ser_path.c_str());
   } else {
-    points = LoadPoints<COORD_T, N_DIMS>(path, limit);
-    if (!serialize_prefix.empty()) {
+    switch (input_type) {
+    case InputType::kWKT: {
+      points = LoadWKTPoints<COORD_T, N_DIMS>(path, limit);
+      break;
+    }
+    case InputType::kOFF: {
+      points = LoadOFFPoints<COORD_T, N_DIMS>(path, limit);
+      break;
+    }
+    }
+
+    if (!points.empty() && !serialize_prefix.empty()) {
       SerializePoints<point_t>(ser_path.c_str(), points);
     }
   }
   return points;
 }
+
+}  // namespace hd
 
 #endif  // SPATIALQUERYBENCHMARK_LOADER_H

@@ -157,7 +157,7 @@ Real best_first_hd(
 
   assert(tree_a.query_host_enabled() && tree_b.query_host_enabled());
   AABBToMbr<Real, N_DIMS> aabb_to_mbr;
-  std::priority_queue<PQElement<Real>> pq; // max heap
+  std::priority_queue<PQElement<Real>> pq;  // max heap
   auto mbr_b = aabb_to_mbr(tree_b.aabbs_host()[0]);
 
   pq.push(PQElement<Real>(0, std::numeric_limits<Real>::max()));

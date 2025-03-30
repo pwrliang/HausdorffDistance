@@ -7,4 +7,4 @@ namespace hd {
 // using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
 }
 
-#endif //POINT_H
+#endif  // POINT_H

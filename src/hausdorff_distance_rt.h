@@ -30,6 +30,57 @@
 namespace hd {
 
 namespace details {
+
+DEV_HOST_INLINE std::uint32_t expand_bits(std::uint32_t v) noexcept {
+  v = (v * 0x00010001u) & 0xFF0000FFu;
+  v = (v * 0x00000101u) & 0x0F00F00Fu;
+  v = (v * 0x00000011u) & 0xC30C30C3u;
+  v = (v * 0x00000005u) & 0x49249249u;
+  return v;
+}
+
+// Calculates a 30-bit Morton code for the
+// given 3D point located within the unit cube [0,1].
+DEV_HOST_INLINE std::uint32_t morton_code(float2 xy,
+                                          float resolution = 1024.0f) noexcept {
+  xy.x = ::fminf(::fmaxf(xy.x * resolution, 0.0f), resolution - 1.0f);
+  xy.y = ::fminf(::fmaxf(xy.y * resolution, 0.0f), resolution - 1.0f);
+  const std::uint32_t xx = expand_bits(static_cast<std::uint32_t>(xy.x));
+  const std::uint32_t yy = expand_bits(static_cast<std::uint32_t>(xy.y));
+  return xx * 2 + yy;
+}
+
+DEV_HOST_INLINE std::uint32_t morton_code(float3 xyz,
+                                          float resolution = 1024.0f) noexcept {
+  xyz.x = ::fminf(::fmaxf(xyz.x * resolution, 0.0f), resolution - 1.0f);
+  xyz.y = ::fminf(::fmaxf(xyz.y * resolution, 0.0f), resolution - 1.0f);
+  xyz.z = ::fminf(::fmaxf(xyz.z * resolution, 0.0f), resolution - 1.0f);
+  const std::uint32_t xx = expand_bits(static_cast<std::uint32_t>(xyz.x));
+  const std::uint32_t yy = expand_bits(static_cast<std::uint32_t>(xyz.y));
+  const std::uint32_t zz = expand_bits(static_cast<std::uint32_t>(xyz.z));
+  return xx * 4 + yy * 2 + zz;
+}
+
+DEV_HOST_INLINE std::uint32_t morton_code(double2 xy,
+                                          double resolution = 1024.0) noexcept {
+  xy.x = ::fmin(::fmax(xy.x * resolution, 0.0), resolution - 1.0);
+  xy.y = ::fmin(::fmax(xy.y * resolution, 0.0), resolution - 1.0);
+  const std::uint32_t xx = expand_bits(static_cast<std::uint32_t>(xy.x));
+  const std::uint32_t yy = expand_bits(static_cast<std::uint32_t>(xy.y));
+  return xx * 2 + yy;
+}
+
+DEV_HOST_INLINE std::uint32_t morton_code(double3 xyz,
+                                          double resolution = 1024.0) noexcept {
+  xyz.x = ::fmin(::fmax(xyz.x * resolution, 0.0), resolution - 1.0);
+  xyz.y = ::fmin(::fmax(xyz.y * resolution, 0.0), resolution - 1.0);
+  xyz.z = ::fmin(::fmax(xyz.z * resolution, 0.0), resolution - 1.0);
+  const std::uint32_t xx = expand_bits(static_cast<std::uint32_t>(xyz.x));
+  const std::uint32_t yy = expand_bits(static_cast<std::uint32_t>(xyz.y));
+  const std::uint32_t zz = expand_bits(static_cast<std::uint32_t>(xyz.z));
+  return xx * 4 + yy * 2 + zz;
+}
+
 DEV_HOST_INLINE OptixAabb GetOptixAABB(float2 p, float radius) {
   OptixAabb aabb;
   aabb.minX = p.x - radius;
@@ -102,6 +153,7 @@ struct HausdorffDistanceRTConfig {
   int max_samples = 100 * 1000;
   int max_hit = 1000;
   int max_reg_count = 0;
+  bool sort_rays = false;
 };
 
 template <typename COORD_T, int N_DIMS>
@@ -292,7 +344,7 @@ class HausdorffDistanceRT {
       in_size = in_queue_.size(stream.cuda_stream());
       json_iter["NumOutputPoints"] = in_size;
       json_iter["CMax2"] = cmax2;
-      json_iter["ComputeTime"] = sw.ms();
+      json_iter["RTTime"] = sw.ms();
       json_iter["Hits"] = iter_hits.get(stream.cuda_stream());
 
       if (in_size > 0) {
@@ -418,6 +470,25 @@ class HausdorffDistanceRT {
 
       iter_hits.set(stream.cuda_stream(), 0);
       details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+      auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
+      thrust::device_vector<uint32_t> morton_codes;
+
+      if (config_.sort_rays) {
+        sw.start();
+        morton_codes.resize(in_size);
+        thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
+                          in_queue_.data(), in_queue_.data() + in_size,
+                          morton_codes.begin(), [=] __device__(uint32_t pid) {
+                            const auto& p = p_points_a[pid];
+                            return details::morton_code(p);
+                          });
+        thrust::sort_by_key(thrust::cuda::par.on(stream.cuda_stream()),
+                            morton_codes.begin(), morton_codes.end(),
+                            in_queue_.data());
+        stream.Sync();
+        sw.stop();
+        json_iter["SortRaysTime"] = sw.ms();
+      }
 
       params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
       params.miss_queue = out_queue_.DeviceObject();
@@ -495,7 +566,7 @@ class HausdorffDistanceRT {
       in_size = in_queue_.size(stream.cuda_stream());
       json_iter["NumOutputPoints"] = in_size;
       json_iter["CMax2"] = cmax2;
-      json_iter["ComputeTime"] = sw.ms();
+      json_iter["RTTime"] = sw.ms();
       json_iter["Hits"] = iter_hits.get(stream.cuda_stream());
 
       if (in_size > 0) {
@@ -604,6 +675,7 @@ class HausdorffDistanceRT {
 
     stats_["BVHBuildTime"] = sw.ms();
     stats_["BVHMemoryKB"] = mem_bytes / 1024;
+    thrust::device_vector<uint32_t> morton_codes;
 
     SharedValue<uint32_t> iter_hits;
     int iter = 0;
@@ -616,6 +688,24 @@ class HausdorffDistanceRT {
       term_queue_.Clear(stream.cuda_stream());
 
       details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+      auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
+
+      if (config_.sort_rays) {
+        sw.start();
+        morton_codes.resize(in_size);
+        thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
+                          in_queue_.data(), in_queue_.data() + in_size,
+                          morton_codes.begin(), [=] __device__(uint32_t pid) {
+                            const auto& p = p_points_a[pid];
+                            return details::morton_code(p);
+                          });
+        thrust::sort_by_key(thrust::cuda::par.on(stream.cuda_stream()),
+                            morton_codes.begin(), morton_codes.end(),
+                            in_queue_.data());
+        stream.Sync();
+        sw.stop();
+        json_iter["SortRaysTime"] = sw.ms();
+      }
 
       params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
       params.term_queue = term_queue_.DeviceObject();

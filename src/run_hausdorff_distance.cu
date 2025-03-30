@@ -15,13 +15,13 @@
 #include "hausdorff_distance_lbvh.h"
 #include "hausdorff_distance_rt.h"
 #include "img_loader.h"
+#include "loader.h"
 #include "move_points.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
 #include "running_stats.h"
 #include "utils/stopwatch.h"
 #include "utils/type_traits.h"
-#include "wkt_loader.h"
 
 namespace hd {
 template <typename COORD_T, int N_DIMS>
@@ -73,21 +73,24 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   auto& json_input = stats.Log("Input");
 
   switch (config.input_type) {
-  case InputType::kWKT: {
-    points_a = LoadPoints<COORD_T, N_DIMS>(
-        config.input_file1, config.serialize_folder, config.limit);
-    points_b = LoadPoints<COORD_T, N_DIMS>(
-        config.input_file2, config.serialize_folder, config.limit);
-    json_input["DataType"] = "WKT";
-    break;
-  }
   case InputType::kImage: {
     points_a = LoadImage<COORD_T, N_DIMS>(config.input_file1, config.limit);
     points_b = LoadImage<COORD_T, N_DIMS>(config.input_file2, config.limit);
-    json_input["DataType"] = "Image";
+    break;
+  }
+  default: {
+    points_a =
+        LoadPoints<COORD_T, N_DIMS>(config.input_file1, config.serialize_folder,
+                                    config.input_type, config.limit);
+    points_b =
+        LoadPoints<COORD_T, N_DIMS>(config.input_file2, config.serialize_folder,
+                                    config.input_type, config.limit);
     break;
   }
   }
+
+  CHECK_GT(points_a.size(), 0) << config.input_file1;
+  CHECK_GT(points_b.size(), 0) << config.input_file2;
 
   json_input["FileA"]["Path"] = config.input_file1;
   json_input["FileA"]["NumPoints"] = points_a.size();
@@ -128,6 +131,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   auto& json_run = stats.Log("Running");
 
   json_run["Seed"] = config.seed;
+  json_run["SortRays"] = config.sort_rays;
   json_run["FastBuildBVH"] = config.fast_build_bvh;
   json_run["RebuildBVH"] = config.rebuild_bvh;
   json_run["RadiusStep"] = config.radius_step;
@@ -144,6 +148,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
 
   rt_config.seed = config.seed;
   rt_config.ptx_root = ptx_root.c_str();
+  rt_config.sort_rays  = config.sort_rays;
   rt_config.fast_build = config.fast_build_bvh;
   rt_config.rebuild_bvh = config.rebuild_bvh;
   rt_config.radius_step = config.radius_step;
