@@ -60,6 +60,7 @@ function run_datasets() {
     echo "$list" >"$root/.list"
   fi
 
+  out_prefix=$(basename "$root")
   FILE_LIMIT=1000
   CURR_FILE_IDX=0
   while IFS= read -r file1; do
