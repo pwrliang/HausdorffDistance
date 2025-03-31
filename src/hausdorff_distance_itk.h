@@ -1,4 +1,3 @@
-
 #ifndef HAUSDORFF_DISTANCE_ITK_H
 #define HAUSDORFF_DISTANCE_ITK_H
 #include "itkDirectedHausdorffDistanceImageFilter.h"

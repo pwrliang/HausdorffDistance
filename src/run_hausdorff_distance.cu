@@ -27,7 +27,7 @@ namespace hd {
 template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(const RunConfig& config);
 
-std::string get_current_datetime_string() {
+inline std::string get_current_datetime_string() {
   auto now = std::chrono::system_clock::now();
   std::time_t time_now = std::chrono::system_clock::to_time_t(now);
 
@@ -88,7 +88,6 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
     break;
   }
   }
-
   CHECK_GT(points_a.size(), 0) << config.input_file1;
   CHECK_GT(points_b.size(), 0) << config.input_file2;
 
@@ -149,7 +148,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
 
   rt_config.seed = config.seed;
   rt_config.ptx_root = ptx_root.c_str();
-  rt_config.sort_rays  = config.sort_rays;
+  rt_config.sort_rays = config.sort_rays;
   rt_config.fast_build = config.fast_build_bvh;
   rt_config.rebuild_bvh = config.rebuild_bvh;
   rt_config.radius_step = config.radius_step;
@@ -234,6 +233,8 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
       json_run["Variant"] = "Hybrid";
       json_run["Execution"] = "GPU";
       CHECK_GT(config.n_points_cell, 0) << "Avg points / cell cannot be zero";
+      CHECK_GT(config.radius_step, 1);
+      CHECK_LE(config.sample_rate, 1);
       dist = hdist_rt.CalculateDistanceCompressHybrid(stream, d_points_a,
                                                       d_points_b);
       json_repeat = hdist_rt.GetStats();
@@ -263,9 +264,10 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   LOG(INFO) << "Avg Running Time " << json_run["AvgTime"] << " ms";
 
   stats.Log("HDResult", dist);
-  auto& json_check = stats.Log("Check");
 
   if (config.check) {
+    auto& json_check = stats.Log("Check");
+
     auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
     auto diff = answer_dist - dist;
 

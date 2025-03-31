@@ -45,6 +45,14 @@ struct RunConfig {
   double max_hit_reduce_factor;
   int max_reg_count;
   int n_points_cell;
+  std::vector<float> radius_step_list;
+  std::vector<float> sample_rate_list;
+  std::vector<uint32_t> max_hit_list;
+  std::vector<float> max_hit_reduce_factor_list;
+  std::vector<uint32_t> n_points_cell_list;
+  std::vector<bool> sort_rays_list;
+  std::vector<bool> fast_build_bvh_list;
+  std::vector<bool> rebuild_bvh_list;
 };
 }  // namespace hd
 

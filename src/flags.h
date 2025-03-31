@@ -28,4 +28,10 @@ DECLARE_int32(max_hit);
 DECLARE_double(max_hit_reduce_factor);
 DECLARE_int32(max_reg);
 DECLARE_int32(n_points_cell);
+DECLARE_bool(autotune);
+DECLARE_string(radius_step_list);
+DECLARE_string(sample_rate_list);
+DECLARE_string(max_hit_list);
+DECLARE_string(max_hit_reduce_factor_list);
+DECLARE_string(n_points_cell_list);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

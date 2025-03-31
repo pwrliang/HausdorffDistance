@@ -1,10 +1,12 @@
-
 #ifndef IMG_LOADER_H
 #define IMG_LOADER_H
 #include <string>
 #include <vector>
 
 #include "glog/logging.h"
+#include "itkDirectedHausdorffDistanceImageFilter.h"
+#include "itkImage.h"
+#include "itkImageFileReader.h"
 #include "utils/type_traits.h"
 
 template <typename COORD_T, int N_DIMS>

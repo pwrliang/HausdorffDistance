@@ -1,8 +1,30 @@
 #include <glog/logging.h>
 
+#include "autotune_hausdorff_distance.cuh"
 #include "flags.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
+
+template <typename T>
+std::vector<T> splitByComma(const std::string& input) {
+  std::vector<T> result;
+  std::stringstream ss(input);
+  std::string token;
+
+  while (std::getline(ss, token, ',')) {
+    std::stringstream converter(token);
+    T value;
+    converter >> value;
+    if (!converter.fail()) {
+      result.push_back(value);
+    } else {
+      // Optionally handle error: skip or throw
+      LOG(FATAL) << "Conversion failed for token: " << token;
+    }
+  }
+
+  return result;
+}
 
 int main(int argc, char* argv[]) {
   FLAGS_stderrthreshold = 0;
@@ -86,7 +108,36 @@ int main(int argc, char* argv[]) {
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";
 
-  hd::RunHausdorffDistance(config);
+  if (FLAGS_autotune) {
+    config.radius_step_list = splitByComma<float>(FLAGS_radius_step_list);
+    config.sample_rate_list = splitByComma<float>(FLAGS_sample_rate_list);
+    config.max_hit_list = splitByComma<uint32_t>(FLAGS_max_hit_list);
+    config.max_hit_reduce_factor_list =
+        splitByComma<float>(FLAGS_max_hit_reduce_factor_list);
+    config.n_points_cell_list =
+        splitByComma<uint32_t>(FLAGS_n_points_cell_list);
+    if (config.sort_rays) {
+      config.sort_rays_list.push_back(true);
+    }
+    config.sort_rays_list.push_back(false);
+    if (config.fast_build_bvh) {
+      config.fast_build_bvh_list.push_back(true);
+    }
+    config.fast_build_bvh_list.push_back(false);
+    if (config.rebuild_bvh) {
+      config.rebuild_bvh_list.push_back(true);
+    }
+    config.rebuild_bvh_list.push_back(false);
+
+    CHECK_GT(config.radius_step_list.size(), 0);
+    CHECK_GT(config.sample_rate_list.size(), 0);
+    CHECK_GT(config.max_hit_list.size(), 0);
+    CHECK_GT(config.max_hit_reduce_factor_list.size(), 0);
+    CHECK_GT(config.n_points_cell_list.size(), 0);
+    hd::AutoTuneHausdorffDistance(config);
+  } else {
+    hd::RunHausdorffDistance(config);
+  }
 
   google::ShutdownGoogleLogging();
 }

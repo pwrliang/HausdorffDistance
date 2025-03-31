@@ -12,6 +12,7 @@
 #include "distance.h"
 #include "grid.h"
 #include "hdr/hdr_histogram.h"
+#include "hd_bounds.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
 #include "sampler.h"
@@ -174,6 +175,10 @@ class HausdorffDistanceRT {
     sampler_ = Sampler(config_.seed);
     sampler_.Init(hd_config.max_samples);
     g_ = thrust::default_random_engine(config_.seed);
+  }
+
+  void UpdateConfig(const HausdorffDistanceRTConfig& hd_config) {
+    config_ = hd_config;
   }
 
   const nlohmann::json& GetStats() const { return stats_; }
@@ -611,6 +616,7 @@ class HausdorffDistanceRT {
                     points_b_shuffled.begin(), points_b_shuffled.end(), g_);
 
     Stopwatch sw;
+    stats_.clear();
     // Sample points for a better initial HD
     {
       sw.start();

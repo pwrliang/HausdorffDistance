@@ -9,6 +9,7 @@ add_executable(hd_exec
         main.cpp
         flags.cc
         run_hausdorff_distance.cu
+        autotune_hausdorff_distance.cu
         ${PROGRAM_MODULES}
 )
 

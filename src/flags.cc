@@ -19,6 +19,7 @@ DEFINE_bool(is_double, false, "whether the dataset is a double");
 DEFINE_int32(limit, INT32_MAX, "limit how many point to calculate");
 DEFINE_double(move_offset, 0, "Move points from dataset2 by a given offset");
 DEFINE_int32(repeat, 5, "Number of repeat to evaluate");
+// RT/Hybrid parameters
 DEFINE_double(radius_step, 2, "Step of radius increase (RT only)");
 DEFINE_bool(fast_build_bvh, false, "Prefer fast build BVH");
 DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
@@ -28,3 +29,10 @@ DEFINE_int32(max_hit, 128, "Max number of hit by RT method before using EB");
 DEFINE_double(max_hit_reduce_factor, 1, "Reduce max hit by a factor after each iteration");
 DEFINE_int32(max_reg, 0, "Max # of registers for RT");
 DEFINE_int32(n_points_cell, 0, "Number of points per cell");
+// For Autotune only
+DEFINE_bool(autotune, false, "Automatic tuning parameters");
+DEFINE_string(radius_step_list, "","");
+DEFINE_string(sample_rate_list, "","");
+DEFINE_string(max_hit_list, "","");
+DEFINE_string(max_hit_reduce_factor_list,"","");
+DEFINE_string(n_points_cell_list, "","");
