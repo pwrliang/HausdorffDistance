@@ -25,5 +25,6 @@ DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
 DEFINE_bool(sort_rays, false, "sort rays by their Morton codes");
 DEFINE_double(sample_rate, 0.001, "");
 DEFINE_int32(max_hit, 128, "Max number of hit by RT method before using EB");
+DEFINE_double(max_hit_reduce_factor, 1, "Reduce max hit by a factor after each iteration");
 DEFINE_int32(max_reg, 0, "Max # of registers for RT");
 DEFINE_int32(n_points_cell, 0, "Number of points per cell");

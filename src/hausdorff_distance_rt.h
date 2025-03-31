@@ -148,10 +148,11 @@ struct HausdorffDistanceRTConfig {
   bool compact = false;
   bool rebuild_bvh = false;
   float radius_step = 2;
-  float sample_rate = 0.0001;
+  float sample_rate = 0.001;
   int n_points_cell = 8;
   int max_samples = 100 * 1000;
-  int max_hit = 1000;
+  uint32_t max_hit = 1000;
+  float max_hit_reduce_factor = 1;
   int max_reg_count = 0;
   bool sort_rays = false;
 };
@@ -679,6 +680,7 @@ class HausdorffDistanceRT {
 
     SharedValue<uint32_t> iter_hits;
     int iter = 0;
+    auto max_hit = config_.max_hit;
 
     while (in_size > 0) {
       iter++;
@@ -719,7 +721,9 @@ class HausdorffDistanceRT {
       params.prefix_sum = grid_.get_prefix_sum().data();
       params.point_b_ids = grid_.get_point_ids().data();
       params.n_hits = iter_hits.data();
-      params.max_hit = config_.max_hit;
+      params.max_hit = max_hit;
+
+      max_hit = ceil(max_hit / config_.max_hit_reduce_factor);
 
       details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
 

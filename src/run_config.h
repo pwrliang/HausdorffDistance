@@ -42,6 +42,7 @@ struct RunConfig {
   bool rebuild_bvh;
   double sample_rate;
   int max_hit;
+  double max_hit_reduce_factor;
   int max_reg_count;
   int n_points_cell;
 };

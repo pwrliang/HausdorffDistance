@@ -137,6 +137,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   json_run["RadiusStep"] = config.radius_step;
   json_run["SampleRate"] = config.sample_rate;
   json_run["MaxHit"] = config.max_hit;
+  json_run["MaxHitReduceFactor"] = config.max_hit_reduce_factor;
   json_run["NumPointsPerCell"] = config.n_points_cell;
 
   COORD_T dist = -1;
@@ -155,6 +156,7 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
   rt_config.sample_rate = config.sample_rate;
   rt_config.max_reg_count = config.max_reg_count;
   rt_config.max_hit = config.max_hit;
+  rt_config.max_hit_reduce_factor = config.max_hit_reduce_factor;
   rt_config.n_points_cell = config.n_points_cell;
 
   hdist_rt.Init(rt_config);
