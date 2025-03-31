@@ -604,8 +604,11 @@ class HausdorffDistanceRT {
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
     COORD_T radius;
+    thrust::device_vector<point_t> points_b_shuffled = points_b;
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                    points_b_shuffled.begin(), points_b_shuffled.end(), g_);
 
     Stopwatch sw;
     // Sample points for a better initial HD
@@ -614,13 +617,10 @@ class HausdorffDistanceRT {
       uint32_t n_samples = ceil(points_a.size() * config_.sample_rate);
       auto sampled_point_ids_a =
           sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
-      thrust::device_vector<point_t> backup_points_b = points_b;
-      thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
-                      points_b.begin(), points_b.end(), g_);
-      CalculateHDEarlyBreak(stream, points_a, points_b, sampled_point_ids_a);
+      CalculateHDEarlyBreak(stream, points_a, points_b_shuffled,
+                            sampled_point_ids_a);
       auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
       radius = sqrt(sampled_hd2);
-      points_b = backup_points_b;
       sw.stop();
       stats_["NumSamples"] = n_samples;
       stats_["SampleTime"] = sw.ms();
@@ -761,8 +761,10 @@ class HausdorffDistanceRT {
 
       if (!eb_point_a_ids.empty()) {
         sw.start();
+        thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                        eb_point_a_ids.begin(), eb_point_a_ids.end(), g_);
         auto eb_compared_pairs =
-            CalculateHDEarlyBreak(stream, points_a, points_b, eb_point_a_ids);
+            CalculateHDEarlyBreak(stream, points_a, points_b_shuffled);
         sw.stop();
         json_iter["ComparedPairs"] = eb_compared_pairs;
         json_iter["EBTime"] = sw.ms();
