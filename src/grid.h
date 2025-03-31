@@ -19,6 +19,7 @@
 #include "utils/array_view.h"
 #include "utils/bitset.h"
 #include "utils/launcher.h"
+#include "utils/stopwatch.h"
 #include "utils/util.h"
 
 namespace hd {
@@ -234,6 +235,8 @@ class Grid {
 
   void Insert(const Stream& stream,
               const thrust::device_vector<point_t>& points) {
+    Stopwatch sw;
+    sw.start();
     auto d_grid = DeviceObject();
     thrust::device_vector<uint32_t> n_primitives;
     SharedValue<uint32_t> tmp_offset;
@@ -305,7 +308,6 @@ class Grid {
                      });
     stats_["MinPoints"] = min_points.get(stream.cuda_stream());
     stats_["MaxPoints"] = max_points.get(stream.cuda_stream());
-    stats_["AvgPoints"] = points.size() / non_empty_cells;
     stats_["GiniIndex"] = gini_index_thrust(stream, n_primitives);
 
     thrust::inclusive_scan(thrust::cuda::par.on(stream.cuda_stream()),
@@ -345,7 +347,13 @@ class Grid {
     thrust::inclusive_scan(thrust::cuda::par.on(stream.cuda_stream()),
                            n_primitives.begin(), n_primitives.end(),
                            prefix_sum_.begin() + 1);
-
+    sw.stop();
+    stats_["BuildTime"] = sw.ms();
+    auto json_dims = nlohmann::json::array();
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      json_dims.push_back(reinterpret_cast<unsigned int*>(&grid_size_)[dim]);
+    }
+    stats_["GridSize"] = json_dims;
 #ifndef NDEBUG
     auto* p_points = thrust::raw_pointer_cast(points.data());
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
@@ -446,7 +454,7 @@ class Grid {
     CHECK(file != nullptr) << "Error opening file " << "/tmp/grid";
     hdr_percentiles_print(histogram,
                           file,  // File to write to
-                          3,     // Granularity of printed values
+                          5,     // Granularity of printed values
                           1.0,   // Multiplier for results
                           CSV);  // Format CLASSIC/CSV supported.
     hdr_close(histogram);
@@ -460,7 +468,59 @@ class Grid {
             << prefix_sum[prefix_sum.size() - 1] / get_grid_size();
   }
 
-  nlohmann::json GetStats() const { return stats_; }
+  void ComputeHistogram() {
+    auto n_nonempty = cell_ids_.size();
+    hdr_histogram* histogram;
+    // Initialise the histogram
+    hdr_init(1,                     // Minimum value
+             (int64_t) n_nonempty,  // Maximum value
+             3,                     // Number of significant figures
+             &histogram);           // Pointer to initialise
+
+    thrust::host_vector<uint32_t> prefix_sum = prefix_sum_;
+    for (uint32_t i = 0; i < n_nonempty; i++) {
+      auto n_points = prefix_sum[i + 1] - prefix_sum[i];
+      hdr_record_value(histogram,  // Histogram to record to
+                       n_points);  // Value to record
+    }
+
+    char* buffer = nullptr;
+    size_t size = 0;
+    FILE* memstream = open_memstream(&buffer, &size);
+    if (!memstream) {
+      perror("open_memstream failed");
+      return;
+    }
+
+    hdr_percentiles_print(histogram, memstream, 3, 1.0, CLASSIC);
+    fclose(memstream);
+
+    // Parse to JSON
+    std::istringstream iss(buffer);
+    std::string line;
+    auto j = nlohmann::json::array();
+
+    while (std::getline(iss, line)) {
+      if (line.empty() || line[0] == '-' ||
+          line.find("Value") != std::string::npos)
+        continue;
+
+      std::istringstream ls(line);
+      double value, percentile;
+      int count;
+      if (ls >> value >> percentile >> count) {
+        j.push_back(
+            {{"value", value}, {"percentile", percentile}, {"count", count}});
+      }
+    }
+
+    free(buffer);
+    hdr_close(histogram);
+
+    stats_["Histogram"] = j;
+  }
+
+  const nlohmann::json& GetStats() const { return stats_; }
 
  private:
   Bitset<uint64_t> occupied_cells_;

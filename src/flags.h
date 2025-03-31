@@ -7,6 +7,7 @@
 DECLARE_string(input1);
 DECLARE_string(input2);
 DECLARE_string(input_type);
+DECLARE_int32(stats_n_points_cell);
 DECLARE_string(serialize);
 DECLARE_string(json);
 DECLARE_string(variant);

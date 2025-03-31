@@ -3,6 +3,7 @@
 DEFINE_string(input1, "", "path of the point dataset1");
 DEFINE_string(input2, "", "path of the point dataset2");
 DEFINE_string(input_type, "", "Input type can be 'wkt' or 'image'");
+DEFINE_int32(stats_n_points_cell, 10, "");
 DEFINE_string(serialize, "", "a directory to store serialized point file");
 DEFINE_string(json, "", "Output path of json file");
 DEFINE_string(

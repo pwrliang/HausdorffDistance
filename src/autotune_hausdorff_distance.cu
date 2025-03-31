@@ -100,11 +100,14 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
   json_input["MoveOffset"] = config.move_offset;
   // Calculate MBR of points
-  auto write_mbr = [&](const std::string& key, ArrayView<point_t> points) {
+  auto write_points_stats = [&](const std::string& key,
+                                const thrust::device_vector<point_t>& points) {
     using mbr_t = MbrTypeFromPoint<point_t>;
 
     SharedValue<mbr_t> mbr;
     auto* p_mbr = mbr.data();
+
+    Grid<COORD_T, N_DIMS> stats_grid;
 
     mbr.set(stream.cuda_stream(), mbr_t());
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
@@ -112,15 +115,30 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
                        p_mbr->ExpandAtomic(p);
                      });
     auto h_mbr = mbr.get(stream.cuda_stream());
+
+    auto grid_size = stats_grid.CalculateGridResolution(
+        h_mbr, points.size(), config.stats_n_points_cell);
+
+    stats_grid.Init(grid_size, h_mbr);
+    stats_grid.Insert(stream, points);
+    stats_grid.ComputeHistogram();
+
+    auto& dataset_stats_json = json_input[key];
+
+    dataset_stats_json["Grid"] = stats_grid.GetStats();
+    auto json_mbr = nlohmann::json::array();
+
     for (int dim = 0; dim < N_DIMS; ++dim) {
-      json_input[key]["Dim" + std::to_string(dim)]["Lower"] = h_mbr.lower(dim);
-      json_input[key]["Dim" + std::to_string(dim)]["Upper"] = h_mbr.upper(dim);
+      json_mbr.push_back(
+          {{"Lower", h_mbr.lower(dim)}, {"Upper", h_mbr.upper(dim)}});
     }
+    dataset_stats_json["MBR"] = json_mbr;
   };
 
   thrust::device_vector<point_t> d_points_a = points_a, d_points_b = points_b;
-  write_mbr("FileA", d_points_a);
-  write_mbr("FileB", d_points_b);
+
+  write_points_stats("FileA", d_points_a);
+  write_points_stats("FileB", d_points_b);
 
   auto n_combinations =
       config.n_points_cell_list.size() * config.sample_rate_list.size() *
@@ -174,6 +192,8 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
                   auto& json_run = stats.Log("Running");
 
                   json_run.clear();
+                  json_run["StatsNumPointsPerCell"] =
+                      config.stats_n_points_cell;
                   json_run["Seed"] = config.seed;
                   json_run["SortRays"] = sort_rays;
                   json_run["FastBuildBVH"] = fast_build_bvh;

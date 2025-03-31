@@ -20,6 +20,7 @@ struct RunConfig {
   std::string exec_path;
   std::string input_file1;
   std::string input_file2;
+  uint32_t stats_n_points_cell;
   std::string serialize_folder;
   std::string json_file;
   InputType input_type;
@@ -33,16 +34,16 @@ struct RunConfig {
   int n_dims;
   bool is_double;
   int limit;
-  double move_offset;
+  float move_offset;
   int repeat;
   // RT only
-  double radius_step;
+  float radius_step;
   bool sort_rays;
   bool fast_build_bvh;
   bool rebuild_bvh;
-  double sample_rate;
+  float sample_rate;
   int max_hit;
-  double max_hit_reduce_factor;
+  float max_hit_reduce_factor;
   int max_reg_count;
   int n_points_cell;
   std::vector<float> radius_step_list;

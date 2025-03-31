@@ -11,8 +11,8 @@
 
 #include "distance.h"
 #include "grid.h"
-#include "hdr/hdr_histogram.h"
 #include "hd_bounds.h"
+#include "hdr/hdr_histogram.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
 #include "sampler.h"
@@ -223,6 +223,8 @@ class HausdorffDistanceRT {
 
     COORD_T max_radius = hd_ub;
 
+    stats_["HDLowerBound"] = hd_lb;
+    stats_["HDUpperBound"] = hd_ub;
     stats_["InitRadius"] = radius;
 
     in_queue_.Init(n_points_a);
@@ -407,6 +409,8 @@ class HausdorffDistanceRT {
 
     COORD_T max_radius = hd_ub;
 
+    stats_["HDLowerBound"] = hd_lb;
+    stats_["HDUpperBound"] = hd_ub;
     stats_["InitRadius"] = radius;
 
     in_queue_.Init(n_points_a);
@@ -424,14 +428,7 @@ class HausdorffDistanceRT {
     stream.Sync();
     sw.stop();
 
-    auto json_grid = grid_.GetStats();
-
-    json_grid["BuildTime"] = sw.ms();
-    for (int dim = 0; dim < N_DIMS; dim++) {
-      json_grid["Dim" + std::to_string(dim)] =
-          reinterpret_cast<unsigned int*>(&grid_size)[dim];
-    }
-    stats_["Grid"] = json_grid;
+    stats_["Grid"] = grid_.GetStats();
 
 #ifdef PROFILING
     grid_.PrintHistogram();
@@ -635,6 +632,8 @@ class HausdorffDistanceRT {
 
     COORD_T max_radius = hd_ub;
 
+    stats_["HDLowerBound"] = hd_lb;
+    stats_["HDUpperBound"] = hd_ub;
     stats_["InitRadius"] = radius;
 
     in_queue_.Init(n_points_a);
@@ -652,14 +651,7 @@ class HausdorffDistanceRT {
     stream.Sync();
     sw.stop();
 
-    auto json_grid = grid_.GetStats();
-
-    json_grid["BuildTime"] = sw.ms();
-    for (int dim = 0; dim < N_DIMS; dim++) {
-      json_grid["Dim" + std::to_string(dim)] =
-          reinterpret_cast<unsigned int*>(&grid_size)[dim];
-    }
-    stats_["Grid"] = json_grid;
+    stats_["Grid"] = grid_.GetStats();
 
     auto d_in_queue = in_queue_.DeviceObject();
 

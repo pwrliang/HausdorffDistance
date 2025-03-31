@@ -46,6 +46,7 @@ int main(int argc, char* argv[]) {
   config.exec_path = exec_path.substr(0, exec_path.find_last_of("/"));
   config.input_file1 = FLAGS_input1;
   config.input_file2 = FLAGS_input2;
+  config.stats_n_points_cell = FLAGS_stats_n_points_cell;
   config.serialize_folder = FLAGS_serialize;
 
   if (FLAGS_input_type == "wkt") {
