@@ -40,7 +40,7 @@ function vary_variables() {
     -autotune \
     -n_points_cell_list "1,2,4,8,16,32" \
     -max_hit_list "1,2,4,8,16,32,64,128,256" \
-    -max_hit_reduce_factor_list "1,1.2,1.4,1.6,1.8,2" \
+    -max_hit_reduce_factor_list "1" \
     -radius_step_list "1.2,1.4,1.6,1.8,2.0" \
     -sample_rate_list "0.0001,0.0005,0.001,0.005,0.01" \
     -check=false \
@@ -57,26 +57,46 @@ function run_datasets() {
     list=$(cat "$root/.list")
   else
     list=$(find "$root" -type f)
-    list=$(echo "$list" | shuf)
+    list=$(echo "$list")
     echo "$list" >"$root/.list"
   fi
 
-  out_prefix=$(basename "$root")
-  FILE_LIMIT=1000
-  CURR_FILE_IDX=0
-  while IFS= read -r file1; do
-    while IFS= read -r file2; do
-      if [[ "$file1" != "$file2" ]]; then
-        CURR_FILE_IDX=$((CURR_FILE_IDX + 1))
-        echo "file $CURR_FILE_IDX: $file1 $file2"
+  mapfile -t files <<<"$list"
 
-        vary_variables "$out_prefix" "$file1" "$file2" $type $dims
-        if [[ $CURR_FILE_IDX -ge $FILE_LIMIT ]]; then
-          return
-        fi
-      fi
-    done < <(printf '%s\n' "$list")
-  done < <(printf '%s\n' "$list")
+  file_count=${#files[@]}
+  if ((file_count < 2)); then
+    echo "Not enough files in the directory!"
+    exit 1
+  fi
+  seed=42
+  counter=0
+  max=1000 # Total files to pick (2 per iteration = 500 loops)
+  out_prefix=$(basename "$root")
+
+  while ((counter < max)); do
+    current_seed="${seed}_${counter}"
+
+    # Use openssl to generate a stream and feed it directly to shuf
+    mapfile -t picks < <(
+      printf "%s\n" "${files[@]}" |
+        shuf --random-source=<(openssl enc -aes-256-ctr -pass pass:"$current_seed" -nosalt </dev/zero 2>/dev/null) |
+        head -n 2
+    )
+    file1="${picks[0]}"
+    file2="${picks[1]}"
+    # Ensure we got two valid files
+    if [[ -n "$file1" && -n "$file2" ]]; then
+      echo "Pick $((counter + 1)): $file1"
+      ((counter++))
+      echo "Pick $((counter + 1)): $file2"
+      ((counter++))
+
+      vary_variables "$out_prefix" "$file1" "$file2" $type $dims
+    else
+      echo "Error: Could not pick two files. Skipping iteration."
+      ((counter += 2)) # Still increment to avoid infinite loop
+    fi
+  done
 }
 
 run_datasets "/local/storage/shared/BraTS2020_TrainingData" "image" 3
