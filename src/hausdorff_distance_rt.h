@@ -321,19 +321,8 @@ class HausdorffDistanceRT {
           hdr_record_value(histogram,  // Histogram to record to
                            val);       // Value to record
       }
-      std::ofstream ofs;
-      std::string path = "/tmp/iter_" + std::to_string(iter);
-      FILE* file = fopen(path.c_str(), "w");  // Open file in write mode
-
-      CHECK(file != nullptr) << "Error opening file " << path;
-
-      hdr_percentiles_print(histogram,
-                            file,  // File to write to
-                            3,     // Granularity of printed values
-                            1.0,   // Multiplier for results
-                            CSV);  // Format CLASSIC/CSV supported.
+      json_iter["HitsHistogram"] = DumpHistogram(histogram);
       hdr_reset(histogram);
-      fclose(file);  // Close the file
 #endif
 
       auto cmax = sqrt(cmax2);
@@ -430,10 +419,6 @@ class HausdorffDistanceRT {
 
     stats_["Grid"] = grid_.GetStats();
 
-#ifdef PROFILING
-    grid_.PrintHistogram();
-#endif
-
     auto d_in_queue = in_queue_.DeviceObject();
 
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
@@ -495,16 +480,15 @@ class HausdorffDistanceRT {
 
       params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
       params.miss_queue = out_queue_.DeviceObject();
-      params.points_a = thrust::raw_pointer_cast(points_a.data());
-      params.points_b = thrust::raw_pointer_cast(points_b.data());
+      params.points_a = points_a;
+      params.points_b = points_b;
       params.handle = gas_handle;
       params.cmax2 = cmax2_.data();
       params.radius = radius;
-      params.mbrs_b = thrust::raw_pointer_cast(mbrs_b.data());
-      params.prefix_sum = grid_.get_prefix_sum().data();
-      params.point_b_ids = grid_.get_point_ids().data();
+      params.mbrs_b = mbrs_b;
+      params.prefix_sum = grid_.get_prefix_sum();
+      params.point_b_ids = grid_.get_point_ids();
       params.n_hits = iter_hits.data();
-
 #ifdef PROFILING
       hits_counters_.resize(in_size, 0);
       params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
@@ -544,34 +528,21 @@ class HausdorffDistanceRT {
           hdr_record_value(histogram,  // Histogram to record to
                            val);       // Value to record
       }
-      std::ofstream ofs;
-      std::string path = "/tmp/iter_" + std::to_string(iter);
-      FILE* file = fopen(path.c_str(), "w");  // Open file in write mode
-
-      CHECK(file != nullptr) << "Error opening file " << path;
-
-      hdr_percentiles_print(histogram,
-                            file,  // File to write to
-                            3,     // Granularity of printed values
-                            1.0,   // Multiplier for results
-                            CSV);  // Format CLASSIC/CSV supported.
+      json_iter["HitsHistogram"] = DumpHistogram(histogram);
       hdr_reset(histogram);
-      fclose(file);  // Close the file
 #endif
-      auto cmax2 = cmax2_.get(stream.cuda_stream());
-      auto cmax = sqrt(cmax2);
 
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
 
-      radius *= config_.radius_step;
       json_iter["NumInputPoints"] = in_size;
       in_size = in_queue_.size(stream.cuda_stream());
       json_iter["NumOutputPoints"] = in_size;
-      json_iter["CMax2"] = cmax2;
+      json_iter["CMax2"] = cmax2_.get(stream.cuda_stream());
       json_iter["RTTime"] = sw.ms();
       json_iter["Hits"] = iter_hits.get(stream.cuda_stream());
 
+      radius *= config_.radius_step;
       if (in_size > 0) {
         sw.start();
         if (config_.rebuild_bvh) {
@@ -679,6 +650,14 @@ class HausdorffDistanceRT {
     SharedValue<uint32_t> iter_hits;
     int iter = 0;
     auto max_hit = config_.max_hit;
+#ifdef PROFILING
+    struct hdr_histogram* histogram;
+    // Initialise the histogram
+    hdr_init(1,                     // Minimum value
+             (int64_t) n_points_b,  // Maximum value
+             3,                     // Number of significant figures
+             &histogram);           // Pointer to initialise
+#endif
 
     while (in_size > 0) {
       iter++;
@@ -710,15 +689,21 @@ class HausdorffDistanceRT {
       params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
       params.term_queue = term_queue_.DeviceObject();
       params.miss_queue = out_queue_.DeviceObject();
-      params.points_a = thrust::raw_pointer_cast(points_a.data());
-      params.points_b = thrust::raw_pointer_cast(points_b.data());
+      params.points_a = points_a;
+      params.points_b = points_b;
       params.handle = gas_handle;
       params.cmax2 = cmax2_.data();
       params.radius = radius;
-      params.mbrs_b = thrust::raw_pointer_cast(mbrs_b.data());
-      params.prefix_sum = grid_.get_prefix_sum().data();
-      params.point_b_ids = grid_.get_point_ids().data();
+      params.mbrs_b = mbrs_b;
+      params.prefix_sum = grid_.get_prefix_sum();
+      params.point_b_ids = grid_.get_point_ids();
       params.n_hits = iter_hits.data();
+#ifdef PROFILING
+      hits_counters_.resize(in_size, 0);
+      params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
+#else
+      params.hits_counters = nullptr;
+#endif
       params.max_hit = max_hit;
 
       max_hit = ceil(max_hit / config_.max_hit_reduce_factor);
@@ -749,6 +734,18 @@ class HausdorffDistanceRT {
       auto term_size = term_queue_.size(stream.cuda_stream());
       eb_point_a_ids = ArrayView<uint32_t>(term_queue_.data(), term_size);
       sw.stop();
+
+#ifdef PROFILING
+      thrust::host_vector<uint32_t> h_hits_counters = hits_counters_;
+
+      for (auto val : h_hits_counters) {
+        if (val > 0)
+          hdr_record_value(histogram,  // Histogram to record to
+                           val);       // Value to record
+      }
+      json_iter["HitsHistogram"] = DumpHistogram(histogram);
+      hdr_reset(histogram);
+#endif
 
       json_iter["NumInputPoints"] = in_size;
       json_iter["NumOutputPoints"] = miss_size;

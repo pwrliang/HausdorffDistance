@@ -5,6 +5,7 @@
 #include <string>
 
 #include "glog/logging.h"
+#include "hdr/hdr_histogram.h"
 
 class RunningStats {
  public:
@@ -43,5 +44,42 @@ class RunningStats {
 
   nlohmann::json stats_;
 };
+
+inline nlohmann::json DumpHistogram(hdr_histogram* histogram,
+                                    int ticks_per_half_distance = 3) {
+  auto j = nlohmann::json::array();
+  char* buffer = nullptr;
+  size_t size = 0;
+  FILE* memstream = open_memstream(&buffer, &size);
+  if (!memstream) {
+    perror("open_memstream failed");
+    return j;
+  }
+
+  hdr_percentiles_print(histogram, memstream, ticks_per_half_distance, 1.0,
+                        CLASSIC);
+  fclose(memstream);
+
+  // Parse to JSON
+  std::istringstream iss(buffer);
+  std::string line;
+
+  while (std::getline(iss, line)) {
+    if (line.empty() || line[0] == '-' ||
+        line.find("Value") != std::string::npos)
+      continue;
+
+    std::istringstream ls(line);
+    double value, percentile;
+    int count;
+    if (ls >> value >> percentile >> count) {
+      j.push_back(
+          {{"value", value}, {"percentile", percentile}, {"count", count}});
+    }
+  }
+
+  free(buffer);
+  return j;
+}
 
 #endif  // RUNNING_STATS_H

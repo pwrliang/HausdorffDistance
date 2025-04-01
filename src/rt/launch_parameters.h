@@ -37,11 +37,11 @@ struct LaunchParamsNNCompress {
   ArrayView<uint32_t> in_queue;
   dev::Queue<uint32_t> term_queue;
   dev::Queue<uint32_t> miss_queue;
-  point_t* points_a;
-  point_t* points_b;
-  mbr_t* mbrs_b;
-  uint32_t* prefix_sum;
-  uint32_t* point_b_ids;
+  ArrayView<point_t> points_a;
+  ArrayView<point_t> points_b;
+  ArrayView<mbr_t> mbrs_b;
+  ArrayView<uint32_t> prefix_sum;
+  ArrayView<uint32_t> point_b_ids;
   OptixTraversableHandle handle;
   COORD_T* cmax2;
   COORD_T radius;

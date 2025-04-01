@@ -174,6 +174,16 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
                   CHECK_GT(radius_step, 1);
                   CHECK_LE(sample_rate, 1);
 
+                  VLOG(1) << "N_points_cell = " << n_points_cell
+                          << ", sample_rate = " << sample_rate
+                          << ", max_hit = " << max_hit
+                          << ", radius = " << radius_step
+                          << ", max_hit_reduce_factor = "
+                          << max_hit_reduce_factor
+                          << ", sort_rays = " << sort_rays
+                          << ", fast_build_bvh = " << fast_build_bvh
+                          << ", rebuild_bvh = " << rebuild_bvh;
+
                   char path[PATH_MAX];
                   sprintf(path,
                           "%s_n_points_cell_%u_sample_rate_%.6f_max_hit_%u_"

@@ -2,6 +2,7 @@
 #define GRID_H
 
 #include <optix.h>
+#include <running_stats.h>
 #include <thrust/binary_search.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
@@ -484,40 +485,8 @@ class Grid {
                        n_points);  // Value to record
     }
 
-    char* buffer = nullptr;
-    size_t size = 0;
-    FILE* memstream = open_memstream(&buffer, &size);
-    if (!memstream) {
-      perror("open_memstream failed");
-      return;
-    }
-
-    hdr_percentiles_print(histogram, memstream, 3, 1.0, CLASSIC);
-    fclose(memstream);
-
-    // Parse to JSON
-    std::istringstream iss(buffer);
-    std::string line;
-    auto j = nlohmann::json::array();
-
-    while (std::getline(iss, line)) {
-      if (line.empty() || line[0] == '-' ||
-          line.find("Value") != std::string::npos)
-        continue;
-
-      std::istringstream ls(line);
-      double value, percentile;
-      int count;
-      if (ls >> value >> percentile >> count) {
-        j.push_back(
-            {{"value", value}, {"percentile", percentile}, {"count", count}});
-      }
-    }
-
-    free(buffer);
+    stats_["Histogram"] = DumpHistogram(histogram);
     hdr_close(histogram);
-
-    stats_["Histogram"] = j;
   }
 
   const nlohmann::json& GetStats() const { return stats_; }

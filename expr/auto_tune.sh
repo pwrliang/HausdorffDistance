@@ -44,6 +44,7 @@ function vary_variables() {
     -radius_step_list "1.2,1.4,1.6,1.8,2.0" \
     -sample_rate_list "0.0001,0.0005,0.001,0.005,0.01" \
     -check=false \
+    -repeat 3 \
     -json "$log"
 }
 
