@@ -220,6 +220,13 @@ class HausdorffDistanceRT {
       stats_["SampleTime"] = sw.ms();
       stats_["HD2AfterSampling"] = sampled_hd2;
     }
+    if (radius == 0) {
+      radius = hd_lb;
+    }
+    if (radius == 0) {
+      radius = hd_ub / 100;
+    }
+    CHECK_GT(radius, 0);
 
     COORD_T max_radius = hd_ub;
 
@@ -395,6 +402,13 @@ class HausdorffDistanceRT {
       stats_["SampleTime"] = sw.ms();
       stats_["HD2AfterSampling"] = sampled_hd2;
     }
+    if (radius == 0) {
+      radius = hd_lb;
+    }
+    if (radius == 0) {
+      radius = hd_ub / 100;
+    }
+    CHECK_GT(radius, 0);
 
     COORD_T max_radius = hd_ub;
 
@@ -600,6 +614,13 @@ class HausdorffDistanceRT {
       stats_["SampleTime"] = sw.ms();
       stats_["HD2AfterSampling"] = sampled_hd2;
     }
+    if (radius == 0) {
+      radius = hd_lb;
+    }
+    if (radius == 0) {
+      radius = hd_ub / 100;
+    }
+    CHECK_GT(radius, 0);
 
     COORD_T max_radius = hd_ub;
 
