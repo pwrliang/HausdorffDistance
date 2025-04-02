@@ -37,6 +37,7 @@ struct RunConfig {
   float move_offset;
   int repeat;
   // RT only
+  bool auto_tune;
   float radius_step;
   bool sort_rays;
   bool fast_build_bvh;

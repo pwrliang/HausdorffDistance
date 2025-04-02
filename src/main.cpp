@@ -95,6 +95,7 @@ int main(int argc, char* argv[]) {
   config.limit = FLAGS_limit;
   config.move_offset = FLAGS_move_offset;
   config.repeat = FLAGS_repeat;
+  config.auto_tune = FLAGS_auto_tune;
   config.radius_step = FLAGS_radius_step;
   config.sort_rays = FLAGS_sort_rays;
   config.fast_build_bvh = FLAGS_fast_build_bvh;
@@ -109,7 +110,7 @@ int main(int argc, char* argv[]) {
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";
 
-  if (FLAGS_autotune) {
+  if (FLAGS_vary_params) {
     config.radius_step_list = splitByComma<float>(FLAGS_radius_step_list);
     config.sample_rate_list = splitByComma<float>(FLAGS_sample_rate_list);
     config.max_hit_list = splitByComma<uint32_t>(FLAGS_max_hit_list);

@@ -20,6 +20,7 @@ DECLARE_bool(is_double);
 DECLARE_int32(limit);
 DECLARE_double(move_offset);
 DECLARE_int32(repeat);
+DECLARE_bool(auto_tune);
 DECLARE_double(radius_step);
 DECLARE_bool(fast_build_bvh);
 DECLARE_bool(rebuild_bvh);
@@ -29,7 +30,8 @@ DECLARE_int32(max_hit);
 DECLARE_double(max_hit_reduce_factor);
 DECLARE_int32(max_reg);
 DECLARE_int32(n_points_cell);
-DECLARE_bool(autotune);
+// For experiments only
+DECLARE_bool(vary_params);
 DECLARE_string(radius_step_list);
 DECLARE_string(sample_rate_list);
 DECLARE_string(max_hit_list);

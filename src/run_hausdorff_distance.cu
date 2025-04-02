@@ -16,6 +16,8 @@
 #include "hausdorff_distance_rt.h"
 #include "img_loader.h"
 #include "loader.h"
+#include "models/features.h"
+#include "models/tree_sample_rate.h"
 #include "move_points.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
@@ -25,7 +27,7 @@
 
 namespace hd {
 template <typename COORD_T, int N_DIMS>
-COORD_T RunHausdorffDistanceImpl(const RunConfig& config);
+COORD_T RunHausdorffDistanceImpl(RunConfig config);
 
 inline std::string get_current_datetime_string() {
   auto now = std::chrono::system_clock::now();
@@ -62,8 +64,19 @@ void RunHausdorffDistance(const RunConfig& config) {
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
 }
 
+RunConfig PredicateBestConfig(double* features, const RunConfig& config) {
+  RunConfig auto_tune_config = config;
+  double sample_rate = PredicateSampleRate(features);
+
+  LOG(INFO) << "User's Config, Auto-tune Config";
+  LOG(INFO) << "Sample Rate: " << config.sample_rate << ", " << sample_rate;
+
+  auto_tune_config.sample_rate = sample_rate;
+  return auto_tune_config;
+}
+
 template <typename COORD_T, int N_DIMS>
-COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
+COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   std::vector<point_t> points_a, points_b;
   Stream stream;
@@ -144,6 +157,14 @@ COORD_T RunHausdorffDistanceImpl(const RunConfig& config) {
 
   write_points_stats("FileA", d_points_a);
   write_points_stats("FileB", d_points_b);
+
+  if (config.auto_tune) {
+    CHECK_EQ(config.variant, Variant::kHybrid)
+        << "You can only use auto-tune for the hybrid variant";
+    Features<N_DIMS, 10> features(json_input);
+    auto feature_vals = features.Serialize();
+    config = PredicateBestConfig(feature_vals.data(), config);
+  }
 
   auto& json_run = stats.Log("Running");
 
