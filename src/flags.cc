@@ -6,6 +6,7 @@ DEFINE_string(input_type, "", "Input type can be 'wkt' or 'image'");
 DEFINE_int32(stats_n_points_cell, 10, "");
 DEFINE_string(serialize, "", "a directory to store serialized point file");
 DEFINE_string(json, "", "Output path of json file");
+DEFINE_bool(overwrite, false, "Whether overwrite json file");
 DEFINE_string(
     variant, "eb",
     "can be the following options 'eb', 'zorder', 'yuan', 'rt', 'hybrid', "
@@ -28,8 +29,6 @@ DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
 DEFINE_bool(sort_rays, false, "sort rays by their Morton codes");
 DEFINE_double(sample_rate, 0.001, "");
 DEFINE_int32(max_hit, 128, "Max number of hit by RT method before using EB");
-DEFINE_double(max_hit_reduce_factor, 1,
-              "Reduce max hit by a factor after each iteration");
 DEFINE_int32(max_reg, 0, "Max # of registers for RT");
 DEFINE_int32(
     n_points_cell, 0,
@@ -41,5 +40,4 @@ DEFINE_bool(vary_params, false,
 DEFINE_string(radius_step_list, "2", "");
 DEFINE_string(sample_rate_list, "0.001", "");
 DEFINE_string(max_hit_list, "128", "");
-DEFINE_string(max_hit_reduce_factor_list, "1", "");
 DEFINE_string(n_points_cell_list, "8", "");

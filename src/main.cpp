@@ -102,10 +102,10 @@ int main(int argc, char* argv[]) {
   config.rebuild_bvh = FLAGS_rebuild_bvh;
   config.sample_rate = FLAGS_sample_rate;
   config.max_hit = FLAGS_max_hit;
-  config.max_hit_reduce_factor = FLAGS_max_hit_reduce_factor;
   config.max_reg_count = FLAGS_max_reg;
   config.n_points_cell = FLAGS_n_points_cell;
   config.json_file = FLAGS_json;
+  config.overwrite = FLAGS_overwrite;
 
   CHECK(config.n_dims == 2 || config.n_dims == 3)
       << "Wrong number of dimensions, which can only be 2 or 3";
@@ -114,8 +114,6 @@ int main(int argc, char* argv[]) {
     config.radius_step_list = splitByComma<float>(FLAGS_radius_step_list);
     config.sample_rate_list = splitByComma<float>(FLAGS_sample_rate_list);
     config.max_hit_list = splitByComma<uint32_t>(FLAGS_max_hit_list);
-    config.max_hit_reduce_factor_list =
-        splitByComma<float>(FLAGS_max_hit_reduce_factor_list);
     config.n_points_cell_list =
         splitByComma<uint32_t>(FLAGS_n_points_cell_list);
     if (config.sort_rays) {
@@ -134,7 +132,6 @@ int main(int argc, char* argv[]) {
     CHECK_GT(config.radius_step_list.size(), 0);
     CHECK_GT(config.sample_rate_list.size(), 0);
     CHECK_GT(config.max_hit_list.size(), 0);
-    CHECK_GT(config.max_hit_reduce_factor_list.size(), 0);
     CHECK_GT(config.n_points_cell_list.size(), 0);
     hd::AutoTuneHausdorffDistance(config);
   } else {

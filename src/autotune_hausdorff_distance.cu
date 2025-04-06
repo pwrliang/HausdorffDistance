@@ -87,6 +87,22 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   }
   RunningStats& stats = RunningStats::instance();
 
+  cudaDeviceProp prop;
+  int device;
+  cudaGetDevice(&device);  // Get current device ID
+  cudaGetDeviceProperties(&prop,
+                          device);  // Get properties of the current device
+  auto& json_gpu = stats.Log("GPU");
+
+  json_gpu["Device"] = device;
+  json_gpu["name"] = prop.name;
+  json_gpu["l2CacheSize"] = prop.l2CacheSize;
+  json_gpu["multiProcessorCount"] = prop.multiProcessorCount;
+  json_gpu["regsPerBlock"] = prop.regsPerBlock;
+  json_gpu["maxThreadsPerBlock"] = prop.maxThreadsPerBlock;
+  json_gpu["maxBlocksPerMultiProcessor"] = prop.maxBlocksPerMultiProcessor;
+  json_gpu["regsPerMultiprocessor"] = prop.regsPerMultiprocessor;
+
   auto& json_input = stats.Log("Input");
 
   json_input["FileA"]["Path"] = config.input_file1;
@@ -143,8 +159,8 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   auto n_combinations =
       config.n_points_cell_list.size() * config.sample_rate_list.size() *
       config.max_hit_list.size() * config.radius_step_list.size() *
-      config.max_hit_reduce_factor_list.size() * config.sort_rays_list.size() *
-      config.fast_build_bvh_list.size() * config.rebuild_bvh_list.size();
+      config.sort_rays_list.size() * config.fast_build_bvh_list.size() *
+      config.rebuild_bvh_list.size();
   uint32_t n_progress = 0;
   uint32_t n_skips = 0;
   double best_running_time = std::numeric_limits<double>::max();
@@ -161,131 +177,133 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
   Stopwatch sw_begin;
   sw_begin.start();
+  auto max_hit = config.max_hit_list[0];
+
+  std::ostringstream oss;
+  for (size_t i = 0; i < config.max_hit_list.size(); ++i) {
+    if (i != 0)
+      oss << ',';
+    oss << config.max_hit_list[i];
+  }
+  auto s_max_hit_list = oss.str();
+
   for (auto n_points_cell : config.n_points_cell_list) {
     for (auto sample_rate : config.sample_rate_list) {
-      for (auto max_hit : config.max_hit_list) {
-        for (auto radius_step : config.radius_step_list) {
-          for (auto max_hit_reduce_factor : config.max_hit_reduce_factor_list) {
-            for (auto sort_rays : config.sort_rays_list) {
-              for (auto fast_build_bvh : config.fast_build_bvh_list) {
-                for (auto rebuild_bvh : config.rebuild_bvh_list) {
-                  CHECK_GT(n_points_cell, 0)
-                      << "Avg points / cell cannot be zero";
-                  CHECK_GT(radius_step, 1);
-                  CHECK_LE(sample_rate, 1);
+      for (auto radius_step : config.radius_step_list) {
+        for (auto sort_rays : config.sort_rays_list) {
+          for (auto fast_build_bvh : config.fast_build_bvh_list) {
+            for (auto rebuild_bvh : config.rebuild_bvh_list) {
+              CHECK_GT(n_points_cell, 0) << "Avg points / cell cannot be zero";
+              CHECK_GT(radius_step, 1);
+              CHECK_LE(sample_rate, 1);
 
-                  VLOG(1) << "N_points_cell = " << n_points_cell
-                          << ", sample_rate = " << sample_rate
-                          << ", max_hit = " << max_hit
-                          << ", radius = " << radius_step
-                          << ", max_hit_reduce_factor = "
-                          << max_hit_reduce_factor
-                          << ", sort_rays = " << sort_rays
-                          << ", fast_build_bvh = " << fast_build_bvh
-                          << ", rebuild_bvh = " << rebuild_bvh;
+              VLOG(1) << "N_points_cell = " << n_points_cell
+                      << ", sample_rate = " << sample_rate
+                      << ", max_hit_list = " << s_max_hit_list
+                      << ", radius = " << radius_step
+                      << ", sort_rays = " << sort_rays
+                      << ", fast_build_bvh = " << fast_build_bvh
+                      << ", rebuild_bvh = " << rebuild_bvh;
 
-                  char path[PATH_MAX];
-                  sprintf(path,
-                          "%s_n_points_cell_%u_sample_rate_%.6f_max_hit_%u_"
-                          "radius_step_%.2f_max_hit_reduce_factor_%.2f_sort_"
-                          "rays_%d_fast_build_bvh_%d_rebuild_bvh_%d.json",
-                          config.json_file.c_str(), n_points_cell, sample_rate,
-                          max_hit, radius_step, max_hit_reduce_factor,
-                          sort_rays, fast_build_bvh, rebuild_bvh);
-                  if (access(path, R_OK) == 0) {
-                    n_skips++;
-                    continue;
-                  }
+              char path[PATH_MAX];
+              sprintf(path,
+                      "%s_n_points_cell_%u_sample_rate_%.6f_max_hit_list_%s_"
+                      "radius_step_%.2f_sort_rays_%d_fast_build_bvh_%d_rebuild_"
+                      "bvh_%d.json",
+                      config.json_file.c_str(), n_points_cell, sample_rate,
+                      s_max_hit_list.c_str(), radius_step, sort_rays,
+                      fast_build_bvh, rebuild_bvh);
+              bool file_exists = access(path, R_OK) == 0;
 
-                  stats.Log("DateTime", get_current_datetime_string());
+              if (!config.json_file.empty() && !config.overwrite &&
+                  file_exists) {
+                n_skips++;
+                continue;
+              }
 
-                  auto& json_run = stats.Log("Running");
+              stats.Log("DateTime", get_current_datetime_string());
 
-                  json_run.clear();
-                  json_run["StatsNumPointsPerCell"] =
-                      config.stats_n_points_cell;
-                  json_run["Seed"] = config.seed;
-                  json_run["SortRays"] = sort_rays;
-                  json_run["FastBuildBVH"] = fast_build_bvh;
-                  json_run["RebuildBVH"] = rebuild_bvh;
-                  json_run["RadiusStep"] = radius_step;
-                  json_run["SampleRate"] = sample_rate;
-                  json_run["MaxHit"] = max_hit;
-                  json_run["MaxHitReduceFactor"] = max_hit_reduce_factor;
-                  json_run["NumPointsPerCell"] = n_points_cell;
+              auto& json_run = stats.Log("Running");
 
-                  COORD_T dist = -1;
+              json_run.clear();
+              json_run["StatsNumPointsPerCell"] = config.stats_n_points_cell;
+              json_run["Seed"] = config.seed;
+              json_run["SortRays"] = sort_rays;
+              json_run["FastBuildBVH"] = fast_build_bvh;
+              json_run["RebuildBVH"] = rebuild_bvh;
+              json_run["RadiusStep"] = radius_step;
+              json_run["SampleRate"] = sample_rate;
+              json_run["MaxHitList"] = s_max_hit_list;
+              json_run["NumPointsPerCell"] = n_points_cell;
 
-                  rt_config.sort_rays = sort_rays;
-                  rt_config.fast_build = fast_build_bvh;
-                  rt_config.rebuild_bvh = rebuild_bvh;
-                  rt_config.radius_step = radius_step;
-                  rt_config.sample_rate = sample_rate;
-                  rt_config.max_hit = max_hit;
-                  rt_config.max_hit_reduce_factor = max_hit_reduce_factor;
-                  rt_config.n_points_cell = n_points_cell;
+              COORD_T dist = -1;
 
-                  hdist_rt.UpdateConfig(rt_config);
+              rt_config.sort_rays = sort_rays;
+              rt_config.fast_build = fast_build_bvh;
+              rt_config.rebuild_bvh = rebuild_bvh;
+              rt_config.radius_step = radius_step;
+              rt_config.sample_rate = sample_rate;
+              rt_config.max_hit = max_hit;
+              rt_config.n_points_cell = n_points_cell;
 
-                  Stopwatch sw;
+              hdist_rt.UpdateConfig(rt_config);
 
-                  double running_time = 0;
+              double running_time = 0;
 
-                  for (int i = 0; i < config.repeat; i++) {
-                    auto& json_repeat = json_run["Repeat" + std::to_string(i)];
+              for (int i = 0; i < config.repeat; i++) {
+                auto& json_repeat = json_run["Repeat" + std::to_string(i)];
+                json_run["Variant"] = "Hybrid";
+                json_run["Execution"] = "GPU";
+                dist = hdist_rt.CalculateDistanceHybrid(
+                    stream, d_points_a, d_points_b, config.max_hit_list);
+                json_repeat = hdist_rt.GetStats();
+                auto total_time = json_repeat.at("TotalTime").get<double>();
+                running_time += total_time;
+              }
+              best_running_time =
+                  std::min(best_running_time, running_time / config.repeat);
+              json_run["AvgTime"] = running_time / config.repeat;
+              printf("Here\n");
+              LOG(INFO) << std::fixed << std::setprecision(2)
+                        << "Avg Running Time " << running_time / config.repeat
+                        << " ms";
 
-                    json_run["Variant"] = "Hybrid";
-                    json_run["Execution"] = "GPU";
-                    sw.start();
-                    dist = hdist_rt.CalculateDistanceCompressHybrid(
-                        stream, d_points_a, d_points_b);
-                    json_repeat = hdist_rt.GetStats();
-                    sw.stop();
-                    json_repeat["TotalTime"] = sw.ms();
-                    running_time += sw.ms();
-                  }
-                  best_running_time =
-                      std::min(best_running_time, running_time / config.repeat);
-                  json_run["AvgTime"] = running_time / config.repeat;
-                  LOG(INFO) << std::fixed << std::setprecision(2)
-                            << "Avg Running Time "
-                            << running_time / config.repeat << " ms";
+              stats.Log("HDResult", dist);
 
-                  stats.Log("HDResult", dist);
+              if (config.check) {
+                auto& json_check = stats.Log("Check");
 
-                  if (config.check) {
-                    auto& json_check = stats.Log("Check");
+                auto answer_dist =
+                    CalculateHausdorffDistanceParallel(points_a, points_b);
+                auto diff = answer_dist - dist;
 
-                    auto answer_dist =
-                        CalculateHausdorffDistanceParallel(points_a, points_b);
-                    auto diff = answer_dist - dist;
+                json_check["HDAnswer"] = answer_dist;
+                if (dist != answer_dist) {
+                  LOG(ERROR) << std::fixed << std::setprecision(8)
+                             << "Wrong HausdorffDistance. Result: " << dist
+                             << " Answer: " << answer_dist << " Diff: " << diff;
+                } else {
+                  LOG(INFO) << "HausdorffDistance is checked";
+                }
+                json_check["Diff"] = diff;
+                json_check["Pass"] = dist == answer_dist;
+              }
 
-                    json_check["HDAnswer"] = answer_dist;
-                    if (dist != answer_dist) {
-                      LOG(ERROR)
-                          << std::fixed << std::setprecision(8)
-                          << "Wrong HausdorffDistance. Result: " << dist
-                          << " Answer: " << answer_dist << " Diff: " << diff;
-                    } else {
-                      LOG(INFO) << "HausdorffDistance is checked";
-                    }
-                    json_check["Diff"] = diff;
-                    json_check["Pass"] = dist == answer_dist;
-                  }
-
+              if (!config.json_file.empty()) {
+                if (!file_exists || file_exists && config.overwrite) {
                   stats.Dump(path);
-                  n_progress++;
-                  sw_begin.stop();
-
-                  LOG(INFO)
-                      << "Progress " << std::fixed << std::setprecision(2)
-                      << (float) (n_progress + n_skips) / n_combinations * 100
-                      << " % Remaining Time "
-                      << sw_begin.ms() / n_progress *
-                             (n_combinations - n_progress - n_skips) / 1000
-                      << " s Best Performance " << best_running_time << " ms";
                 }
               }
+
+              n_progress++;
+              sw_begin.stop();
+
+              LOG(INFO) << "Progress " << std::fixed << std::setprecision(2)
+                        << (float) (n_progress + n_skips) / n_combinations * 100
+                        << " % Remaining Time "
+                        << sw_begin.ms() / n_progress *
+                               (n_combinations - n_progress - n_skips) / 1000
+                        << " s Best Performance " << best_running_time << " ms";
             }
           }
         }

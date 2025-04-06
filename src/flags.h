@@ -10,6 +10,7 @@ DECLARE_string(input_type);
 DECLARE_int32(stats_n_points_cell);
 DECLARE_string(serialize);
 DECLARE_string(json);
+DECLARE_bool(overwrite);
 DECLARE_string(variant);
 DECLARE_string(execution);
 DECLARE_int32(parallelism);
@@ -27,7 +28,6 @@ DECLARE_bool(rebuild_bvh);
 DECLARE_bool(sort_rays);
 DECLARE_double(sample_rate);
 DECLARE_int32(max_hit);
-DECLARE_double(max_hit_reduce_factor);
 DECLARE_int32(max_reg);
 DECLARE_int32(n_points_cell);
 // For experiments only
@@ -35,6 +35,5 @@ DECLARE_bool(vary_params);
 DECLARE_string(radius_step_list);
 DECLARE_string(sample_rate_list);
 DECLARE_string(max_hit_list);
-DECLARE_string(max_hit_reduce_factor_list);
 DECLARE_string(n_points_cell_list);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

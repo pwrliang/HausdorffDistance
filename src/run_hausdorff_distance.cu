@@ -159,7 +159,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   write_points_stats("FileB", d_points_b);
 
   if (config.auto_tune) {
-    CHECK_EQ(config.variant, Variant::kHybrid)
+    CHECK(config.variant == Variant::kHybrid)
         << "You can only use auto-tune for the hybrid variant";
     Features<N_DIMS, 10> features(json_input);
     auto feature_vals = features.Serialize();
@@ -176,7 +176,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   json_run["RadiusStep"] = config.radius_step;
   json_run["SampleRate"] = config.sample_rate;
   json_run["MaxHit"] = config.max_hit;
-  json_run["MaxHitReduceFactor"] = config.max_hit_reduce_factor;
   json_run["NumPointsPerCell"] = config.n_points_cell;
 
   COORD_T dist = -1;
@@ -195,7 +194,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   rt_config.sample_rate = config.sample_rate;
   rt_config.max_reg_count = config.max_reg_count;
   rt_config.max_hit = config.max_hit;
-  rt_config.max_hit_reduce_factor = config.max_hit_reduce_factor;
   rt_config.n_points_cell = config.n_points_cell;
 
   hdist_rt.Init(rt_config);
@@ -275,8 +273,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
       CHECK_GT(config.n_points_cell, 0) << "Avg points / cell cannot be zero";
       CHECK_GT(config.radius_step, 1);
       CHECK_LE(config.sample_rate, 1);
-      dist = hdist_rt.CalculateDistanceCompressHybrid(stream, d_points_a,
-                                                      d_points_b);
+      dist = hdist_rt.CalculateDistanceHybrid(stream, d_points_a, d_points_b);
       json_repeat = hdist_rt.GetStats();
       break;
     }
@@ -323,8 +320,13 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     json_check["Pass"] = dist == answer_dist;
   }
 
-  stats.Dump(config.json_file);
+  if (!config.json_file.empty()) {
+    bool file_exists = access(config.json_file.c_str(), R_OK) == 0;
 
+    if (!file_exists || file_exists && config.overwrite) {
+      stats.Dump(config.json_file);
+    }
+  }
   return dist;
 }
 }  // namespace hd
