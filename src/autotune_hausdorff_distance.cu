@@ -58,6 +58,7 @@ void AutoTuneHausdorffDistance(const RunConfig& config) {
 template <typename COORD_T, int N_DIMS>
 void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
+  using mbr_t = MbrTypeFromPoint<point_t>;
   std::vector<point_t> points_a, points_b;
   Stream stream;
 
@@ -115,11 +116,10 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
 
   json_input["MoveOffset"] = config.move_offset;
+
   // Calculate MBR of points
   auto write_points_stats = [&](const std::string& key,
                                 const thrust::device_vector<point_t>& points) {
-    using mbr_t = MbrTypeFromPoint<point_t>;
-
     SharedValue<mbr_t> mbr;
     auto* p_mbr = mbr.data();
 
@@ -149,12 +149,16 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
           {{"Lower", h_mbr.lower(dim)}, {"Upper", h_mbr.upper(dim)}});
     }
     dataset_stats_json["MBR"] = json_mbr;
+    dataset_stats_json["Density"] = points.size() / h_mbr.get_volume();
+    return h_mbr;
   };
 
   thrust::device_vector<point_t> d_points_a = points_a, d_points_b = points_b;
 
-  write_points_stats("FileA", d_points_a);
-  write_points_stats("FileB", d_points_b);
+  mbr_t merged_mbr = write_points_stats("FileA", d_points_a);
+  merged_mbr.Expand(write_points_stats("FileB", d_points_b));
+  json_input["Density"] =
+      (points_a.size() + points_b.size()) / merged_mbr.get_volume();
 
   auto n_combinations =
       config.n_points_cell_list.size() * config.sample_rate_list.size() *

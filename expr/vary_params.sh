@@ -37,10 +37,9 @@ function vary_variables_dependent() {
     -input_type $input_type \
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
-    -autotune \
+    -vary_params \
     -n_points_cell_list "1,2,4,8,16,32" \
-    -max_hit_list "1,2,4,8,16,32,64,128,256" \
-    -max_hit_reduce_factor_list "1" \
+    -max_hit_list "8,16,32,64,128,256" \
     -radius_step_list "1.2,1.4,1.6,1.8,2.0" \
     -sample_rate_list "0.0001,0.0005,0.001,0.005,0.01" \
     -check=false \
@@ -68,8 +67,8 @@ function vary_variables_independent() {
     -input_type $input_type \
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
-    -autotune \
-    -n_points_cell_list "1,2,4,8,16,32" \
+    -vary_params \
+    -n_points_cell_list "2,4,6,8,10,12,14,16,18,20,22,24" \
     -check=false \
     -repeat 5 \
     -json "$log"
@@ -80,8 +79,8 @@ function vary_variables_independent() {
     -input_type $input_type \
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
-    -autotune \
-    -max_hit_list "1,2,4,8,16,32,64,128,256" \
+    -vary_params \
+    -max_hit_list "20,40,60,80,100,120,140,160,180,200" \
     -check=false \
     -repeat 5 \
     -json "$log"
@@ -92,8 +91,7 @@ function vary_variables_independent() {
     -input_type $input_type \
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
-    -autotune \
-    -max_hit_reduce_factor_list "1,1.2,1.4,1.6,1.8,2" \
+    -vary_params \
     -check=false \
     -repeat 5 \
     -json "$log"
@@ -104,7 +102,7 @@ function vary_variables_independent() {
     -input_type $input_type \
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
-    -autotune \
+    -vary_params \
     -radius_step_list "1.2,1.4,1.6,1.8,2.0" \
     -check=false \
     -repeat 5 \
@@ -116,11 +114,43 @@ function vary_variables_independent() {
     -input_type $input_type \
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
-    -autotune \
+    -vary_params \
     -sample_rate_list "0.0001,0.0005,0.001,0.005,0.01" \
     -check=false \
     -repeat 5 \
     -json "$log"
+}
+
+
+function run_all_datasets() {
+  root=$1
+  type=$2
+  dims=$3
+
+  if [[ -f "$root/.list" ]]; then
+    list=$(cat "$root/.list")
+  else
+    list=$(find "$root" -type f)
+    list=$(echo "$list" | shuf)
+    echo "$list" >"$root/.list"
+  fi
+
+  out_prefix=$(basename "$root")
+  FILE_LIMIT=1000
+  CURR_FILE_IDX=0
+  while IFS= read -r file1; do
+    while IFS= read -r file2; do
+      if [[ "$file1" != "$file2" ]]; then
+        CURR_FILE_IDX=$((CURR_FILE_IDX + 1))
+        echo "file $CURR_FILE_IDX: $file1 $file2"
+
+        vary_variables_independent "$out_prefix" "$file1" "$file2" $type $dims
+        if [[ $CURR_FILE_IDX -ge $FILE_LIMIT ]]; then
+          return
+        fi
+      fi
+    done < <(printf '%s\n' "$list")
+  done < <(printf '%s\n' "$list")
 }
 
 function run_datasets() {
@@ -145,7 +175,7 @@ function run_datasets() {
   fi
   seed=42
   counter=0
-  max=1000 # Total files to pick (2 per iteration = 500 loops)
+  max=3000 # Total files to pick (2 per iteration = 500 loops)
   out_prefix=$(basename "$root")
 
   while ((counter < max)); do
@@ -174,4 +204,5 @@ function run_datasets() {
   done
 }
 
-run_datasets "/local/storage/shared/BraTS2020_TrainingData" "image" 3
+#run_datasets "/local/storage/shared/BraTS2020_TrainingData" "image" 3
+run_all_datasets "/local/storage/shared/hd_datasets" "wkt" 2

@@ -8,6 +8,7 @@ from common import datasets, dataset_labels, hatches, markers, linestyles
 import sys
 import re
 import pandas as pd
+import json
 
 
 def scale_size(size_list, k_scale=1000):
@@ -65,6 +66,24 @@ def parse_histo(prefix, variant):
     return histos
 
 
+def parse_json_logs(prefix, variant):
+    cache_file = variant + ".pkl"
+    if os.path.exists(cache_file):
+        df = pd.read_pickle(cache_file)
+        print(f"Loaded DataFrame from {cache_file}.")
+    else:
+        dir = os.path.join(prefix, variant)
+        json_records = []
+        for filename in os.listdir(dir):
+            path = os.path.join(dir, filename)
+            with open(path) as f:
+                json_records.append(json.load(f))
+        df = pd.json_normalize(json_records)
+        df.to_pickle(cache_file)
+        print(f"Loaded DataFrame from JSON and saved to {cache_file}.")
+    return df
+
+
 def draw_running_time_box(prefix):
     df_itk = parse_vary_dist(prefix, "itk")
     df_eb_parallel = parse_vary_dist(prefix, "eb_parallel")
@@ -115,19 +134,15 @@ def draw_running_time_box(prefix):
     plt.show()
 
 
-def draw_running_time_dot(prefix, pattern):
-    # df_itk = parse_vary_dist(prefix, "itk", pattern)
-    df_eb_parallel = parse_vary_dist(prefix, "eb_parallel", pattern)
-    df_eb_gpu = parse_vary_dist(prefix, "eb_gpu", pattern)
-    # df_zorder_gpu = parse_vary_dist(prefix, "zorder_gpu", pattern)
-    df_rt_gpu = parse_vary_dist(prefix, "rt_gpu", pattern)
-    df_hybrid_gpu = parse_vary_dist(prefix, "hybrid_gpu", pattern)
-    # labels = ['ITK', 'EB-Parallel', 'EB-GPU', 'RT-GPU', 'Hybrid-GPU']
-    # dfs = [df_itk, df_eb_parallel, df_eb_gpu, df_rt_gpu, df_hybrid_gpu]
-    # labels = ['ITK', 'EB-GPU', 'Hybrid-GPU']
-    # dfs = [df_itk, df_eb_gpu, df_hybrid_gpu]
-    labels = ['EB-Parallel', 'EB-GPU', 'RT-GPU', 'Hybrid-GPU']
-    dfs = [df_eb_parallel, df_eb_gpu, df_rt_gpu, df_hybrid_gpu]
+def draw_running_time_dot(prefix):
+    limit = 10000
+    df_hybrid = parse_json_logs(prefix, "hybrid").head(limit)
+    df_hybrid_auto = parse_json_logs(prefix, "hybrid_autotune").head(limit)
+    df_eb = parse_json_logs(prefix, "eb").head(limit)
+    df_itk = parse_json_logs(prefix, "itk").head(limit)
+    labels = ['Hybrid', 'HybridAuto', 'EB', 'ITK']
+    dfs = [df_hybrid, df_hybrid_auto, df_eb, df_itk]
+    time_column = "Running.AvgTime"
 
     mean_times = []
     median_times = []
@@ -135,24 +150,37 @@ def draw_running_time_dot(prefix, pattern):
     for i in range(len(dfs)):
         label = labels[i]
         df = dfs[i]
-        mean_times.append(np.mean(df['time']))
-        median_times.append(np.median(df['time']))
-        df.rename(columns={"time": label}, inplace=True)
-        df.drop(['dist', 'voxels'], axis=1, inplace=True)
-    wide_df = pd.concat(dfs, axis=1)
-    print(mean_times)
-    print(median_times)
+        mean_times.append(np.mean(df[time_column]))
+        median_times.append(np.median(df[time_column]))
+        # df.rename(columns={"time": label}, inplace=True)
+        # df.drop(['dist', 'voxels'], axis=1, inplace=True)
+    print("Mean", mean_times)
+    print("Median", median_times)
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(5, 4))
 
-    wide_df.plot(marker='o', linestyle='', ax=ax)
-
-    ax.set_yscale("log")
-    ax.set_xlabel("Datasets")
+    x_pos = np.arange(len(labels))
+    bar_width = 0.35
+    ax.bar(x_pos - bar_width / 2, mean_times, width=bar_width, label='Mean Time')
+    ax.bar(x_pos + bar_width / 2, median_times, width=bar_width, label='Median Time')
+    ax.set_xlabel("Variants")
     ax.set_ylabel(ylabel='Running Time (ms)', labelpad=1)
-    ax.set_xticklabels([])  # Remove x tick labels
+
+    # df_hybrid[time_column].plot(marker='o', linestyle='', ax=ax, label="Hybrid")
+    # df_hybrid_auto[time_column].plot(marker='o', linestyle='', ax=ax, label="HybridAuto")
+    # df_eb[time_column].plot(marker='o', linestyle='', ax=ax, label="EB")
+
+    auto_is_faster_count = (df_hybrid[time_column] > df_hybrid_auto[time_column]).sum()
+    num_rows = df_hybrid.shape[0]
+    print("Faster percent", auto_is_faster_count / num_rows * 100)
+
+    ax.legend()
+    # ax.set_yscale("log")
+    # ax.set_xlabel("Datasets")
+    # ax.set_ylabel(ylabel='Running Time (ms)', labelpad=1)
+    # ax.set_xticklabels([])  # Remove x tick labels
     fig.tight_layout(pad=0.1)
 
-    fig.savefig("running_time_all.png", format='png', bbox_inches='tight')
+    # fig.savefig("running_time_all.png", format='png', bbox_inches='tight')
     plt.show()
 
 
@@ -211,5 +239,5 @@ def draw_running_time_by_dist(prefix):
 if __name__ == '__main__':
     # dir = os.path.dirname(sys.argv[0]) + "/../logs/BraTS20"
     # draw_running_time_dot(dir, 'BraTS20_Training_(.*?)_t1.nii_BraTS20_Training_(.*?)_t1.nii')
-    dir = os.path.dirname(sys.argv[0]) + "/../logs/vary_datasets"
-    draw_running_time_dot(dir, '(.*?).wkt_(.*?).wkt_limit_5000000.log')
+    # dir = os.path.dirname(sys.argv[0]) + "/../logs/vary_datasets"
+    draw_running_time_dot('/Users/liang/BraTS2020_ValidationData')

@@ -25,6 +25,10 @@ class RunningStats {
   // Retrieve the JSON object
   const nlohmann::json& Get() const { return stats_; }
 
+  const nlohmann::json& Get(const std::string& key) const {
+    return stats_.at(key);
+  }
+
   // Dump JSON to string (with optional file output)
   void Dump(const std::string& path, int indent = 4) const {
     std::string result = stats_.dump(indent);

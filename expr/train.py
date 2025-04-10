@@ -1,88 +1,23 @@
 import json
 import glob
 import os
+from collections import OrderedDict
+import numpy as np
 import pandas as pd
+
 from sklearn.tree import DecisionTreeRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, median_absolute_error
+import matplotlib.pyplot as plt
+import re
 import duckdb
 import m2cgen as m2c
 from pandas import json_normalize
-
-sql_renamed_df = """
-WITH renamed_df AS (
-    SELECT concat("Input.FileA.Path", "Input.FileB.Path") as Dataset,
-           "Running.NumPointsPerCell" as NumPointsPerCell, 
-           "Running.MaxHit" as MaxHit,
-           "Running.MaxHitReduceFactor" as MaxHitReduceFactor,
-           "Running.RadiusStep" as RadiusStep,
-           "Running.SampleRate" as SampleRate,
-           "Running.AvgTime" as AvgTime
-    FROM df
-)
-"""
-
-sql_vary_sample_rate = """
-{renamed_df}, fixed_params AS (
-    SELECT Dataset, 
-           NumPointsPerCell, 
-           MaxHit,
-           MaxHitReduceFactor,
-           RadiusStep,
-    FROM renamed_df
-    GROUP BY Dataset, NumPointsPerCell, MaxHit, MaxHitReduceFactor, RadiusStep
-    HAVING COUNT(DISTINCT SampleRate) > 1
-)
-
-SELECT "Input.FileA.Grid.GiniIndex" AS A_GiniIndex,
-       "Input.FileA.Grid.GridSize" AS A_GridSize,
-       "Input.FileA.Grid.Histogram" AS A_Histogram,
-       "Input.FileA.Grid.MaxPoints" AS A_MaxPoints,
-       "Input.FileA.Grid.NonEmptyCells" AS A_NonEmptyCells,
-       "Input.FileA.Grid.TotalCells" AS A_TotalCells,
-       "Input.FileA.MBR" AS A_MBR,
-       "Input.FileA.NumPoints" AS A_NumPoints,
-       "Input.FileB.Grid.GiniIndex" AS B_GiniIndex,
-       "Input.FileB.Grid.GridSize" AS B_GridSize,
-       "Input.FileB.Grid.Histogram" AS B_Histogram,
-       "Input.FileB.Grid.MaxPoints" AS B_MaxPoints,
-       "Input.FileB.Grid.NonEmptyCells" AS B_NonEmptyCells,
-       "Input.FileB.Grid.TotalCells" AS B_TotalCells,
-       "Input.FileB.MBR" AS B_MBR,
-       "Input.FileB.NumPoints" AS B_NumPoints,
-       "Running.SampleRate" as SampleRate
-FROM df
-JOIN (
-    SELECT renamed_df.Dataset, 
-           renamed_df.NumPointsPerCell, 
-           renamed_df.MaxHit, 
-           renamed_df.MaxHitReduceFactor, 
-           renamed_df.RadiusStep,
-           MIN(renamed_df.AvgTime) AS MinTime
-    FROM fixed_params, renamed_df
-    WHERE fixed_params.Dataset = renamed_df.Dataset AND
-          fixed_params.NumPointsPerCell = renamed_df.NumPointsPerCell AND
-          fixed_params.MaxHit = renamed_df.MaxHit AND
-          fixed_params.MaxHitReduceFactor = renamed_df.MaxHitReduceFactor AND
-          fixed_params.RadiusStep = renamed_df.RadiusStep
-    GROUP BY renamed_df.Dataset, 
-             renamed_df.NumPointsPerCell, 
-             renamed_df.MaxHit, 
-             renamed_df.MaxHitReduceFactor, 
-             renamed_df.RadiusStep
-) t_min ON concat("Input.FileA.Path", "Input.FileB.Path") = t_min.Dataset AND
-           "Running.NumPointsPerCell" = t_min.NumPointsPerCell AND
-           "Running.MaxHit" = t_min.MaxHit AND
-           "Running.MaxHitReduceFactor" = t_min.MaxHitReduceFactor AND
-           "Running.RadiusStep" = t_min.RadiusStep AND
-           "Running.AvgTime" = t_min.MinTime
-""".format(renamed_df=sql_renamed_df)
+from sql import *
 
 
-def def_filter_best_parameter(files, sql):
-    # Path to cache file
-    cache_file = "dataframe_cache.pkl"
-
+def load_df(files, cache_file):
     # If cache exists, load from pickle
     if os.path.exists(cache_file):
         df = pd.read_pickle(cache_file)
@@ -99,28 +34,38 @@ def def_filter_best_parameter(files, sql):
         # Serialize to pickle
         df.to_pickle(cache_file)
         print("Loaded DataFrame from JSON and saved to cache.")
+    return df
+
+
+def expand_column(df, key):
+    if key not in df.columns:
+        return df
+    max_len = df[key].apply(lambda x: len(x)).max()
+
+    expanded = pd.DataFrame(df[key].tolist(), columns=[key + "_" + str(i) for i in range(max_len)])
+    return pd.concat([df.drop(columns=[key]), expanded], axis=1)
+
+
+def expand_dict(df, dict_key, limit=8):
+    def flatten_histogram(hist_list):
+        result = {}
+        for i, item in enumerate(hist_list):
+            if i >= limit:
+                break
+            for key, value in item.items():
+                result[f"{dict_key}_{key}_{i}"] = value
+
+        return pd.Series(result)
+
+    if dict_key not in df.columns:
+        return df
+    hist_expanded = df[dict_key].apply(flatten_histogram)
+    # Concatenate with original DataFrame
+    return pd.concat([df.drop(columns=[dict_key]), hist_expanded], axis=1)
+
+
+def def_filter_best_parameter(raw_df, sql):
     df = duckdb.query(sql).to_df()
-
-    def expand_column(df, key):
-        max_len = df[key].apply(lambda x: len(x)).max()
-
-        expanded = pd.DataFrame(df[key].tolist(), columns=[key + "_" + str(i) for i in range(max_len)])
-        return pd.concat([df.drop(columns=[key]), expanded], axis=1)
-
-    def expand_dict(df, dict_key, limit=10):
-        def flatten_histogram(hist_list):
-            result = {}
-            for i, item in enumerate(hist_list):
-                if i >= 10:
-                    break
-                for key, value in item.items():
-                    result[f"{dict_key}_{key}_{i}"] = value
-
-            return pd.Series(result)
-
-        hist_expanded = df[dict_key].apply(flatten_histogram)
-        # Concatenate with original DataFrame
-        return pd.concat([df.drop(columns=[dict_key]), hist_expanded], axis=1)
 
     df = expand_column(df, "A_GridSize")
     df = expand_column(df, "B_GridSize")
@@ -128,41 +73,57 @@ def def_filter_best_parameter(files, sql):
     df = expand_dict(df, "B_MBR")
     df = expand_dict(df, "A_Histogram")
     df = expand_dict(df, "B_Histogram")
-    # Sort column names by their first 2 characters
     sorted_cols = sorted(df.columns)
     return df[sorted_cols]
 
 
-def export_regressor(regressor, name, comments):
-    c_code = m2c.export_to_c(regressor, function_name="Predicate" + name)
-    vars = []
-    for i, name in enumerate(comments):
-        vars.append("%i %s" % (i, name))
+def export_regressor(regressor, key, vars):
+    c_code = m2c.export_to_c(regressor, function_name="Predict" + key)
+    variables = []
+    members = []
+
+    # Helper to strip only the last numeric suffix
+    def collapse_key(var):
+        return re.sub(r'_\d+$', '', var)
+
+    # Ordered dictionary to maintain insertion order of collapsed prefixes
+    collapsed = OrderedDict()
+
+    # O(1) time per variable processing
+    for var in vars:
+        strippd_key = collapse_key(var)
+        collapsed[strippd_key] = collapsed.get(strippd_key, 0) + 1
+
+    # Output results
+    for var, count in collapsed.items():
+        if count == 1:
+            members.append(f"    double {var};")
+        else:
+            members.append(f"    double {var}[{count}];")
+
+    for i, var in enumerate(vars):
+        variables.append(f"{i} {var}")
 
     header = """
 #ifndef DECISION_TREE_{name}
 #define DECISION_TREE_{name}
 /*
 {comments}
-*/
-{code}
-#endif // DECISION_TREE_{name}
-""".format(name=name.upper(), code=c_code, comments='\n'.join(vars))
 
-    with open("tree_sample_rate.h", "w") as f:
+struct Input {{
+{members}
+}};
+
+*/
+inline {code}
+#endif // DECISION_TREE_{name}
+""".format(name=key.upper(), code=c_code, comments='\n'.join(variables), members='\n'.join(members))
+
+    with open("tree_{name}.h".format(name=key.lower()), "w") as f:
         f.write(header)
 
 
-def main():
-    # Set the path to the directory containing your JSON files
-    directory_path = '/Users/liang/BraTS2020_TrainingData'  # <-- change this to your JSON directory
-
-    # Load data into a DataFrame
-    all_files = glob.glob(os.path.join(directory_path, '*.json'))
-    df = def_filter_best_parameter(all_files, sql_vary_sample_rate)
-    print(df)
-    key = "SampleRate"
-
+def train_param(df, key, n_dims, regressor):
     # Drop rows where the target value is missing
     df = df.dropna(subset=[key])
 
@@ -176,21 +137,146 @@ def main():
     # Split the data into training and testing sets (80/20 split)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Create and train the decision tree regressor
-    regressor = DecisionTreeRegressor(random_state=42)
     regressor.fit(X_train, y_train)
 
     # Predict on the test set and evaluate performance
     y_pred = regressor.predict(X_test)
     mse = mean_squared_error(y_test, y_pred)
     print(f"Mean Squared Error on test set: {mse}")
+    mabs = median_absolute_error(y_test, y_pred)
+    print(f"Median Absolute Error on test set: {mabs}")
 
     header = X_train.columns.tolist()
-    export_regressor(regressor, "SampleRate", header)
-    # Optionally, export the decision tree structure (requires graphviz)
-    from sklearn.tree import export_graphviz
-    export_graphviz(regressor, out_file='tree.dot', feature_names=X.columns)
+    export_regressor(regressor, key + "_" + str(n_dims) + "D", header)
+    # # Optionally, export the decision tree structure (requires graphviz)
+    # from sklearn.tree import export_graphviz
+    # export_graphviz(regressor, out_file='tree.dot', feature_names=X.columns)
+
+
+def train_sample_rate(df, n_dims):
+    # Load data into a DataFrame
+    df = def_filter_best_parameter(df, sql_vary_sample_rate)
+    train_param(df, "SampleRate", n_dims)
+
+
+def train_num_points_per_cell(df, n_dims):
+    df = def_filter_best_parameter(df, sql_vary_n_points_per_cell)
+
+    # import scipy.stats as stats
+    #
+    # groups = [group["AvgTime"].values for name, group in df.groupby("NumPointsPerCell")]
+    # f_stat, p_value = stats.f_oneway(*groups)
+    #
+    # print(f"F-statistic: {f_stat}, p-value: {p_value}")
+
+    # from sklearn.feature_selection import mutual_info_regression
+    #
+    # X = df[['NumPointsPerCell']]
+    # y = df['AvgTime']
+    # mi = mutual_info_regression(X, y)
+    # print(f"Mutual information: {mi[0]}")
+    #
+    # plt.scatter(df['NumPointsPerCell'], df['AvgTime'])
+    # plt.xlabel("NumPointsPerCell")
+    # plt.ylabel("AvgTime")
+    # plt.title("Scatter plot of NumPointsPerCell vs AvgTime")
+    # plt.show()
+    regressor = DecisionTreeRegressor(random_state=42,
+                                      max_depth=5,
+                                      min_samples_split=10,
+                                      min_samples_leaf=5,
+                                      max_leaf_nodes=10)
+    train_param(df, "NumPointsPerCell", n_dims, regressor)
+
+
+def train_max_hit(df, n_dims):
+    df = df[df['Running.MaxHitList'].str.contains(',', na=False)]
+    # Extract the column names from the DataFrame
+    columns = df.columns
+
+    # Extract repeat numbers using regex
+    repeat_nums = [
+        int(re.search(r'Running\.Repeat(\d+)\.TotalTime', col).group(1))
+        for col in columns if re.search(r'Running\.Repeat(\d+)\.TotalTime', col)
+    ]
+
+    # Get the maximum repeat number
+    max_repeat = max(repeat_nums) if repeat_nums else None
+    print("Max repeat:", max_repeat)
+    target_cols = [f'Running.Repeat{i}.TotalTime' for i in range(max_repeat + 1)]
+
+    # Make sure all columns exist in the DataFrame
+    existing_cols = [col for col in target_cols if col in df.columns]
+
+    # Find the column with the minimum value per row
+    df.loc[:, 'TrainRepeat'] = df[existing_cols].idxmax(axis=1)
+    df['TrainRepeat'] = df['TrainRepeat'].str.replace('.TotalTime', '', regex=False)
+
+    def extract_matching_values(row):
+        substring = row['TrainRepeat']
+        # Get all columns that contain the substring
+        matching_cols = [col for col in df.columns if substring in col]
+        # Return just the values for this row
+        s = row[matching_cols]
+        s.index = s.index.str.replace(substring, 'Running.Train', regex=False)
+
+        def is_iter_gt_i(index_str):
+            match = re.search(r'Iter(\d+)', index_str)
+            if match:
+                return int(match.group(1)) > 2
+            return False  # No 'Iter' in the string, so keep it
+
+        return s[~s.index.map(is_iter_gt_i)]
+
+    # Apply row-wise and build a new DataFrame
+    extracted_df = df.apply(extract_matching_values, axis=1, result_type='expand')
+    df = df.loc[:, ~df.columns.str.contains("Repeat")]
+    df = pd.concat([df, extracted_df], axis=1)
+
+    df_train_init = def_filter_best_parameter(df, sql_vary_max_hit_init)
+
+
+    # Create and train the decision tree regressor
+    regressor = DecisionTreeRegressor(random_state=42,
+                                      max_depth=5,
+                                      min_samples_split=10,
+                                      min_samples_leaf=5,
+                                      max_leaf_nodes=10)
+    train_param(df_train_init, "MaxHitInit", n_dims, regressor)
+
+    df_train_next = def_filter_best_parameter(df, sql_vary_max_hit_next)
+    train_param(df_train_next, "MaxHitNext", n_dims, regressor)
+
+    # feature_key = 'MaxPoints'
+    # predict_value = 'MaxHit'
+    # df[feature_key] = df[feature_key].round(2)
+    #
+    # percentages = (
+    #     df.groupby(feature_key)[predict_value]
+    #     .value_counts(normalize=True)
+    #     .rename('Percentage')
+    #     .reset_index()
+    # )
+    # num_b = percentages[predict_value].nunique()
+    # reds = plt.cm.Reds(np.linspace(0.1, 1, num_b))  # use lighter to darker reds
+    #
+    # # Step 2: Pivot for plotting
+    # pivot_df = percentages.pivot(index=feature_key, columns=predict_value, values='Percentage')
+    #
+    # # Step 3: Plot
+    # pivot_df.plot(kind='bar', color=reds)
+    # plt.xlabel(feature_key)
+    # plt.ylabel("Percentage")
+    # plt.title("Scatter plot of NumPointsPerCell vs AvgTime")
+    # plt.show()
 
 
 if __name__ == '__main__':
-    main()
+    # Set the path to the directory containing your JSON files
+    directory_path = '/Users/liang/BraTS2020_TrainingData'  # <-- change this to your JSON directory
+    cache_file = "BraTS2020_TrainingData.pkl"
+    all_files = glob.glob(os.path.join(directory_path, '*.json'))
+    df = load_df(all_files, cache_file)
+    # train_sample_rate(df, 3)
+    train_num_points_per_cell(df, 3)
+    # train_max_hit(df, 3)

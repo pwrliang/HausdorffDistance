@@ -96,7 +96,7 @@ class Mbr {
     return upper(dim) - lower(dim);
   }
 
-  DEV_HOST_INLINE COORD_T get_measure() const {
+  DEV_HOST_INLINE COORD_T get_volume() const {
     COORD_T measure = 1;
     for (int dim = 0; dim < N_DIMS; dim++) {
       measure *= get_extent(dim);

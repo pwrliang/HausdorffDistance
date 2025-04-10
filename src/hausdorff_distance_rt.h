@@ -13,6 +13,9 @@
 #include "grid.h"
 #include "hd_bounds.h"
 #include "hdr/hdr_histogram.h"
+#include "models/features.h"
+#include "models/tree_maxhitinit_3d.h"
+#include "models/tree_maxhitnext_3d.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
 #include "sampler.h"
@@ -155,6 +158,7 @@ struct HausdorffDistanceRTConfig {
   uint32_t max_hit = 1000;
   int max_reg_count = 0;
   bool sort_rays = false;
+  bool auto_tune = false;
 };
 
 template <typename COORD_T, int N_DIMS>
@@ -605,6 +609,7 @@ class HausdorffDistanceRT {
     Stopwatch sw;
     stats_.clear();
     // Sample points for a better initial HD
+    // Compute with grid + LB
     {
       sw.start();
       uint32_t n_samples = ceil(points_a.size() * config_.sample_rate);
@@ -671,11 +676,13 @@ class HausdorffDistanceRT {
 
     stats_["BVHBuildTime"] = sw.ms();
     stats_["BVHMemoryKB"] = mem_bytes / 1024;
+
+    std::string result = stats_.dump(4);
+
     thrust::device_vector<uint32_t> morton_codes;
 
     SharedValue<uint32_t> iter_hits;
     int iter = 0;
-    auto max_hit = config_.max_hit;
 #ifdef PROFILING
     struct hdr_histogram* histogram;
     // Initialise the histogram
@@ -684,6 +691,23 @@ class HausdorffDistanceRT {
              3,                     // Number of significant figures
              &histogram);           // Pointer to initialise
 #endif
+
+    // Predict MaxHit
+    auto& global_stats = RunningStats::instance().Get("Input");
+    FeaturesMaxHitInit<N_DIMS> features_max_hit_init(global_stats);
+    FeaturesMaxHitNext<N_DIMS> features_max_hit_next(global_stats);
+
+    features_max_hit_init.UpdateRunningInfo(stats_);
+
+    double predict_max_hit_init;
+
+    if (N_DIMS == 3) {
+      auto features = features_max_hit_init.Serialize();
+      predict_max_hit_init = PredictMaxHitInit_3D(features.data());
+      if (config_.auto_tune) {
+        config_.max_hit = predict_max_hit_init;
+      }
+    }
 
     while (in_size > 0) {
       iter++;
@@ -730,7 +754,7 @@ class HausdorffDistanceRT {
 #else
       params.hits_counters = nullptr;
 #endif
-      params.max_hit = max_hit;
+      params.max_hit = config_.max_hit;
 
       details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
 
@@ -759,6 +783,8 @@ class HausdorffDistanceRT {
       eb_point_a_ids = ArrayView<uint32_t>(term_queue_.data(), term_size);
       sw.stop();
 
+      VLOG(1) << "RT Time " << sw.ms() << " In " << in_size << " miss " << miss_size << " terms " << term_size;
+
 #ifdef PROFILING
       thrust::host_vector<uint32_t> h_hits_counters = hits_counters_;
 
@@ -771,6 +797,7 @@ class HausdorffDistanceRT {
       hdr_reset(histogram);
 #endif
 
+      json_iter["MaxHit"] = config_.max_hit;
       json_iter["NumInputPoints"] = in_size;
       json_iter["NumOutputPoints"] = miss_size;
       json_iter["NumTermPoints"] = term_size;
@@ -782,12 +809,18 @@ class HausdorffDistanceRT {
         sw.start();
         thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
                         eb_point_a_ids.begin(), eb_point_a_ids.end(), g_);
-        auto eb_compared_pairs =
-            CalculateHDEarlyBreak(stream, points_a, points_b_shuffled);
+        auto eb_compared_pairs = CalculateHDEarlyBreak(
+            stream, points_a, points_b_shuffled, eb_point_a_ids);
         sw.stop();
         json_iter["ComparedPairs"] = eb_compared_pairs;
         json_iter["EBTime"] = sw.ms();
+        VLOG(1) << "EB Time " << sw.ms();
+      } else {
+        json_iter["ComparedPairs"] = 0;
+        json_iter["EBTime"] = 0;
       }
+
+
 
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
@@ -808,6 +841,13 @@ class HausdorffDistanceRT {
         stream.Sync();
         sw.stop();
         json_iter["AdjustBVHTime"] = sw.ms();
+      }
+
+      if (config_.auto_tune) {
+        features_max_hit_next.UpdateRunningInfo(json_iter);
+        auto features = features_max_hit_next.Serialize();
+        auto max_hit = PredictMaxHitNext_3D(features.data());
+        config_.max_hit = max_hit;
       }
     }
     return sqrt(cmax2_.get(stream.cuda_stream()));
@@ -1021,7 +1061,7 @@ class HausdorffDistanceRT {
         curr_json_iter["NumInputPoints"] = in_size;
         curr_json_iter["NumOutputPoints"] = miss_size;
         curr_json_iter["NumTermPoints"] = term_size;
-        curr_json_iter["MaxHits"] = max_hit;
+        curr_json_iter["MaxHit"] = max_hit;
         curr_json_iter["CMax2"] = cmax2_.get(stream.cuda_stream());
         curr_json_iter["RTTime"] = sw.ms();
         curr_json_iter["Hits"] = iter_hits.get(stream.cuda_stream());
@@ -1030,12 +1070,15 @@ class HausdorffDistanceRT {
           sw.start();
           thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
                           eb_point_a_ids.begin(), eb_point_a_ids.end(), g_);
-          auto eb_compared_pairs =
-              CalculateHDEarlyBreak(stream, points_a, points_b_shuffled);
+          auto eb_compared_pairs = CalculateHDEarlyBreak(
+              stream, points_a, points_b_shuffled, eb_point_a_ids);
           sw.stop();
           curr_json_iter["ComparedPairs"] = eb_compared_pairs;
           curr_json_iter["EBTime"] = sw.ms();
           compute_time += sw.ms();
+        } else {
+          curr_json_iter["ComparedPairs"] = 0;
+          curr_json_iter["EBTime"] = 0;
         }
 
         if (compute_time < min_time) {

@@ -17,7 +17,8 @@
 #include "img_loader.h"
 #include "loader.h"
 #include "models/features.h"
-#include "models/tree_sample_rate.h"
+#include "models/tree_numpointspercell_3d.h"
+#include "models/tree_samplerate_3d.h"
 #include "move_points.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
@@ -66,18 +67,32 @@ void RunHausdorffDistance(const RunConfig& config) {
 
 RunConfig PredicateBestConfig(double* features, const RunConfig& config) {
   RunConfig auto_tune_config = config;
-  double sample_rate = PredicateSampleRate(features);
+  double sample_rate;
+  double n_points_cell;
+
+  sample_rate = PredictSampleRate_3D(features);
+  n_points_cell = PredictNumPointsPerCell_3D(features);
+
+  if (sample_rate <= 0) {
+    sample_rate = 0.0001;
+  }
 
   LOG(INFO) << "User's Config, Auto-tune Config";
   LOG(INFO) << "Sample Rate: " << config.sample_rate << ", " << sample_rate;
+  LOG(INFO) << "Points/Cell: " << config.n_points_cell << ", " << n_points_cell;
+
+  CHECK(sample_rate > 0 && sample_rate <= 1);
+  CHECK(n_points_cell > 1);
 
   auto_tune_config.sample_rate = sample_rate;
+  auto_tune_config.n_points_cell = n_points_cell;
   return auto_tune_config;
 }
 
 template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
+  using mbr_t = MbrTypeFromPoint<point_t>;
   std::vector<point_t> points_a, points_b;
   Stream stream;
   RunningStats& stats = RunningStats::instance();
@@ -122,8 +137,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   // Calculate MBR of points
   auto write_points_stats = [&](const std::string& key,
                                 const thrust::device_vector<point_t>& points) {
-    using mbr_t = MbrTypeFromPoint<point_t>;
-
     SharedValue<mbr_t> mbr;
     auto* p_mbr = mbr.data();
 
@@ -153,21 +166,26 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
           {{"Lower", h_mbr.lower(dim)}, {"Upper", h_mbr.upper(dim)}});
     }
     dataset_stats_json["MBR"] = json_mbr;
+    dataset_stats_json["Density"] = points.size() / h_mbr.get_volume();
+    return h_mbr;
   };
 
-  write_points_stats("FileA", d_points_a);
-  write_points_stats("FileB", d_points_b);
+  mbr_t merged_mbr = write_points_stats("FileA", d_points_a);
+  merged_mbr.Expand(write_points_stats("FileB", d_points_b));
+  json_input["Density"] =
+      (points_a.size() + points_b.size()) / merged_mbr.get_volume();
 
   if (config.auto_tune) {
     CHECK(config.variant == Variant::kHybrid)
         << "You can only use auto-tune for the hybrid variant";
-    Features<N_DIMS, 10> features(json_input);
+    FeaturesStatic<N_DIMS, 8> features(json_input);
     auto feature_vals = features.Serialize();
     config = PredicateBestConfig(feature_vals.data(), config);
   }
 
   auto& json_run = stats.Log("Running");
 
+  json_run["AutoTune"] = config.auto_tune;
   json_run["StatsNumPointsPerCell"] = config.stats_n_points_cell;
   json_run["Seed"] = config.seed;
   json_run["SortRays"] = config.sort_rays;
@@ -175,7 +193,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   json_run["RebuildBVH"] = config.rebuild_bvh;
   json_run["RadiusStep"] = config.radius_step;
   json_run["SampleRate"] = config.sample_rate;
-  json_run["MaxHit"] = config.max_hit;
   json_run["NumPointsPerCell"] = config.n_points_cell;
 
   COORD_T dist = -1;
@@ -185,6 +202,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   HausdorffDistanceRTConfig rt_config;
   std::string ptx_root = config.exec_path + "/ptx";
 
+  rt_config.auto_tune = config.auto_tune;
   rt_config.seed = config.seed;
   rt_config.ptx_root = ptx_root.c_str();
   rt_config.sort_rays = config.sort_rays;
