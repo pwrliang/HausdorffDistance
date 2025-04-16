@@ -9,11 +9,11 @@
 #include <random>  // For random number generators
 #include <sstream>
 
-#include "hausdorff_distance_cpu.h"
-#include "hausdorff_distance_gpu.h"
-#include "hausdorff_distance_itk.h"
-#include "hausdorff_distance_lbvh.h"
-#include "hausdorff_distance_rt.h"
+#include "hd_impl/hausdorff_distance_early_break.h"
+#include "hd_impl/hausdorff_distance_hybrid.h"
+#include "hd_impl/hausdorff_distance_itk.h"
+#include "hd_impl/hausdorff_distance_nearest_neighbor_search.h"
+#include "hd_impl/hausdorff_distance_ray_tracing.h"
 #include "img_loader.h"
 #include "loader.h"
 #include "models/features.h"
@@ -57,7 +57,7 @@ void RunHausdorffDistance(const RunConfig& config) {
     }
   } else {
     if (config.n_dims == 2) {
-      dist = RunHausdorffDistanceImpl<float, 2>(config);
+      // dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
       dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
@@ -99,11 +99,14 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
 
   stats.Log("DateTime", get_current_datetime_string());
   auto& json_input = stats.Log("Input");
+  itk::Size<N_DIMS> img_size1, img_size2;
 
   switch (config.input_type) {
   case InputType::kImage: {
-    points_a = LoadImage<COORD_T, N_DIMS>(config.input_file1, config.limit);
-    points_b = LoadImage<COORD_T, N_DIMS>(config.input_file2, config.limit);
+    points_a =
+        LoadImage<COORD_T, N_DIMS>(config.input_file1, img_size1, config.limit);
+    points_b =
+        LoadImage<COORD_T, N_DIMS>(config.input_file2, img_size2, config.limit);
     break;
   }
   default: {
@@ -159,6 +162,9 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     auto& dataset_stats_json = json_input[key];
 
     dataset_stats_json["Grid"] = stats_grid.GetStats();
+    dataset_stats_json["StatsGridNumPointsPerCell"] =
+        config.stats_n_points_cell;
+
     auto json_mbr = nlohmann::json::array();
 
     for (int dim = 0; dim < N_DIMS; ++dim) {
@@ -186,36 +192,86 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   auto& json_run = stats.Log("Running");
 
   json_run["AutoTune"] = config.auto_tune;
-  json_run["StatsNumPointsPerCell"] = config.stats_n_points_cell;
-  json_run["Seed"] = config.seed;
-  json_run["SortRays"] = config.sort_rays;
-  json_run["FastBuildBVH"] = config.fast_build_bvh;
-  json_run["RebuildBVH"] = config.rebuild_bvh;
-  json_run["RadiusStep"] = config.radius_step;
-  json_run["SampleRate"] = config.sample_rate;
-  json_run["NumPointsPerCell"] = config.n_points_cell;
+  // json_run["Seed"] = config.seed;
+  // json_run["SortRays"] = config.sort_rays;
+  // json_run["FastBuildBVH"] = config.fast_build_bvh;
+  // json_run["RebuildBVH"] = config.rebuild_bvh;
+  // json_run["RadiusStep"] = config.radius_step;
+  // json_run["SampleRate"] = config.sample_rate;
+  // json_run["NumPointsPerCell"] = config.n_points_cell;
 
   COORD_T dist = -1;
 
-  HausdorffDistanceRT<COORD_T, N_DIMS> hdist_rt;
-  HausdorffDistanceLBVH<COORD_T, N_DIMS> hdist_lbvh;
-  HausdorffDistanceRTConfig rt_config;
-  std::string ptx_root = config.exec_path + "/ptx";
+  std::unique_ptr<HausdorffDistance<COORD_T, N_DIMS>> hausdorff_distance;
 
-  rt_config.auto_tune = config.auto_tune;
-  rt_config.seed = config.seed;
-  rt_config.ptx_root = ptx_root.c_str();
-  rt_config.sort_rays = config.sort_rays;
-  rt_config.fast_build = config.fast_build_bvh;
-  rt_config.rebuild_bvh = config.rebuild_bvh;
-  rt_config.radius_step = config.radius_step;
-  rt_config.sample_rate = config.sample_rate;
-  rt_config.max_reg_count = config.max_reg_count;
-  rt_config.max_hit = config.max_hit;
-  rt_config.n_points_cell = config.n_points_cell;
+  if (config.parallelism <= 0) {
+    config.parallelism = std::thread::hardware_concurrency();
+  }
 
-  hdist_rt.Init(rt_config);
-  // hdist_lbvh.SetPointsTo(stream, points_b.begin(), points_b.end());
+  switch (config.variant) {
+  case Variant::kEarlyBreak: {
+    using hd_impl_t = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+
+    hd_config.seed = config.seed;
+    hd_config.n_threads = config.parallelism;
+    hausdorff_distance =
+        std::make_unique<HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>>(
+            hd_config);
+    break;
+  }
+  case Variant::kHybrid: {
+    using hd_impl_t = HausdorffDistanceHybrid<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+    std::string ptx_root = config.exec_path + "/ptx";
+    hd_config.seed = config.seed;
+    hd_config.ptx_root = ptx_root.c_str();
+    hd_config.auto_tune = config.auto_tune;
+    hd_config.fast_build = config.fast_build_bvh;
+    hd_config.rebuild_bvh = config.rebuild_bvh;
+    hd_config.radius_step = config.radius_step;
+    hd_config.sample_rate = config.sample_rate;
+    hd_config.n_points_cell = config.n_points_cell;
+    hd_config.max_hit = config.max_hit;
+    hd_config.sort_rays = config.sort_rays;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
+  case Variant::kNearestNeighborSearch: {
+    using hd_impl_t = HausdorffDistanceNearestNeighborSearch<COORD_T, N_DIMS>;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>();
+    break;
+  }
+  case Variant::kRT: {
+    using hd_impl_t = HausdorffDistanceRayTracing<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+    std::string ptx_root = config.exec_path + "/ptx";
+    hd_config.seed = config.seed;
+    hd_config.ptx_root = ptx_root.c_str();
+    hd_config.fast_build = config.fast_build_bvh;
+    hd_config.rebuild_bvh = config.rebuild_bvh;
+    hd_config.radius_step = config.radius_step;
+    hd_config.sample_rate = config.sample_rate;
+    hd_config.n_points_cell = config.n_points_cell;
+    hd_config.sort_rays = config.sort_rays;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
+  case Variant::kITK: {
+    using hd_impl_t = HausdorffDistanceITK<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+
+    hd_config.size_a = img_size1;
+    hd_config.size_b = img_size2;
+    hd_config.n_threads = config.parallelism;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
+  }
 
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
@@ -225,94 +281,18 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
 
   for (int i = 0; i < config.repeat; i++) {
     auto& json_repeat = json_run["Repeat" + std::to_string(i)];
-    double loading_time_ms = 0;  // For ITK only
 
     sw.start();
-    switch (config.variant) {
-    case Variant::kEARLY_BREAK: {
-      json_run["Variant"] = "EarlyBreak";
-      switch (config.execution) {
-      case Execution::kSerial:
-        json_run["Execution"] = "Serial";
-        dist = CalculateHausdorffDistance(points_a, points_b);
-        break;
-      case Execution::kParallel:
-        json_run["Execution"] = "Parallel";
-        dist = CalculateHausdorffDistanceParallel(points_a, points_b);
-        break;
-      case Execution::kGPU:
-        json_run["Execution"] = "GPU";
-        dist = CalculateHausdorffDistanceGPU<point_t>(
-            stream, d_points_a, d_points_b, config.seed, json_repeat);
-        break;
-      }
-      break;
-    }
-    case Variant::kZORDER: {
-      json_run["Variant"] = "ZOrder";
-      switch (config.execution) {
-      case Execution::kSerial:
-        json_run["Execution"] = "Serial";
-        dist = CalculateHausdorffDistanceZOrder(points_a, points_b);
-        break;
-      case Execution::kGPU:
-        json_run["Execution"] = "GPU";
-        dist =
-            CalculateHausdorffDistanceZorderGPU(stream, d_points_a, d_points_b);
-        break;
-      }
-      break;
-    }
-    case Variant::kYUAN: {
-      json_run["Variant"] = "Yuan";
-      switch (config.execution) {
-      case Execution::kSerial:
-        json_run["Execution"] = "Serial";
-        dist = CalculateHausdorffDistanceYuan(points_a, points_b);
-        break;
-      }
-      break;
-    }
-    case Variant::kRT: {
-      json_run["Variant"] = "RT";
-      json_run["Execution"] = "GPU";
-      if (config.n_points_cell > 0) {
-        dist =
-            hdist_rt.CalculateDistanceCompress(stream, d_points_a, d_points_b);
-      } else {
-        dist = hdist_rt.CalculateDistance(stream, d_points_a, d_points_b);
-      }
-      json_repeat = hdist_rt.GetStats();
-      break;
-    }
-    case Variant::kHybrid: {
-      json_run["Variant"] = "Hybrid";
-      json_run["Execution"] = "GPU";
-      CHECK_GT(config.n_points_cell, 0) << "Avg points / cell cannot be zero";
-      CHECK_GT(config.radius_step, 1);
-      CHECK_LE(config.sample_rate, 1);
-      dist = hdist_rt.CalculateDistanceHybrid(stream, d_points_a, d_points_b);
-      json_repeat = hdist_rt.GetStats();
-      break;
-    }
-    case Variant::kBRANCH_BOUND: {
-      // dist = hdist_lbvh.CalculateDistanceFrom(stream, points_a.begin(),
-      // points_a.end());
-      break;
-    }
-    case Variant::kITK: {
-      json_run["Variant"] = "ITK";
-      json_run["Execution"] = "Parallel";
-      dist = CalculateHausdorffDistanceITK<N_DIMS>(config.input_file1.c_str(),
-                                                   config.input_file2.c_str(),
-                                                   loading_time_ms);
-      json_repeat["LoadingTime"] = loading_time_ms;
-      break;
-    }
+    if (config.execution == Execution::kCPU) {
+      dist = hausdorff_distance->CalculateDistance(points_a, points_b);
+    } else {
+      dist =
+          hausdorff_distance->CalculateDistance(stream, d_points_a, d_points_b);
     }
     sw.stop();
-    json_repeat["TotalTime"] = sw.ms() - loading_time_ms;
-    running_time += sw.ms() - loading_time_ms;
+    json_repeat["TotalTime"] = sw.ms();
+    json_repeat.update(hausdorff_distance->get_stats());
+    running_time += sw.ms();
   }
 
   json_run["AvgTime"] = running_time / config.repeat;
@@ -321,9 +301,15 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   stats.Log("HDResult", dist);
 
   if (config.check) {
+    using hd_reference_impl = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
     auto& json_check = stats.Log("Check");
+    typename hd_reference_impl::Config hd_config;
 
-    auto answer_dist = CalculateHausdorffDistanceParallel(points_a, points_b);
+    hd_config.n_threads = std::thread::hardware_concurrency();
+    auto hd_reference =
+        std::make_unique<HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>>(
+            hd_config);
+    auto answer_dist = hd_reference->CalculateDistance(points_a, points_b);
     auto diff = answer_dist - dist;
 
     json_check["HDAnswer"] = answer_dist;
@@ -343,6 +329,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
 
     if (!file_exists || file_exists && config.overwrite) {
       stats.Dump(config.json_file);
+    } else {
+      LOG(WARNING) << "Skip writting to JSON file " << config.json_file;
     }
   }
   return dist;

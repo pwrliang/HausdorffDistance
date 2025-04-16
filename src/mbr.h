@@ -261,6 +261,15 @@ class Mbr {
     return c;
   }
 
+  DEV_HOST_INLINE bool IsValid() const {
+    for (int dim = 0; dim < N_DIMS; ++dim) {
+      if (lower(dim) > upper(dim)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
  private:
   point_t lower_, upper_;
 };

@@ -4,7 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-#include "glog/logging.h"
+#include <glog/logging.h>
 #include "hdr/hdr_histogram.h"
 
 class RunningStats {

@@ -158,26 +158,30 @@ def draw_running_time_dot(prefix):
     print("Median", median_times)
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(5, 4))
 
-    x_pos = np.arange(len(labels))
-    bar_width = 0.35
-    ax.bar(x_pos - bar_width / 2, mean_times, width=bar_width, label='Mean Time')
-    ax.bar(x_pos + bar_width / 2, median_times, width=bar_width, label='Median Time')
-    ax.set_xlabel("Variants")
+    # x_pos = np.arange(len(labels))
+    # bar_width = 0.35
+    # ax.bar(x_pos - bar_width / 2, mean_times, width=bar_width, label='Mean Time')
+    # ax.bar(x_pos + bar_width / 2, median_times, width=bar_width, label='Median Time')
+    # ax.set_xticks(x_pos, labels)
+    # ax.set_xlabel("Variants")
+    # ax.set_ylabel(ylabel='Running Time (ms)', labelpad=1)
+    # auto_is_faster_count = (df_hybrid[time_column] > df_hybrid_auto[time_column]).sum()
+    # num_rows = df_hybrid.shape[0]
+    # print("Faster percent", auto_is_faster_count / num_rows * 100)
+
+    df_itk[time_column].plot(marker='o', markersize=2, linestyle='', ax=ax, label="ITK")
+    df_eb[time_column].plot(marker='o', markersize=2, linestyle='', ax=ax, label="EB")
+    df_hybrid[time_column].plot(marker='o', markersize=3, linestyle='', ax=ax, label="Hybrid")
+    df_hybrid_auto[time_column].plot(marker='o', markersize=3, linestyle='', ax=ax, label="HybridAuto")
+
+
+
+    ax.set_yscale("log")
+    ax.set_xlabel("Datasets")
     ax.set_ylabel(ylabel='Running Time (ms)', labelpad=1)
-
-    # df_hybrid[time_column].plot(marker='o', linestyle='', ax=ax, label="Hybrid")
-    # df_hybrid_auto[time_column].plot(marker='o', linestyle='', ax=ax, label="HybridAuto")
-    # df_eb[time_column].plot(marker='o', linestyle='', ax=ax, label="EB")
-
-    auto_is_faster_count = (df_hybrid[time_column] > df_hybrid_auto[time_column]).sum()
-    num_rows = df_hybrid.shape[0]
-    print("Faster percent", auto_is_faster_count / num_rows * 100)
+    ax.set_xticklabels([])  # Remove x tick labels
 
     ax.legend()
-    # ax.set_yscale("log")
-    # ax.set_xlabel("Datasets")
-    # ax.set_ylabel(ylabel='Running Time (ms)', labelpad=1)
-    # ax.set_xticklabels([])  # Remove x tick labels
     fig.tight_layout(pad=0.1)
 
     # fig.savefig("running_time_all.png", format='png', bbox_inches='tight')

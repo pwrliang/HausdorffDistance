@@ -14,7 +14,7 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 
-#include "glog/logging.h"
+#include <glog/logging.h>
 #include "hdr/hdr_histogram.h"
 #include "mbr.h"
 #include "utils/array_view.h"
@@ -427,10 +427,6 @@ class Grid {
                      });
 
     return mbrs;
-  }
-
-  const thrust::device_vector<uint32_t>& get_point_ids() const {
-    return point_ids_;
   }
 
   ArrayView<uint32_t> get_prefix_sum() { return prefix_sum_; }

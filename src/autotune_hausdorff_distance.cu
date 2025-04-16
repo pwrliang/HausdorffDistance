@@ -48,9 +48,9 @@ void AutoTuneHausdorffDistance(const RunConfig& config) {
     }
   } else {
     if (config.n_dims == 2) {
-      AutoTuneHausdorffDistanceImpl<float, 2>(config);
+      // AutoTuneHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      AutoTuneHausdorffDistanceImpl<float, 3>(config);
+      // AutoTuneHausdorffDistanceImpl<float, 3>(config);
     }
   }
 }

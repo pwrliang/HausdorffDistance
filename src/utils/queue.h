@@ -22,7 +22,8 @@ class Queue {
   DEV_INLINE uint32_t Append(const T& item) {
     auto allocation = atomicAdd(last_pos_, 1);
     if (allocation >= data_.size()) {
-      printf("out of bound, allocation %u, size %lu\n", allocation, data_.size());
+      printf("out of bound, allocation %u, size %lu\n", allocation,
+             data_.size());
     }
     assert(allocation < data_.size());
     data_[allocation] = item;
@@ -91,6 +92,24 @@ class Queue {
   T* data() { return thrust::raw_pointer_cast(data_.data()); }
 
   const T* data() const { return thrust::raw_pointer_cast(data_.data()); }
+
+  void Append(cudaStream_t stream, const T& item) {
+    auto tail = counter_.get(stream);
+
+    CUDA_CHECK(cudaMemcpyAsync(thrust::raw_pointer_cast(data_.data()) + tail,
+                               &item, sizeof(T), cudaMemcpyHostToDevice,
+                               stream));
+    counter_.set(stream, tail + 1);
+  }
+
+  void SetSequence(cudaStream_t stream, uint32_t size, uint32_t start = 0) {
+    if (size > data_.size()) {
+      data_.resize(size);
+    }
+    thrust::sequence(thrust::cuda::par.on(stream), data_.begin(),
+                     data_.begin() + size, start);
+    counter_.set(stream, size);
+  }
 
   template <typename VECTOR_T>
   void CopyTo(VECTOR_T& out, cudaStream_t stream) {

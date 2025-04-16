@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (FLAGS_variant == "eb") {
-    config.variant = Variant::kEARLY_BREAK;
+    config.variant = Variant::kEarlyBreak;
   } else if (FLAGS_variant == "zorder") {
     config.variant = Variant::kZORDER;
   } else if (FLAGS_variant == "yuan") {
@@ -69,18 +69,18 @@ int main(int argc, char* argv[]) {
     config.variant = Variant::kRT;
   } else if (FLAGS_variant == "hybrid") {
     config.variant = Variant::kHybrid;
-  } else if (FLAGS_variant == "branch-bound") {
-    config.variant = Variant::kBRANCH_BOUND;
+  } else if (FLAGS_variant == "branch-n-bound") {
+    config.variant = Variant::kBRANCH_N_BOUND;
+  } else if (FLAGS_variant == "nn") {
+    config.variant = Variant::kNN;
   } else if (FLAGS_variant == "itk") {
     config.variant = Variant::kITK;
   } else {
     LOG(FATAL) << "Unknown variant: " << FLAGS_variant;
   }
 
-  if (FLAGS_execution == "serial") {
-    config.execution = Execution::kSerial;
-  } else if (FLAGS_execution == "parallel") {
-    config.execution = Execution::kParallel;
+  if (FLAGS_execution == "cpu") {
+    config.execution = Execution::kCPU;
   } else if (FLAGS_execution == "gpu") {
     config.execution = Execution::kGPU;
   } else {
@@ -133,7 +133,7 @@ int main(int argc, char* argv[]) {
     CHECK_GT(config.sample_rate_list.size(), 0);
     CHECK_GT(config.max_hit_list.size(), 0);
     CHECK_GT(config.n_points_cell_list.size(), 0);
-    hd::AutoTuneHausdorffDistance(config);
+    // hd::AutoTuneHausdorffDistance(config);
   } else {
     hd::RunHausdorffDistance(config);
   }

@@ -12,6 +12,7 @@
 #include "distance.h"
 #include "grid.h"
 #include "hd_bounds.h"
+#include "hd_impl/primitive_utils.h"
 #include "hdr/hdr_histogram.h"
 #include "models/features.h"
 #include "models/tree_maxhitinit_3d.h"
@@ -28,122 +29,9 @@
 #include "utils/type_traits.h"
 #include "utils/util.h"
 
-#define NEXT_AFTER_ROUNDS (2)
 // #define PROFILING
 
 namespace hd {
-
-namespace details {
-
-DEV_HOST_INLINE std::uint32_t expand_bits(std::uint32_t v) noexcept {
-  v = (v * 0x00010001u) & 0xFF0000FFu;
-  v = (v * 0x00000101u) & 0x0F00F00Fu;
-  v = (v * 0x00000011u) & 0xC30C30C3u;
-  v = (v * 0x00000005u) & 0x49249249u;
-  return v;
-}
-
-// Calculates a 30-bit Morton code for the
-// given 3D point located within the unit cube [0,1].
-DEV_HOST_INLINE std::uint32_t morton_code(float2 xy,
-                                          float resolution = 1024.0f) noexcept {
-  xy.x = ::fminf(::fmaxf(xy.x * resolution, 0.0f), resolution - 1.0f);
-  xy.y = ::fminf(::fmaxf(xy.y * resolution, 0.0f), resolution - 1.0f);
-  const std::uint32_t xx = expand_bits(static_cast<std::uint32_t>(xy.x));
-  const std::uint32_t yy = expand_bits(static_cast<std::uint32_t>(xy.y));
-  return xx * 2 + yy;
-}
-
-DEV_HOST_INLINE std::uint32_t morton_code(float3 xyz,
-                                          float resolution = 1024.0f) noexcept {
-  xyz.x = ::fminf(::fmaxf(xyz.x * resolution, 0.0f), resolution - 1.0f);
-  xyz.y = ::fminf(::fmaxf(xyz.y * resolution, 0.0f), resolution - 1.0f);
-  xyz.z = ::fminf(::fmaxf(xyz.z * resolution, 0.0f), resolution - 1.0f);
-  const std::uint32_t xx = expand_bits(static_cast<std::uint32_t>(xyz.x));
-  const std::uint32_t yy = expand_bits(static_cast<std::uint32_t>(xyz.y));
-  const std::uint32_t zz = expand_bits(static_cast<std::uint32_t>(xyz.z));
-  return xx * 4 + yy * 2 + zz;
-}
-
-DEV_HOST_INLINE std::uint32_t morton_code(double2 xy,
-                                          double resolution = 1024.0) noexcept {
-  xy.x = ::fmin(::fmax(xy.x * resolution, 0.0), resolution - 1.0);
-  xy.y = ::fmin(::fmax(xy.y * resolution, 0.0), resolution - 1.0);
-  const std::uint32_t xx = expand_bits(static_cast<std::uint32_t>(xy.x));
-  const std::uint32_t yy = expand_bits(static_cast<std::uint32_t>(xy.y));
-  return xx * 2 + yy;
-}
-
-DEV_HOST_INLINE std::uint32_t morton_code(double3 xyz,
-                                          double resolution = 1024.0) noexcept {
-  xyz.x = ::fmin(::fmax(xyz.x * resolution, 0.0), resolution - 1.0);
-  xyz.y = ::fmin(::fmax(xyz.y * resolution, 0.0), resolution - 1.0);
-  xyz.z = ::fmin(::fmax(xyz.z * resolution, 0.0), resolution - 1.0);
-  const std::uint32_t xx = expand_bits(static_cast<std::uint32_t>(xyz.x));
-  const std::uint32_t yy = expand_bits(static_cast<std::uint32_t>(xyz.y));
-  const std::uint32_t zz = expand_bits(static_cast<std::uint32_t>(xyz.z));
-  return xx * 4 + yy * 2 + zz;
-}
-
-DEV_HOST_INLINE OptixAabb GetOptixAABB(float2 p, float radius) {
-  OptixAabb aabb;
-  aabb.minX = p.x - radius;
-  aabb.maxX = p.x + radius;
-  aabb.minY = p.y - radius;
-  aabb.maxY = p.y + radius;
-  aabb.minZ = aabb.maxZ = 0;
-  return aabb;
-}
-
-DEV_HOST_INLINE OptixAabb GetOptixAABB(float3 p, float radius) {
-  OptixAabb aabb;
-  aabb.minX = p.x - radius;
-  aabb.maxX = p.x + radius;
-  aabb.minY = p.y - radius;
-  aabb.maxY = p.y + radius;
-  aabb.minZ = p.z - radius;
-  aabb.maxZ = p.z + radius;
-  return aabb;
-}
-
-DEV_HOST_INLINE OptixAabb GetOptixAABB(double2 p, double radius) {
-  OptixAabb aabb;
-  aabb.minX = next_float_from_double(p.x - radius, -1, 2);
-  aabb.maxX = next_float_from_double(p.x + radius, 1, 2);
-  aabb.minY = next_float_from_double(p.y - radius, -1, 2);
-  aabb.maxY = next_float_from_double(p.y + radius, 1, 2);
-  aabb.minZ = aabb.maxZ = 0;
-  return aabb;
-}
-
-DEV_HOST_INLINE OptixAabb GetOptixAABB(double3 p, double radius) {
-  OptixAabb aabb;
-  aabb.minX = next_float_from_double(p.x - radius, -1, 2);
-  aabb.maxX = next_float_from_double(p.x + radius, 1, 2);
-  aabb.minY = next_float_from_double(p.y - radius, -1, 2);
-  aabb.maxY = next_float_from_double(p.y + radius, 1, 2);
-  aabb.minZ = next_float_from_double(p.z - radius, -1, 2);
-  aabb.maxZ = next_float_from_double(p.z + radius, 1, 2);
-  return aabb;
-}
-
-// FIXME: May have precision issue for double type
-template <typename COORD_T, int N_DIMS>
-DEV_HOST_INLINE OptixAabb GetOptixAABB(const Mbr<COORD_T, N_DIMS>& mbr,
-                                       COORD_T radius) {
-  OptixAabb aabb;
-
-  aabb.minZ = aabb.maxZ = 0;
-
-  for (int dim = 0; dim < N_DIMS; dim++) {
-    auto lower = mbr.lower(dim);
-    auto upper = mbr.upper(dim);
-    reinterpret_cast<float*>(&aabb.minX)[dim] = lower - radius;
-    reinterpret_cast<float*>(&aabb.maxX)[dim] = upper + radius;
-  }
-  return aabb;
-}
-}  // namespace details
 
 struct HausdorffDistanceRTConfig {
   int seed = 0;
@@ -166,6 +54,7 @@ class HausdorffDistanceRT {
   using coord_t = COORD_T;
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
+  using grid_t = Grid<COORD_T, N_DIMS>;
 
  public:
   HausdorffDistanceRT() = default;
@@ -783,7 +672,8 @@ class HausdorffDistanceRT {
       eb_point_a_ids = ArrayView<uint32_t>(term_queue_.data(), term_size);
       sw.stop();
 
-      VLOG(1) << "RT Time " << sw.ms() << " In " << in_size << " miss " << miss_size << " terms " << term_size;
+      VLOG(1) << "RT Time " << sw.ms() << " In " << in_size << " miss "
+              << miss_size << " terms " << term_size;
 
 #ifdef PROFILING
       thrust::host_vector<uint32_t> h_hits_counters = hits_counters_;
@@ -819,8 +709,6 @@ class HausdorffDistanceRT {
         json_iter["ComparedPairs"] = 0;
         json_iter["EBTime"] = 0;
       }
-
-
 
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
@@ -1170,6 +1058,130 @@ class HausdorffDistanceRT {
                                         0, config_.fast_build, config_.compact);
   }
 
+  uint64_t CalculateHDGrid(
+      const Stream& stream, const thrust::device_vector<point_t>& points_a,
+      const thrust::device_vector<point_t>& points_b,
+      ArrayView<uint32_t> v_point_ids_a = ArrayView<uint32_t>()) {
+    SharedValue<unsigned long long int> compared_pairs;
+    auto* p_cmax2 = cmax2_.data();
+    ArrayView<point_t> v_points_a(points_a);
+    ArrayView<point_t> v_points_b(points_b);
+
+    auto* p_compared_pairs = compared_pairs.data();
+
+    uint32_t n_points_a = v_point_ids_a.size();
+
+    if (n_points_a == 0) {
+      n_points_a = points_a.size();
+    }
+
+    compared_pairs.set(stream.cuda_stream(), 0);
+
+    auto mbrs_b = grid_.GetCellMbrs(stream);
+    thrust::device_vector<uint32_t> mbrs_b_ids(mbrs_b.size());
+
+    ArrayView<mbr_t> v_mbrs_b(mbrs_b);
+    ArrayView<uint32_t> v_mbrs_b_ids(mbrs_b_ids);
+    auto v_prefix_sum = grid_.get_prefix_sum();
+    auto v_point_ids = grid_.get_point_ids();
+
+    thrust::sequence(thrust::cuda::par.on(stream.cuda_stream()),
+                     mbrs_b_ids.begin(), mbrs_b_ids.end(), 0);
+
+    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                    mbrs_b_ids.begin(), mbrs_b_ids.end(), g_);
+
+    LOG(INFO) << "Start kernel";
+
+    LaunchKernel(stream, [=] __device__() {
+      using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
+      using WarpReduce = cub::WarpReduce<coord_t, MAX_BLOCK_SIZE>;
+      __shared__ typename BlockReduce::TempStorage temp_storage_block;
+      __shared__ typename WarpReduce::TempStorage
+          temp_storage_warp[MAX_BLOCK_SIZE / 32];
+      __shared__ int early_break;
+      __shared__ const point_t* point_a;
+      uint64_t n_pairs = 0;
+
+      auto warp_id = threadIdx.x / 32;
+      auto n_warps = blockDim.x / 32;
+      auto lane_id = threadIdx.x % 32;
+
+      for (auto i = blockIdx.x; i < n_points_a; i += gridDim.x) {
+        auto n_mbrs_b = v_mbrs_b.size();
+        coord_t cmin = std::numeric_limits<coord_t>::max();
+
+        if (threadIdx.x == 0) {
+          early_break = 0;
+          if (v_point_ids_a.empty()) {
+            point_a = &v_points_a[i];
+          } else {
+            auto point_id_s = v_point_ids_a[i];
+            point_a = &v_points_a[point_id_s];
+          }
+        }
+        __syncthreads();
+
+        // visit each non-empty cell
+        for (auto j = warp_id; j < n_mbrs_b && !early_break; j += n_warps) {
+          auto mbr_b_id = mbrs_b_ids[j];
+          auto begin = v_prefix_sum[mbr_b_id];
+          auto end = v_prefix_sum[mbr_b_id + 1];
+          auto n_points_b = end - begin;
+          auto n_points_b_rup = div_round_up(n_points_b, 32) * 32;
+          const auto& mbr_b = v_mbrs_b[mbr_b_id];
+          auto hd_upper2 = mbr_b.GetMaxDist2(*point_a);
+
+          if (hd_upper2 <= *p_cmax2) {
+            early_break = 1;
+            break;
+          }
+
+          // printf(" n points %u\n", end - begin);
+
+          // visit each point in the cell
+          for (auto k = lane_id; k < n_points_b_rup; k += 32) {
+            auto d = std::numeric_limits<coord_t>::max();
+
+            if (k < n_points_b) {
+              auto point_b_id = v_point_ids[begin + k];
+              const auto& point_b = v_points_b[point_b_id];
+
+              d = EuclideanDistance2(*point_a, point_b);
+              n_pairs++;
+            }
+            auto agg_min =
+                WarpReduce(temp_storage_warp[warp_id]).Reduce(d, cub::Min());
+
+            if (__any_sync(0xFFFFFFFF,
+                           (lane_id == 0 && agg_min <= *p_cmax2) ? 1 : 0)) {
+              // early_break = 1;
+              atomicExch(&early_break, 1);
+              break;
+            }
+            cmin = std::min(cmin, agg_min);
+          }
+        }
+
+        __syncthreads();
+
+        if (!early_break) {
+          cmin = BlockReduce(temp_storage_block)
+                     .Reduce(lane_id == 0 ? cmin
+                                          : std::numeric_limits<COORD_T>::max(),
+                             cub::Min());
+          if (threadIdx.x == 0 && cmin != std::numeric_limits<coord_t>::max()) {
+            atomicMax(p_cmax2, cmin);
+          }
+        }
+      }
+      atomicAdd(p_compared_pairs, n_pairs);
+    });
+    stream.Sync();
+    LOG(INFO) << "Finish kernel";
+    return compared_pairs.get(stream.cuda_stream());
+  }
+
   uint64_t CalculateHDEarlyBreak(
       const Stream& stream, const thrust::device_vector<point_t>& points_a,
       const thrust::device_vector<point_t>& points_b,
@@ -1246,7 +1258,7 @@ class HausdorffDistanceRT {
   HausdorffDistanceRTConfig config_;
   nlohmann::json stats_;
   thrust::default_random_engine g_;
-  Grid<COORD_T, N_DIMS> grid_;
+  grid_t grid_;
   thrust::device_vector<OptixAabb> aabbs_;
   thrust::device_vector<uint32_t> hits_counters_;
   SharedValue<mbr_t> mbr_;

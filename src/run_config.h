@@ -5,16 +5,18 @@
 #include "input_type.h"
 namespace hd {
 enum class Variant {
-  kEARLY_BREAK,
+  kEarlyBreak,
   kZORDER,
   kYUAN,
   kRT,
+  kNN,
+  kNearestNeighborSearch,
   kHybrid,
-  kBRANCH_BOUND,
+  kBRANCH_N_BOUND,
   kITK
 };
 
-enum class Execution { kSerial, kParallel, kGPU };
+enum class Execution { kCPU, kGPU };
 
 struct RunConfig {
   std::string exec_path;

@@ -10,7 +10,7 @@
 
 #include "distance.h"
 #include "flags.h"
-#include "glog/logging.h"
+#include <glog/logging.h>
 #include "morton_code.h"
 #include "utils/array_view.h"
 #include "utils/derived_atomic_functions.h"
@@ -108,6 +108,8 @@ typename vec_info<POINT_T>::type CalculateHausdorffDistanceGPU(
 
   stats["ComputeTime"] = ms;
   stats["ComparedPairs"] = n_compared_pairs;
+
+  LOG(INFO) << "Compared " << n_compared_pairs << " points";
 
   return sqrt(cmax.get(stream.cuda_stream()));
 }

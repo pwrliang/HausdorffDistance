@@ -1,9 +1,10 @@
 #ifndef IMG_LOADER_H
 #define IMG_LOADER_H
+#include <glog/logging.h>
+
 #include <string>
 #include <vector>
 
-#include "glog/logging.h"
 #include "itkDirectedHausdorffDistanceImageFilter.h"
 #include "itkImage.h"
 #include "itkImageFileReader.h"
@@ -11,7 +12,8 @@
 
 template <typename COORD_T, int N_DIMS>
 std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadImage(
-    const std::string& path, int limit = std::numeric_limits<int>::max()) {
+    const std::string& path, itk::Size<N_DIMS>& size,
+    int limit = std::numeric_limits<int>::max()) {
   using PixelType = unsigned char;
   using ImageType = itk::Image<PixelType, N_DIMS>;
   using ReaderType = itk::ImageFileReader<ImageType>;
@@ -29,7 +31,7 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadImage(
   auto image = reader->GetOutput();
   // Iterator over the image
   using IteratorType = itk::ImageRegionIterator<ImageType>;
-  auto size = image->GetLargestPossibleRegion().GetSize();
+  size = image->GetLargestPossibleRegion().GetSize();
 
   IteratorType it(image, image->GetLargestPossibleRegion());
 

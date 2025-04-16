@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "distance.h"
-#include "glog/logging.h"
+#include <glog/logging.h>
 #include "mbr.h"
 #include "morton_code.h"
 #include "utils/type_traits.h"
