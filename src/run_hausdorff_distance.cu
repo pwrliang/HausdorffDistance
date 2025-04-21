@@ -96,17 +96,31 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   std::vector<point_t> points_a, points_b;
   Stream stream;
   RunningStats& stats = RunningStats::instance();
+  auto& json_gpu = stats.Log("GPU");
+  cudaDeviceProp prop;
+  int device;
+  cudaGetDevice(&device);  // Get current device ID
+  cudaGetDeviceProperties(&prop,
+                          device);  // Get properties of the current device
+  json_gpu["Device"] = device;
+  json_gpu["name"] = prop.name;
+  json_gpu["l2CacheSize"] = prop.l2CacheSize;
+  json_gpu["multiProcessorCount"] = prop.multiProcessorCount;
+  json_gpu["regsPerBlock"] = prop.regsPerBlock;
+  json_gpu["maxThreadsPerBlock"] = prop.maxThreadsPerBlock;
+  json_gpu["maxBlocksPerMultiProcessor"] = prop.maxBlocksPerMultiProcessor;
+  json_gpu["regsPerMultiprocessor"] = prop.regsPerMultiprocessor;
 
   stats.Log("DateTime", get_current_datetime_string());
   auto& json_input = stats.Log("Input");
-  itk::Size<N_DIMS> img_size1, img_size2;
+  itk::Size<N_DIMS> img_size_a, img_size_b;
 
   switch (config.input_type) {
   case InputType::kImage: {
     points_a =
-        LoadImage<COORD_T, N_DIMS>(config.input_file1, img_size1, config.limit);
+        LoadImage<COORD_T, N_DIMS>(config.input_file1, img_size_a, config.limit);
     points_b =
-        LoadImage<COORD_T, N_DIMS>(config.input_file2, img_size2, config.limit);
+        LoadImage<COORD_T, N_DIMS>(config.input_file2, img_size_b, config.limit);
     break;
   }
   default: {
@@ -192,13 +206,13 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   auto& json_run = stats.Log("Running");
 
   json_run["AutoTune"] = config.auto_tune;
-  // json_run["Seed"] = config.seed;
-  // json_run["SortRays"] = config.sort_rays;
-  // json_run["FastBuildBVH"] = config.fast_build_bvh;
-  // json_run["RebuildBVH"] = config.rebuild_bvh;
-  // json_run["RadiusStep"] = config.radius_step;
-  // json_run["SampleRate"] = config.sample_rate;
-  // json_run["NumPointsPerCell"] = config.n_points_cell;
+  json_run["Seed"] = config.seed;
+  json_run["SortRays"] = config.sort_rays;
+  json_run["FastBuildBVH"] = config.fast_build_bvh;
+  json_run["RebuildBVH"] = config.rebuild_bvh;
+  json_run["RadiusStep"] = config.radius_step;
+  json_run["SampleRate"] = config.sample_rate;
+  json_run["NumPointsPerCell"] = config.n_points_cell;
 
   COORD_T dist = -1;
 
@@ -264,8 +278,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     using hd_impl_t = HausdorffDistanceITK<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
 
-    hd_config.size_a = img_size1;
-    hd_config.size_b = img_size2;
+    hd_config.size_a = img_size_a;
+    hd_config.size_b = img_size_b;
     hd_config.n_threads = config.parallelism;
 
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);

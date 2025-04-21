@@ -9,8 +9,9 @@
 #include <random>  // For random number generators
 #include <sstream>
 
-#include "hausdorff_distance_cpu.h"
-#include "hausdorff_distance_rt.h"
+#include "hausdorff_distance.h"
+#include "hd_impl/hausdorff_distance_early_break.h"
+#include "hd_impl/hausdorff_distance_hybrid.h"
 #include "img_loader.h"
 #include "loader.h"
 #include "move_points.h"
@@ -50,7 +51,7 @@ void AutoTuneHausdorffDistance(const RunConfig& config) {
     if (config.n_dims == 2) {
       // AutoTuneHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
-      // AutoTuneHausdorffDistanceImpl<float, 3>(config);
+      AutoTuneHausdorffDistanceImpl<float, 3>(config);
     }
   }
 }
@@ -60,12 +61,15 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   using mbr_t = MbrTypeFromPoint<point_t>;
   std::vector<point_t> points_a, points_b;
+  itk::Size<N_DIMS> img_size_a, img_size_b;
   Stream stream;
 
   switch (config.input_type) {
   case InputType::kImage: {
-    points_a = LoadImage<COORD_T, N_DIMS>(config.input_file1, config.limit);
-    points_b = LoadImage<COORD_T, N_DIMS>(config.input_file2, config.limit);
+    points_a = LoadImage<COORD_T, N_DIMS>(config.input_file1, img_size_a,
+                                          config.limit);
+    points_b = LoadImage<COORD_T, N_DIMS>(config.input_file2, img_size_b,
+                                          config.limit);
     break;
   }
   default: {
@@ -88,13 +92,12 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   }
   RunningStats& stats = RunningStats::instance();
 
+  auto& json_gpu = stats.Log("GPU");
   cudaDeviceProp prop;
   int device;
   cudaGetDevice(&device);  // Get current device ID
   cudaGetDeviceProperties(&prop,
                           device);  // Get properties of the current device
-  auto& json_gpu = stats.Log("GPU");
-
   json_gpu["Device"] = device;
   json_gpu["name"] = prop.name;
   json_gpu["l2CacheSize"] = prop.l2CacheSize;
@@ -169,15 +172,14 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   uint32_t n_skips = 0;
   double best_running_time = std::numeric_limits<double>::max();
 
-  HausdorffDistanceRT<COORD_T, N_DIMS> hdist_rt;
-  HausdorffDistanceRTConfig rt_config;
+  using hd_impl_t = HausdorffDistanceHybrid<COORD_T, N_DIMS>;
+  typename hd_impl_t::Config hd_config;
+
   std::string ptx_root = config.exec_path + "/ptx";
 
-  rt_config.seed = config.seed;
-  rt_config.ptx_root = ptx_root.c_str();
-  rt_config.max_reg_count = config.max_reg_count;
+  hd_config.ptx_root = ptx_root.c_str();
 
-  hdist_rt.Init(rt_config);
+  auto hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
 
   Stopwatch sw_begin;
   sw_begin.start();
@@ -242,15 +244,15 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
               COORD_T dist = -1;
 
-              rt_config.sort_rays = sort_rays;
-              rt_config.fast_build = fast_build_bvh;
-              rt_config.rebuild_bvh = rebuild_bvh;
-              rt_config.radius_step = radius_step;
-              rt_config.sample_rate = sample_rate;
-              rt_config.max_hit = max_hit;
-              rt_config.n_points_cell = n_points_cell;
+              hd_config.sort_rays = sort_rays;
+              hd_config.fast_build = fast_build_bvh;
+              hd_config.rebuild_bvh = rebuild_bvh;
+              hd_config.radius_step = radius_step;
+              hd_config.sample_rate = sample_rate;
+              hd_config.max_hit = max_hit;
+              hd_config.n_points_cell = n_points_cell;
 
-              hdist_rt.UpdateConfig(rt_config);
+              hausdorff_distance->UpdateConfig(hd_config);
 
               double running_time = 0;
 
@@ -258,16 +260,15 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
                 auto& json_repeat = json_run["Repeat" + std::to_string(i)];
                 json_run["Variant"] = "Hybrid";
                 json_run["Execution"] = "GPU";
-                dist = hdist_rt.CalculateDistanceHybrid(
+                dist = hausdorff_distance->CalculateDistance(
                     stream, d_points_a, d_points_b, config.max_hit_list);
-                json_repeat = hdist_rt.GetStats();
+                json_repeat = hausdorff_distance->get_stats();
                 auto total_time = json_repeat.at("TotalTime").get<double>();
                 running_time += total_time;
               }
               best_running_time =
                   std::min(best_running_time, running_time / config.repeat);
               json_run["AvgTime"] = running_time / config.repeat;
-              printf("Here\n");
               LOG(INFO) << std::fixed << std::setprecision(2)
                         << "Avg Running Time " << running_time / config.repeat
                         << " ms";
@@ -275,10 +276,16 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
               stats.Log("HDResult", dist);
 
               if (config.check) {
+                using hd_reference_impl =
+                    HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
                 auto& json_check = stats.Log("Check");
+                typename hd_reference_impl::Config hd_config;
 
+                hd_config.n_threads = std::thread::hardware_concurrency();
+                auto hd_reference = std::make_unique<
+                    HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>>(hd_config);
                 auto answer_dist =
-                    CalculateHausdorffDistanceParallel(points_a, points_b);
+                    hd_reference->CalculateDistance(points_a, points_b);
                 auto diff = answer_dist - dist;
 
                 json_check["HDAnswer"] = answer_dist;
@@ -296,6 +303,8 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
               if (!config.json_file.empty()) {
                 if (!file_exists || file_exists && config.overwrite) {
                   stats.Dump(path);
+                } else {
+                  LOG(WARNING) << "Skip writting to JSON file " << path;
                 }
               }
 

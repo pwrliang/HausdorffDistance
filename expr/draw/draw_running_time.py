@@ -171,8 +171,8 @@ def draw_running_time_dot(prefix):
 
     df_itk[time_column].plot(marker='o', markersize=2, linestyle='', ax=ax, label="ITK")
     df_eb[time_column].plot(marker='o', markersize=2, linestyle='', ax=ax, label="EB")
-    df_hybrid[time_column].plot(marker='o', markersize=3, linestyle='', ax=ax, label="Hybrid")
-    df_hybrid_auto[time_column].plot(marker='o', markersize=3, linestyle='', ax=ax, label="HybridAuto")
+    # df_hybrid[time_column].plot(marker='o', markersize=3, linestyle='', ax=ax, label="Hybrid")
+    df_hybrid_auto[time_column].plot(marker='o', markersize=3, linestyle='', ax=ax, label="Hybrid")
 
 
 
