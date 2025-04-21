@@ -14,7 +14,6 @@ extern "C" __constant__ hd::details::LaunchParamsNNCompress<FLOAT_TYPE, 3>
     params;
 
 extern "C" __global__ void __intersection__nn_compress_3d() {
-  using point_t = typename decltype(params)::point_t;
   auto point_a_id = optixGetPayload_0();
   auto n_hits = optixGetPayload_1();
   auto mbr_id = optixGetPrimitiveIndex();
@@ -123,15 +122,21 @@ extern "C" __global__ void __raygen__nn_compress_3d() {
                  point_id_a, n_hits, cmin2_storage.x, cmin2_storage.y);
       hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
     }
-    atomicAdd(params.n_hits, n_hits);
+    if (params.n_hits != nullptr) {
+      atomicAdd(params.n_hits, n_hits);
+    }
 
     if (n_hits > params.max_hit) {
-      params.term_queue.Append(point_id_a);
+      if (params.term_queue.capacity()) {
+        params.term_queue.Append(point_id_a);
+      }
     } else {
       if (cmin2 != std::numeric_limits<FLOAT_TYPE>::max()) {
         atomicMax(params.cmax2, cmin2);
       } else {
-        params.miss_queue.Append(point_id_a);
+        if (params.term_queue.capacity()) {
+          params.miss_queue.Append(point_id_a);
+        }
       }
     }
   }

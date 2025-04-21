@@ -183,8 +183,6 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
   Stopwatch sw_begin;
   sw_begin.start();
-  auto max_hit = config.max_hit_list[0];
-
   std::ostringstream oss;
   for (size_t i = 0; i < config.max_hit_list.size(); ++i) {
     if (i != 0)
@@ -249,7 +247,6 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
               hd_config.rebuild_bvh = rebuild_bvh;
               hd_config.radius_step = radius_step;
               hd_config.sample_rate = sample_rate;
-              hd_config.max_hit = max_hit;
               hd_config.n_points_cell = n_points_cell;
 
               hausdorff_distance->UpdateConfig(hd_config);

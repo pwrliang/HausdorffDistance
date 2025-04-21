@@ -51,6 +51,8 @@ class Queue {
 
   DEV_INLINE uint32_t size() const { return *last_pos_; }
 
+  DEV_INLINE uint32_t capacity() const { return data_.size(); }
+
   DEV_INLINE void Swap(Queue<T>& rhs) {
     data_.Swap(rhs.data_);
     thrust::swap(last_pos_, rhs.last_pos_);

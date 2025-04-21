@@ -132,8 +132,9 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     buffer_.Clear();
 
     thrust::device_vector<mbr_t> mbrs_b;
+    bool use_grid = config_.n_points_cell > 0;
 
-    if (config_.n_points_cell > 0) {
+    if (use_grid) {
       auto grid_size = grid_.CalculateGridResolution(mbr_b, n_points_b,
                                                      config_.n_points_cell);
 
@@ -207,10 +208,11 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       }
 
       iter_hits_.set(stream.cuda_stream(), 0);
-      details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
+
+      details::ModuleIdentifier mod_nn = getRTModule(use_grid);
 
       sw.start();
-      if (config_.n_points_cell > 0) {
+      if (use_grid) {
         details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
 
         params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
@@ -265,19 +267,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 #endif
         params.max_hit = std::numeric_limits<uint32_t>::max();
 
-        if (typeid(COORD_T) == typeid(float)) {
-          if (N_DIMS == 2) {
-            mod_nn = details::MODULE_ID_FLOAT_NN_2D;
-          } else if (N_DIMS == 3) {
-            mod_nn = details::MODULE_ID_FLOAT_NN_3D;
-          }
-        } else if (typeid(COORD_T) == typeid(double)) {
-          if (N_DIMS == 2) {
-            mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
-          } else if (N_DIMS == 3) {
-            mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
-          }
-        }
         rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
       }
 
@@ -489,6 +478,41 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
   SharedValue<COORD_T> cmax2_;
   Sampler sampler_;
   SharedValue<uint32_t> iter_hits_;
+
+  details::ModuleIdentifier getRTModule(bool use_grid) {
+    details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
+
+    if (use_grid) {
+      if (typeid(COORD_T) == typeid(float)) {
+        if (N_DIMS == 2) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_2D;
+        } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_3D;
+        }
+      } else if (typeid(COORD_T) == typeid(double)) {
+        if (N_DIMS == 2) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_2D;
+        } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_3D;
+        }
+      }
+    } else {
+      if (typeid(COORD_T) == typeid(float)) {
+        if (N_DIMS == 2) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_2D;
+        } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_FLOAT_NN_3D;
+        }
+      } else if (typeid(COORD_T) == typeid(double)) {
+        if (N_DIMS == 2) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
+        } else if (N_DIMS == 3) {
+          mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
+        }
+      }
+    }
+    return mod_nn;
+  }
 };
 }  // namespace hd
 

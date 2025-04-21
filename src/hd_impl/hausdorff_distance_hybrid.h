@@ -71,14 +71,13 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     CHECK_GT(config_.n_points_cell, 0);
   }
 
-  void UpdateConfig(const Config& config) {
-    config_ = config;
-
-  }
+  void UpdateConfig(const Config& config) { config_ = config; }
 
   coord_t CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) override {
+    Stopwatch sw;
+
     uint64_t compared_pairs = 0;
     auto& stats = this->stats_;
     auto n_points_a = points_a.size();
@@ -89,6 +88,15 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
+    if (hd_ub == 0) {
+      return 0;
+    }
+    auto radius = hd_lb;
+    COORD_T max_radius = hd_ub;
+
+    if (radius == 0) {
+      radius = hd_ub / 100;
+    }
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
@@ -101,51 +109,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["RadiusStep"] = config_.radius_step;
     stats["NumPointsPerCell"] = config_.n_points_cell;
 
-    Stopwatch sw;
-    thrust::device_vector<point_t> points_b_shuffled = points_b;
-    COORD_T radius;
-
-    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
-                    points_b_shuffled.begin(), points_b_shuffled.end(), g_);
-
-    // Sample points for a better initial HD
-    {
-      sw.start();
-      auto sample_rate = get_sample_rate();
-      uint32_t n_samples = ceil(points_a.size() * sample_rate);
-      auto sampled_point_ids_a =
-          sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
-      compared_pairs += CalculateHDEarlyBreak(
-          stream, points_a, points_b_shuffled, sampled_point_ids_a);
-      auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
-      radius = sqrt(sampled_hd2);
-      sw.stop();
-      stats["SampleRate"] = sample_rate;
-      stats["NumSamples"] = n_samples;
-      stats["SampleTime"] = sw.ms();
-      stats["HD2AfterSampling"] = sampled_hd2;
-    }
-    if (radius == 0) {
-      radius = hd_lb;
-    }
-    if (radius == 0) {
-      radius = hd_ub / 100;
-    }
-    CHECK_GT(radius, 0);
-
-    COORD_T max_radius = hd_ub;
-
-    stats["HDLowerBound"] = hd_lb;
-    stats["HDUpperBound"] = hd_ub;
-    stats["InitRadius"] = radius;
-
-    in_queue_.Init(n_points_a);
-    term_queue_.Init(n_points_a);
-    out_queue_.Init(n_points_a);
-    in_queue_.Clear(stream.cuda_stream());
-    out_queue_.Clear(stream.cuda_stream());
-
-    LOG(INFO) << "n_points/cell " << config_.n_points_cell;
+    // Use RT to sample
     auto grid_size =
         grid_.CalculateGridResolution(mbr_b, n_points_b, config_.n_points_cell);
 
@@ -168,24 +132,69 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["BVHBuildTime"] = sw.ms();
     stats["BVHMemoryKB"] = mem_bytes / 1024;
 
+    {
+      sw.start();
+      // Sample points for a better initial HD
+      auto sample_rate = get_sample_rate();
+      uint32_t n_samples = ceil(points_a.size() * sample_rate);
+      auto sampled_point_ids_a =
+          sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
+
+      details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+      dev::Queue<uint32_t> empty_queue(ArrayView<uint32_t>(nullptr, 0),
+                                       nullptr);
+      params.in_queue = sampled_point_ids_a;
+      params.term_queue = empty_queue;
+      params.miss_queue = empty_queue;
+      params.points_a = points_a;
+      params.points_b = points_b;
+      params.handle = gas_handle;
+      params.cmax2 = cmax2_.data();
+      params.radius = radius;
+      params.mbrs_b = mbrs_b;
+      params.prefix_sum = grid_.get_prefix_sum();
+      params.point_b_ids = grid_.get_point_ids();
+      params.n_hits = nullptr;
+      params.hits_counters = nullptr;
+      params.max_hit = config_.max_hit;
+
+      rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
+      rt_engine_.Render(stream.cuda_stream(), getRTModule(),
+                        dim3{n_samples, 1, 1});
+      auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
+      sw.stop();
+
+      stats["SampleRate"] = sample_rate;
+      stats["NumSamples"] = n_samples;
+      stats["SampleTime"] = sw.ms();
+      stats["HD2AfterSampling"] = sampled_hd2;
+      radius = sqrt(sampled_hd2);  // Update a better radius
+
+      if (radius == 0) {  // we cannot find a higher HD with sampling
+        radius = hd_ub / 100;
+      } else {
+        gas_handle = UpdateBVH(stream, gas_handle, mbrs_b, radius);
+      }
+    }
+
+    sw.start();
+    stats["HDLowerBound"] = hd_lb;
+    stats["HDUpperBound"] = hd_ub;
+    stats["InitRadius"] = radius;
+
     int iter = 0;
-    uint32_t in_size = n_points_a;
+    thrust::device_vector<point_t> points_b_shuffled;
     thrust::device_vector<uint32_t> morton_codes;
     auto max_hit = get_max_hit_init();
+    uint32_t in_size = n_points_a;
 
-#ifdef PROFILING
-    struct hdr_histogram* histogram;
-    // Initialise the histogram
-    hdr_init(1,                     // Minimum value
-             (int64_t) n_points_b,  // Maximum value
-             3,                     // Number of significant figures
-             &histogram);           // Pointer to initialise
-    stats["Profiling"] = true;
-#else
-    stats["Profiling"] = false;
-#endif
+    in_queue_.Init(n_points_a);
+    term_queue_.Init(n_points_a);
+    out_queue_.Init(n_points_a);
+    out_queue_.Clear(stream.cuda_stream());
 
     in_queue_.SetSequence(stream.cuda_stream(), in_size);
+    sw.stop();
 
     while (in_size > 0) {
       iter++;
@@ -213,7 +222,6 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       term_queue_.Clear(stream.cuda_stream());
 
       sw.start();
-      details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
       details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
 
       params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
@@ -228,29 +236,12 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       params.prefix_sum = grid_.get_prefix_sum();
       params.point_b_ids = grid_.get_point_ids();
       params.n_hits = iter_hits_.data();
-#ifdef PROFILING
-      hits_counters_.resize(in_size, 0);
-      params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
-#else
       params.hits_counters = nullptr;
-#endif
       params.max_hit = max_hit;
 
-      if (typeid(COORD_T) == typeid(float)) {
-        if (N_DIMS == 2) {
-          mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_2D;
-        } else if (N_DIMS == 3) {
-          mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_3D;
-        }
-      } else if (typeid(COORD_T) == typeid(double)) {
-        if (N_DIMS == 2) {
-          mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_2D;
-        } else if (N_DIMS == 3) {
-          mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_3D;
-        }
-      }
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
-      rt_engine_.Render(stream.cuda_stream(), mod_nn, dim3{in_size, 1, 1});
+      rt_engine_.Render(stream.cuda_stream(), getRTModule(),
+                        dim3{in_size, 1, 1});
       auto miss_size = out_queue_.size(stream.cuda_stream());
       auto term_size = term_queue_.size(stream.cuda_stream());
       sw.stop();
@@ -264,10 +255,17 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       json_iter["Hits"] = iter_hits_.get(stream.cuda_stream());
       compared_pairs += json_iter["Hits"].template get<uint32_t>();
 
-      ArrayView<uint32_t> eb_point_a_ids(term_queue_.data(), term_size);
-
-      if (!eb_point_a_ids.empty()) {
+      // Need to run EB
+      if (term_size > 0) {
         sw.start();
+        ArrayView<uint32_t> eb_point_a_ids(term_queue_.data(), term_size);
+        if (points_b_shuffled.empty()) {
+          points_b_shuffled = points_b;
+
+          thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                          points_b_shuffled.begin(), points_b_shuffled.end(),
+                          g_);
+        }
         thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
                         eb_point_a_ids.begin(), eb_point_a_ids.end(), g_);
         auto iter_compared_pairs = CalculateHDEarlyBreak(
@@ -280,18 +278,6 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
         json_iter["ComparedPairs"] = 0;
         json_iter["EBTime"] = 0;
       }
-
-#ifdef PROFILING
-      thrust::host_vector<uint32_t> h_hits_counters = hits_counters_;
-
-      for (auto val : h_hits_counters) {
-        if (val > 0)
-          hdr_record_value(histogram,  // Histogram to record to
-                           val);       // Value to record
-      }
-      json_iter["HitsHistogram"] = DumpHistogram(histogram);
-      hdr_reset(histogram);
-#endif
 
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
@@ -331,6 +317,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
                             const std::vector<uint32_t>& max_hit_list) {
     Stopwatch sw;
     double total_time = 0;
+
     sw.start();
     uint64_t compared_pairs = 0;
     auto& stats = this->stats_;
@@ -342,6 +329,15 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
+    if (hd_ub == 0) {
+      return 0;
+    }
+    auto radius = hd_lb;
+    COORD_T max_radius = hd_ub;
+
+    if (radius == 0) {
+      radius = hd_ub / 100;
+    }
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
@@ -354,53 +350,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["RadiusStep"] = config_.radius_step;
     stats["NumPointsPerCell"] = config_.n_points_cell;
 
-    thrust::device_vector<point_t> points_b_shuffled = points_b;
-    COORD_T radius;
-
-    thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
-                    points_b_shuffled.begin(), points_b_shuffled.end(), g_);
-    sw.stop();
-    total_time += sw.ms();
-    // Sample points for a better initial HD
-    {
-      sw.start();
-      auto sample_rate = get_sample_rate();
-      uint32_t n_samples = ceil(points_a.size() * sample_rate);
-      auto sampled_point_ids_a =
-          sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
-      compared_pairs += CalculateHDEarlyBreak(
-          stream, points_a, points_b_shuffled, sampled_point_ids_a);
-      auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
-      radius = sqrt(sampled_hd2);
-      sw.stop();
-      stats["SampleRate"] = sample_rate;
-      stats["NumSamples"] = n_samples;
-      stats["SampleTime"] = sw.ms();
-      stats["HD2AfterSampling"] = sampled_hd2;
-      total_time += sw.ms();
-    }
-
-    sw.start();
-    if (radius == 0) {
-      radius = hd_lb;
-    }
-    if (radius == 0) {
-      radius = hd_ub / 100;
-    }
-    CHECK_GT(radius, 0);
-
-    COORD_T max_radius = hd_ub;
-
-    stats["HDLowerBound"] = hd_lb;
-    stats["HDUpperBound"] = hd_ub;
-    stats["InitRadius"] = radius;
-
-    in_queue_.Init(n_points_a);
-    term_queue_.Init(n_points_a);
-    out_queue_.Init(n_points_a);
-    in_queue_.Clear(stream.cuda_stream());
-    out_queue_.Clear(stream.cuda_stream());
-
+    // Use RT to sample
     auto grid_size =
         grid_.CalculateGridResolution(mbr_b, n_points_b, config_.n_points_cell);
 
@@ -421,30 +371,75 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     auto gas_handle = BuildBVH(stream, mbrs_b, radius);
     stream.Sync();
     sw.stop();
+    total_time += sw.ms();
 
     stats["BVHBuildTime"] = sw.ms();
     stats["BVHMemoryKB"] = mem_bytes / 1024;
-    total_time += sw.ms();
+
+    {
+      sw.start();
+      // Sample points for a better initial HD
+      auto sample_rate = config_.sample_rate;
+      uint32_t n_samples = ceil(points_a.size() * sample_rate);
+      auto sampled_point_ids_a =
+          sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
+
+      details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+      dev::Queue<uint32_t> empty_queue(ArrayView<uint32_t>(nullptr, 0),
+                                       nullptr);
+      params.in_queue = sampled_point_ids_a;
+      params.term_queue = empty_queue;
+      params.miss_queue = empty_queue;
+      params.points_a = points_a;
+      params.points_b = points_b;
+      params.handle = gas_handle;
+      params.cmax2 = cmax2_.data();
+      params.radius = radius;
+      params.mbrs_b = mbrs_b;
+      params.prefix_sum = grid_.get_prefix_sum();
+      params.point_b_ids = grid_.get_point_ids();
+      params.n_hits = nullptr;
+      params.hits_counters = nullptr;
+      params.max_hit = config_.max_hit;
+
+      LOG(INFO) << "params.max_hit " << params.max_hit;
+
+      rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
+      rt_engine_.Render(stream.cuda_stream(), getRTModule(),
+                        dim3{n_samples, 1, 1});
+      auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
+      sw.stop();
+      total_time += sw.ms();
+
+      stats["SampleRate"] = sample_rate;
+      stats["NumSamples"] = n_samples;
+      stats["SampleTime"] = sw.ms();
+      stats["HD2AfterSampling"] = sampled_hd2;
+      radius = sqrt(sampled_hd2);  // Update a better radius
+
+      if (radius == 0) {  // we cannot find a higher HD with sampling
+        radius = hd_ub / 100;
+      } else {
+        gas_handle = UpdateBVH(stream, gas_handle, mbrs_b, radius);
+      }
+    }
 
     sw.start();
-    int iter = 0;
-    uint32_t in_size = n_points_a;
-    thrust::device_vector<uint32_t> morton_codes;
+    stats["HDLowerBound"] = hd_lb;
+    stats["HDUpperBound"] = hd_ub;
+    stats["InitRadius"] = radius;
 
-#ifdef PROFILING
-    struct hdr_histogram* histogram;
-    // Initialise the histogram
-    hdr_init(1,                     // Minimum value
-             (int64_t) n_points_b,  // Maximum value
-             3,                     // Number of significant figures
-             &histogram);           // Pointer to initialise
-    stats["Profiling"] = true;
-#else
-    stats["Profiling"] = false;
-#endif
+    int iter = 0;
+    thrust::device_vector<point_t> points_b_shuffled;
+    thrust::device_vector<uint32_t> morton_codes;
+    uint32_t in_size = n_points_a;
+
+    in_queue_.Init(n_points_a);
+    term_queue_.Init(n_points_a);
+    out_queue_.Init(n_points_a);
+    out_queue_.Clear(stream.cuda_stream());
 
     in_queue_.SetSequence(stream.cuda_stream(), in_size);
-    stream.Sync();
     sw.stop();
     total_time += sw.ms();
 
@@ -485,7 +480,6 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
         // restore cmax2 for different max hit
         cmax2_.set(stream.cuda_stream(), cmax2);
 
-        details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
         details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
 
         params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
@@ -500,29 +494,12 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
         params.prefix_sum = grid_.get_prefix_sum();
         params.point_b_ids = grid_.get_point_ids();
         params.n_hits = iter_hits_.data();
-#ifdef PROFILING
-        hits_counters_.resize(in_size, 0);
-        params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
-#else
         params.hits_counters = nullptr;
-#endif
         params.max_hit = max_hit;
 
-        if (typeid(COORD_T) == typeid(float)) {
-          if (N_DIMS == 2) {
-            mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_2D;
-          } else if (N_DIMS == 3) {
-            mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_3D;
-          }
-        } else if (typeid(COORD_T) == typeid(double)) {
-          if (N_DIMS == 2) {
-            mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_2D;
-          } else if (N_DIMS == 3) {
-            mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_3D;
-          }
-        }
         rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
-        rt_engine_.Render(stream.cuda_stream(), mod_nn, dim3{in_size, 1, 1});
+        rt_engine_.Render(stream.cuda_stream(), getRTModule(),
+                          dim3{in_size, 1, 1});
         auto miss_size = out_queue_.size(stream.cuda_stream());
         auto term_size = term_queue_.size(stream.cuda_stream());
         sw.stop();
@@ -537,10 +514,16 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
         json_iter["Hits"] = iter_hits_.get(stream.cuda_stream());
         compared_pairs += json_iter["Hits"].template get<uint32_t>();
 
-        ArrayView<uint32_t> eb_point_a_ids(term_queue_.data(), term_size);
-
-        if (!eb_point_a_ids.empty()) {
+        if (term_size > 0) {
           sw.start();
+          ArrayView<uint32_t> eb_point_a_ids(term_queue_.data(), term_size);
+          if (points_b_shuffled.empty()) {
+            points_b_shuffled = points_b;
+
+            thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+                            points_b_shuffled.begin(), points_b_shuffled.end(),
+                            g_);
+          }
           thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
                           eb_point_a_ids.begin(), eb_point_a_ids.end(), g_);
           auto iter_compared_pairs = CalculateHDEarlyBreak(
@@ -559,19 +542,8 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
           min_time = iter_time;
           best_json_iter = json_iter;
         }
-
-#ifdef PROFILING
-        thrust::host_vector<uint32_t> h_hits_counters = hits_counters_;
-
-        for (auto val : h_hits_counters) {
-          if (val > 0)
-            hdr_record_value(histogram,  // Histogram to record to
-                             val);       // Value to record
-        }
-        json_iter["HitsHistogram"] = DumpHistogram(histogram);
-        hdr_reset(histogram);
-#endif
       }
+
       total_time += min_time;
 
       in_queue_.Clear(stream.cuda_stream());
@@ -609,6 +581,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
 
   OptixTraversableHandle BuildBVH(const Stream& stream, ArrayView<mbr_t> mbrs,
                                   COORD_T radius) {
+    CHECK_GT(radius, 0);
     aabbs_.resize(mbrs.size());
     thrust::transform(thrust::cuda::par.on(stream.cuda_stream()), mbrs.begin(),
                       mbrs.end(), aabbs_.begin(),
@@ -623,6 +596,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
   OptixTraversableHandle UpdateBVH(const Stream& stream,
                                    OptixTraversableHandle handle,
                                    ArrayView<mbr_t> mbrs, COORD_T radius) {
+    CHECK_GT(radius, 0);
     aabbs_.resize(mbrs.size());
     thrust::transform(thrust::cuda::par.on(stream.cuda_stream()), mbrs.begin(),
                       mbrs.end(), aabbs_.begin(),
@@ -644,7 +618,6 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     ArrayView<point_t> v_points_b(points_b);
 
     auto* p_compared_pairs = compared_pairs.data();
-
     uint32_t n_points_a = v_point_ids_a.size();
 
     if (n_points_a == 0) {
@@ -795,6 +768,25 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     }
 
     return max_hit;
+  }
+
+  details::ModuleIdentifier getRTModule() {
+    details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
+
+    if (typeid(COORD_T) == typeid(float)) {
+      if (N_DIMS == 2) {
+        mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_2D;
+      } else if (N_DIMS == 3) {
+        mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_3D;
+      }
+    } else if (typeid(COORD_T) == typeid(double)) {
+      if (N_DIMS == 2) {
+        mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_2D;
+      } else if (N_DIMS == 3) {
+        mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_3D;
+      }
+    }
+    return mod_nn;
   }
 };
 }  // namespace hd

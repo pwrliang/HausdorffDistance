@@ -135,7 +135,7 @@ int main(int argc, char* argv[]) {
     CHECK_GT(config.n_points_cell_list.size(), 0);
     hd::AutoTuneHausdorffDistance(config);
   } else {
-    // hd::RunHausdorffDistance(config);
+    hd::RunHausdorffDistance(config);
   }
 
   google::ShutdownGoogleLogging();
