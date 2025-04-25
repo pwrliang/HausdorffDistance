@@ -1,8 +1,8 @@
-#ifndef GRID_H
-#define GRID_H
+#ifndef HAUSDORFF_DISTANCE_INDEX_UNIFORM_GRID_H
+#define HAUSDORFF_DISTANCE_INDEX_UNIFORM_GRID_H
 
+#include <glog/logging.h>
 #include <optix.h>
-#include <running_stats.h>
 #include <thrust/binary_search.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
@@ -14,9 +14,9 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 
-#include <glog/logging.h>
+#include "geoms/mbr.h"
 #include "hdr/hdr_histogram.h"
-#include "mbr.h"
+#include "running_stats.h"
 #include "utils/array_view.h"
 #include "utils/bitset.h"
 #include "utils/launcher.h"
@@ -529,4 +529,4 @@ class Grid {
   }
 };
 }  // namespace hd
-#endif  // GRID_H
+#endif  // HAUSDORFF_DISTANCE_INDEX_UNIFORM_GRID_H

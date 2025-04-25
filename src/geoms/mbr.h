@@ -1,11 +1,10 @@
 #ifndef MBR_H
 #define MBR_H
 
-#include <utils/stream.h>
-
-#include "distance.h"
+#include "geoms/distance.h"
 #include "utils/derived_atomic_functions.h"
 #include "utils/shared_value.h"
+#include "utils/stream.h"
 #include "utils/type_traits.h"
 #include "utils/util.h"
 

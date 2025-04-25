@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-#include "distance.h"
+#include "geoms/distance.h"
 #include "hausdorff_distance.h"
 #include "utils/array_view.h"
 #include "utils/derived_atomic_functions.h"

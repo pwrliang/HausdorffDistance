@@ -7,10 +7,10 @@
 
 #include <sstream>
 
-#include "distance.h"
+#include "geoms/distance.h"
+#include "geoms/hd_bounds.h"
+#include "geoms/mbr.h"
 #include "hausdorff_distance.h"
-#include "hd_bounds.h"
-#include "mbr.h"
 #include "rt/launch_parameters.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"

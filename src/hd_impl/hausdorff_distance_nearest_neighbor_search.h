@@ -9,9 +9,9 @@
 
 #include "cukd/builder.h"
 #include "cukd/fcp.h"
-#include "distance.h"
+#include "geoms/distance.h"
+#include "geoms/mbr.h"
 #include "hausdorff_distance.h"
-#include "mbr.h"
 #include "utils/array_view.h"
 #include "utils/derived_atomic_functions.h"
 #include "utils/helpers.h"
@@ -33,7 +33,6 @@ class HausdorffDistanceNearestNeighborSearch
   using kdtree_t = cukd::SpatialKDTree<point_t, data_traits>;
 
  public:
-
   coord_t CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) override {
@@ -68,8 +67,7 @@ class HausdorffDistanceNearestNeighborSearch
     cudaFreeAsync(d_bounds, stream.cuda_stream());
     stream.Sync();
     sw.stop();
-    stats["SearchTreeTime"] =  sw.ms();
-
+    stats["SearchTreeTime"] = sw.ms();
 
     stats["Algorithm"] = "Nearest Neighbor Search";
     stats["Execution"] = "GPU";

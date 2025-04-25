@@ -3,6 +3,7 @@
 #include <vector_types.h>
 
 #include "utils/util.h"
+
 namespace hd {
 DEV_HOST_INLINE float EuclideanDistance2(float2 a, float2 b) {
   return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y);

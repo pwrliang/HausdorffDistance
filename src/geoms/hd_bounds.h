@@ -1,8 +1,9 @@
 #ifndef HD_BOUNDS_H
 #define HD_BOUNDS_H
 
-#include "distance.h"
-#include "mbr.h"
+#include "geoms/distance.h"
+#include "geoms/mbr.h"
+
 namespace hd {
 namespace details {
 

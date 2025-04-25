@@ -1,9 +1,8 @@
 #ifndef RTSPATIAL_DETAILS_LAUNCH_PARAMETERS_H
 #define RTSPATIAL_DETAILS_LAUNCH_PARAMETERS_H
-#include "grid.h"
-#include "mbr.h"
+#include "geoms/mbr.h"
+#include "index/uniform_grid.h"
 #include "utils/array_view.h"
-#include "utils/bitset.h"
 #include "utils/queue.h"
 #include "utils/type_traits.h"
 #define RTSPATIAL_OPTIX_LAUNCH_PARAMS_NAME "params"

@@ -7,12 +7,12 @@
 
 #include <sstream>
 
-#include "distance.h"
-#include "grid.h"
+#include "geoms/distance.h"
+#include "geoms/hd_bounds.h"
+#include "geoms/mbr.h"
 #include "hausdorff_distance.h"
-#include "hd_bounds.h"
 #include "hd_impl/primitive_utils.h"
-#include "mbr.h"
+#include "index/uniform_grid.h"
 #include "models/features.h"
 #include "models/tree_maxhitinit_3d.h"
 #include "models/tree_maxhitnext_3d.h"

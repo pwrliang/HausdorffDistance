@@ -3,7 +3,7 @@
 #include <optix.h>
 #include <optix_device.h>
 
-#include "distance.h"
+#include "geoms/distance.h"
 #include "rt/launch_parameters.h"
 #include "utils/derived_atomic_functions.h"
 #include "utils/helpers.h"

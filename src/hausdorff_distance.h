@@ -1,11 +1,10 @@
 #ifndef HAUSDORFF_DISTANCE_H
 #define HAUSDORFF_DISTANCE_H
+#include <glog/logging.h>
 #include <thrust/device_vector.h>
 
 #include <nlohmann/json.hpp>
 #include <vector>
-
-#include <glog/logging.h>
 
 #include "utils/stream.h"
 #include "utils/type_traits.h"
