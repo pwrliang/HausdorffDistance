@@ -145,6 +145,22 @@ class Mbr {
     return np;
   }
 
+  void Expand(const std::vector<point_t>& points) {
+    for (auto& p : points) {
+      Expand(p);
+    }
+  }
+
+  point_t TranslateFrom(const point_t& p) {
+    assert(Contains(p));
+    point_t new_p = p;
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      reinterpret_cast<COORD_T*>(&new_p.x)[dim] =
+          reinterpret_cast<const COORD_T*>(&p.x)[dim] - lower(dim);
+    }
+    return new_p;
+  }
+
   DEV_HOST_INLINE void Expand(const point_t& p) {
     auto* p_lower = reinterpret_cast<COORD_T*>(&lower_.x);
     auto* p_upper = reinterpret_cast<COORD_T*>(&upper_.x);

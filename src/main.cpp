@@ -1,5 +1,9 @@
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <cctype>
+#include <string>
+
 #include "autotune_hausdorff_distance.cuh"
 #include "flags.h"
 #include "run_config.h"
@@ -49,39 +53,51 @@ int main(int argc, char* argv[]) {
   config.stats_n_points_cell = FLAGS_stats_n_points_cell;
   config.serialize_folder = FLAGS_serialize;
 
-  if (FLAGS_input_type == "wkt") {
+  std::string input_type = FLAGS_input_type;
+  std::transform(input_type.begin(), input_type.end(), input_type.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  if (input_type == "wkt") {
     config.input_type = InputType::kWKT;
-  } else if (FLAGS_input_type == "off") {
+  } else if (input_type == "off") {
     config.input_type = InputType::kOFF;
-  } else if (FLAGS_input_type == "image") {
+  } else if (input_type == "image") {
     config.input_type = InputType::kImage;
+  } else if (input_type == "ply") {
+    config.input_type = InputType::kPLY;
   } else {
     LOG(FATAL) << "Unsupported input type: " << FLAGS_input_type;
   }
 
-  if (FLAGS_variant == "eb") {
+  std::string variant = FLAGS_variant;
+  std::transform(variant.begin(), variant.end(), variant.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  if (variant == "eb") {
     config.variant = Variant::kEarlyBreak;
-  } else if (FLAGS_variant == "zorder") {
-    config.variant = Variant::kZORDER;
-  } else if (FLAGS_variant == "yuan") {
-    config.variant = Variant::kYUAN;
-  } else if (FLAGS_variant == "rt") {
+  } else if (variant == "rt-hdist") {
+    config.variant = Variant::kRT_HDIST;
+  } else if (variant == "rt") {
     config.variant = Variant::kRT;
-  } else if (FLAGS_variant == "hybrid") {
+  } else if (variant == "hybrid") {
     config.variant = Variant::kHybrid;
-  } else if (FLAGS_variant == "branch-n-bound") {
+  } else if (variant == "branch-n-bound") {
     config.variant = Variant::kBRANCH_N_BOUND;
-  } else if (FLAGS_variant == "nn") {
+  } else if (variant == "nn") {
     config.variant = Variant::kNN;
-  } else if (FLAGS_variant == "itk") {
+  } else if (variant == "itk") {
     config.variant = Variant::kITK;
   } else {
     LOG(FATAL) << "Unknown variant: " << FLAGS_variant;
   }
 
-  if (FLAGS_execution == "cpu") {
+  std::string execution = FLAGS_execution;
+  std::transform(execution.begin(), execution.end(), execution.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  if (execution == "cpu") {
     config.execution = Execution::kCPU;
-  } else if (FLAGS_execution == "gpu") {
+  } else if (execution == "gpu") {
     config.execution = Execution::kGPU;
   } else {
     LOG(FATAL) << "Unknown execution: " << FLAGS_execution;
@@ -104,6 +120,7 @@ int main(int argc, char* argv[]) {
   config.max_hit = FLAGS_max_hit;
   config.max_reg_count = FLAGS_max_reg;
   config.n_points_cell = FLAGS_n_points_cell;
+  config.bit_count = FLAGS_bit_count;
   config.json_file = FLAGS_json;
   config.overwrite = FLAGS_overwrite;
 

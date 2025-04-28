@@ -39,7 +39,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
   using coord_t = COORD_T;
   using point_t = typename base_t::point_t;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
-  using grid_t = Grid<COORD_T, N_DIMS>;
+  using grid_t = UniformGrid<COORD_T, N_DIMS>;
 
  public:
   struct Config {
@@ -140,7 +140,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       auto sampled_point_ids_a =
           sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
 
-      details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+      details::LaunchParamsNNUniformGrid<COORD_T, N_DIMS> params;
       dev::Queue<uint32_t> empty_queue(ArrayView<uint32_t>(nullptr, 0),
                                        nullptr);
       params.in_queue = sampled_point_ids_a;
@@ -222,7 +222,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       term_queue_.Clear(stream.cuda_stream());
 
       sw.start();
-      details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+      details::LaunchParamsNNUniformGrid<COORD_T, N_DIMS> params;
 
       params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
       params.term_queue = term_queue_.DeviceObject();
@@ -384,7 +384,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       auto sampled_point_ids_a =
           sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
 
-      details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+      details::LaunchParamsNNUniformGrid<COORD_T, N_DIMS> params;
       dev::Queue<uint32_t> empty_queue(ArrayView<uint32_t>(nullptr, 0),
                                        nullptr);
       params.in_queue = sampled_point_ids_a;
@@ -480,7 +480,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
         // restore cmax2 for different max hit
         cmax2_.set(stream.cuda_stream(), cmax2);
 
-        details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+        details::LaunchParamsNNUniformGrid<COORD_T, N_DIMS> params;
 
         params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
         params.term_queue = term_queue_.DeviceObject();
@@ -775,15 +775,15 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
 
     if (typeid(COORD_T) == typeid(float)) {
       if (N_DIMS == 2) {
-        mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_2D;
+        mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D;
       } else if (N_DIMS == 3) {
-        mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_3D;
+        mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D;
       }
     } else if (typeid(COORD_T) == typeid(double)) {
       if (N_DIMS == 2) {
-        mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_2D;
+        mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D;
       } else if (N_DIMS == 3) {
-        mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_3D;
+        mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_3D;
       }
     }
     return mod_nn;

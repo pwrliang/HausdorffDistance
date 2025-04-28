@@ -91,6 +91,16 @@ struct cuda_vec<double, 3> {
 };
 
 template <>
+struct cuda_vec<int, 2> {
+  using type = int2;
+};
+
+template <>
+struct cuda_vec<int, 3> {
+  using type = int3;
+};
+
+template <>
 struct cuda_vec<unsigned int, 2> {
   using type = uint2;
 };

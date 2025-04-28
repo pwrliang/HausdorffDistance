@@ -5,10 +5,10 @@
 #include <string>
 #include <vector>
 
+#include "../utils/type_traits.h"
 #include "itkDirectedHausdorffDistanceImageFilter.h"
 #include "itkImage.h"
 #include "itkImageFileReader.h"
-#include "utils/type_traits.h"
 
 template <typename COORD_T, int N_DIMS>
 std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadImage(

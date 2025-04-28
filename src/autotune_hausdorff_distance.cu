@@ -12,8 +12,8 @@
 #include "hausdorff_distance.h"
 #include "hd_impl/hausdorff_distance_early_break.h"
 #include "hd_impl/hausdorff_distance_hybrid.h"
-#include "img_loader.h"
 #include "loader.h"
+#include "loaders/img_loader.h"
 #include "move_points.h"
 #include "run_config.h"
 #include "running_stats.h"
@@ -126,7 +126,7 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
     SharedValue<mbr_t> mbr;
     auto* p_mbr = mbr.data();
 
-    Grid<COORD_T, N_DIMS> stats_grid;
+    UniformGrid<COORD_T, N_DIMS> stats_grid;
 
     mbr.set(stream.cuda_stream(), mbr_t());
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),

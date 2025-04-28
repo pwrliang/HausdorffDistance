@@ -6,9 +6,8 @@
 namespace hd {
 enum class Variant {
   kEarlyBreak,
-  kZORDER,
-  kYUAN,
   kRT,
+  kRT_HDIST,
   kNN,
   kNearestNeighborSearch,
   kHybrid,
@@ -49,6 +48,7 @@ struct RunConfig {
   int max_hit;
   int max_reg_count;
   int n_points_cell;
+  int bit_count;
   std::vector<float> radius_step_list;
   std::vector<float> sample_rate_list;
   std::vector<uint32_t> max_hit_list;

@@ -5,6 +5,15 @@
 #include "utils/util.h"
 
 namespace hd {
+DEV_HOST_INLINE int EuclideanDistance2(int2 a, int2 b) {
+  return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y);
+}
+
+DEV_HOST_INLINE int EuclideanDistance2(int3 a, int3 b) {
+  return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) +
+         (a.z - b.z) * (a.z - b.z);
+}
+
 DEV_HOST_INLINE float EuclideanDistance2(float2 a, float2 b) {
   return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y);
 }

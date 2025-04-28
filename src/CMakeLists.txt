@@ -1,5 +1,6 @@
 include_directories(${OptiX_INCLUDE})
 include_directories("${PROJECT_SOURCE_DIR}/src")
+include_directories("${PROJECT_SOURCE_DIR}/thirdparty")
 
 OPTIX_COMPILE_SHADERS("${MODULE_TARGET_DIR}/ptx" PROGRAM_MODULES)
 
@@ -23,6 +24,7 @@ target_link_libraries(hd_exec PRIVATE
         ${ITK_LIBRARIES}
         ${HdrHistogram_LIBRARIES}
         nlohmann_json::nlohmann_json
+        rply
 )
 target_compile_options(hd_exec PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr --fmad=false>)
 set_target_properties(hd_exec PROPERTIES CUDA_ARCHITECTURES "${ENABLED_ARCHS}" CUDA_SEPARABLE_COMPILATION ON)

@@ -14,8 +14,10 @@
 #include "hd_impl/hausdorff_distance_itk.h"
 #include "hd_impl/hausdorff_distance_nearest_neighbor_search.h"
 #include "hd_impl/hausdorff_distance_ray_tracing.h"
-#include "img_loader.h"
-#include "loader.h"
+#include "hd_impl/hausdorff_distance_rt_hdist.h"
+#include "loaders/img_loader.h"
+#include "loaders/loader.h"
+#include "loaders/ply_loader.h"
 #include "models/features.h"
 #include "models/tree_numpointspercell_3d.h"
 #include "models/tree_samplerate_3d.h"
@@ -117,10 +119,15 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
 
   switch (config.input_type) {
   case InputType::kImage: {
-    points_a =
-        LoadImage<COORD_T, N_DIMS>(config.input_file1, img_size_a, config.limit);
-    points_b =
-        LoadImage<COORD_T, N_DIMS>(config.input_file2, img_size_b, config.limit);
+    points_a = LoadImage<COORD_T, N_DIMS>(config.input_file1, img_size_a,
+                                          config.limit);
+    points_b = LoadImage<COORD_T, N_DIMS>(config.input_file2, img_size_b,
+                                          config.limit);
+    break;
+  }
+  case InputType::kPLY: {
+    points_a = LoadPLY<COORD_T, N_DIMS>(config.input_file1, config.limit);
+    points_b = LoadPLY<COORD_T, N_DIMS>(config.input_file2, config.limit);
     break;
   }
   default: {
@@ -136,6 +143,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   CHECK_GT(points_a.size(), 0) << config.input_file1;
   CHECK_GT(points_b.size(), 0) << config.input_file2;
 
+  // for (auto)
+
   json_input["FileA"]["Path"] = config.input_file1;
   json_input["FileA"]["NumPoints"] = points_a.size();
   json_input["FileB"]["Path"] = config.input_file2;
@@ -145,6 +154,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   json_input["NumDims"] = N_DIMS;
   json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
 
+#if 1
   if (config.move_offset != 0) {
     MovePoints(points_a, points_b, config.move_offset);
   }
@@ -157,7 +167,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     SharedValue<mbr_t> mbr;
     auto* p_mbr = mbr.data();
 
-    Grid<COORD_T, N_DIMS> stats_grid;
+    UniformGrid<COORD_T, N_DIMS> stats_grid;
 
     mbr.set(stream.cuda_stream(), mbr_t());
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
@@ -223,6 +233,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   }
 
   switch (config.variant) {
+#if 0
   case Variant::kEarlyBreak: {
     using hd_impl_t = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -258,6 +269,20 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>();
     break;
   }
+#endif
+  case Variant::kRT_HDIST: {
+    using hd_impl_t = HausdorffDistanceRTHDist<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+    std::string ptx_root = config.exec_path + "/ptx";
+    hd_config.ptx_root = ptx_root.c_str();
+    hd_config.fast_build = config.fast_build_bvh;
+    hd_config.rebuild_bvh = config.rebuild_bvh;
+    hd_config.bit_count = config.bit_count;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
+#if 0
   case Variant::kRT: {
     using hd_impl_t = HausdorffDistanceRayTracing<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -285,6 +310,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
+#endif
   }
 
   LOG(INFO) << "Points A: " << points_a.size()
@@ -348,5 +374,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     }
   }
   return dist;
+#endif
+
+  return 0;
 }
 }  // namespace hd

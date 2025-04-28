@@ -30,6 +30,7 @@ DECLARE_double(sample_rate);
 DECLARE_int32(max_hit);
 DECLARE_int32(max_reg);
 DECLARE_int32(n_points_cell);
+DECLARE_int32(bit_count);
 // For experiments only
 DECLARE_bool(vary_params);
 DECLARE_string(radius_step_list);

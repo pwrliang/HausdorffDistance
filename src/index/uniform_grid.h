@@ -92,16 +92,16 @@ struct weighted_index_term_uint {
 }  // namespace details
 
 template <typename COORD_T, int N_DIMS>
-class Grid {
+class UniformGrid {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
-  using cell_pos_t = typename cuda_vec<uint32_t, N_DIMS>::type;
+  using cell_idx_t = typename cuda_vec<uint32_t, N_DIMS>::type;
 
  public:
-  Grid() = default;
+  UniformGrid() = default;
 
-  DEV_HOST Grid(const mbr_t& mbr, const cell_pos_t& grid_size,
-                const dev::Bitset<uint64_t>& occupied_cells)
+  DEV_HOST UniformGrid(const mbr_t& mbr, const cell_idx_t& grid_size,
+                       const dev::Bitset<uint64_t>& occupied_cells)
       : mbr_(mbr), grid_size_(grid_size), occupied_cells_(occupied_cells) {}
 
   DEV_INLINE bool Insert(const point_t& p) {
@@ -109,24 +109,42 @@ class Grid {
     auto cell_idx = EncodeCellPos(cell_p);
     auto cell_mbr = GetCellBounds(cell_idx);
     assert(cell_mbr.Contains(p));
+
+    // assert(mbr_.Contains(p));
+    // if (!cell_mbr.Contains(p)) {
+    //   printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u, %u\n",
+    //          p.x, p.y, p.z, cell_mbr.lower().x, cell_mbr.upper().x,
+    //          cell_mbr.lower().y, cell_mbr.upper().y, cell_mbr.lower().z,
+    //          cell_mbr.upper().z, cell_p.x, cell_p.y, cell_p.z);
+    // }
+
     return occupied_cells_.set_bit_atomic(cell_idx);
   }
 
-  DEV_INLINE mbr_t GetCellBounds(const cell_pos_t& cell_pos) const {
+  DEV_INLINE mbr_t GetCellBounds(const cell_idx_t& cell_pos) const {
     point_t lower_p, upper_p;
 
     for (int dim = 0; dim < N_DIMS; dim++) {
       auto extent = mbr_.get_extent(dim);
       auto grid_size = get_grid_size(dim);
       auto unit = extent / grid_size;
-      auto idx = reinterpret_cast<const unsigned int*>(&cell_pos.x)[dim];
+      int idx = reinterpret_cast<const unsigned int*>(&cell_pos.x)[dim];
       assert(idx < grid_size);
-      auto begin = unit * idx + mbr_.lower(dim);
-      auto end = std::min(begin + unit, mbr_.upper(dim));
-      begin = nextafter(begin, begin - 1);
-      begin = nextafter(begin, begin - 1);
-      end = nextafter(end, end + 1);
-      end = nextafter(end, end + 1);
+      auto unit_lower = nextafter(unit, unit - 1);
+      auto unit_upper = nextafter(unit, unit + 1);
+
+      assert(unit_lower <= unit_upper);
+      // auto begin =
+      //     (idx == 0 ? 0 : unit * (idx - 1) + unit_lower) + mbr_.lower(dim);
+      auto begin = (idx - 1) * unit + unit_lower + mbr_.lower(dim);
+      auto end = std::min(unit * idx + unit_upper, mbr_.upper(dim));
+
+      for (int round = 0; round < 2; round++) {
+        begin = nextafter(begin, begin - 1);
+        end = nextafter(end, end + 1);
+      }
+      assert(begin <= end);
+
       reinterpret_cast<COORD_T*>(&lower_p.x)[dim] = begin;
       reinterpret_cast<COORD_T*>(&upper_p.x)[dim] = end;
     }
@@ -166,32 +184,32 @@ class Grid {
 
   DEV_HOST_INLINE const mbr_t& get_mbr() const { return mbr_; }
 
-  DEV_HOST_INLINE uint64_t EncodeCellPos(const cell_pos_t& pos) const {
+  DEV_HOST_INLINE uint64_t EncodeCellPos(const cell_idx_t& pos) const {
     return details::EncodeCellPos<N_DIMS>(pos, grid_size_);
   }
 
-  DEV_HOST_INLINE cell_pos_t DecodeCellIdx(uint64_t cell_idx) const {
+  DEV_HOST_INLINE cell_idx_t DecodeCellIdx(uint64_t cell_idx) const {
     return details::DecodeCellIdx<N_DIMS>(cell_idx, grid_size_);
   }
 
  private:
   mbr_t mbr_;
-  cell_pos_t grid_size_;
+  cell_idx_t grid_size_;
   dev::Bitset<uint64_t> occupied_cells_;
 };
 
 }  // namespace dev
 
 template <typename COORD_T, int N_DIMS>
-class Grid {
+class UniformGrid {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
-  using cell_pos_t = typename cuda_vec<uint32_t, N_DIMS>::type;
+  using cell_idx_t = typename cuda_vec<uint32_t, N_DIMS>::type;
 
   static_assert(N_DIMS == 2 || N_DIMS == 3, "Invalid N_DIMS");
 
  public:
-  Grid() = default;
+  UniformGrid() = default;
 
   typename cuda_vec<unsigned int, N_DIMS>::type CalculateGridResolution(
       const mbr_t& mbr, unsigned int n_points, int n_points_per_cell) {
@@ -199,6 +217,7 @@ class Grid {
     for (int dim = 0; dim < N_DIMS; dim++) {
       volume *= mbr.get_extent(dim);
     }
+    CHECK_GT(volume, 0);
     double s = 0;
 
     if (N_DIMS == 2) {
@@ -220,7 +239,7 @@ class Grid {
     point_ids_.clear();
   }
 
-  void Init(const cell_pos_t& grid_size, const mbr_t& mbr) {
+  void Init(const cell_idx_t& grid_size, const mbr_t& mbr) {
     grid_size_ = grid_size;
     mbr_ = mbr;
     occupied_cells_.Init(get_grid_size());
@@ -378,9 +397,9 @@ class Grid {
 #endif
   }
 
-  dev::Grid<COORD_T, N_DIMS> DeviceObject() {
-    return dev::Grid<COORD_T, N_DIMS>(mbr_, grid_size_,
-                                      occupied_cells_.DeviceObject());
+  dev::UniformGrid<COORD_T, N_DIMS> DeviceObject() {
+    return dev::UniformGrid<COORD_T, N_DIMS>(mbr_, grid_size_,
+                                             occupied_cells_.DeviceObject());
   }
 
   static uint32_t EstimatedMaxCells(uint32_t memory_quota_mb) {
@@ -494,7 +513,7 @@ class Grid {
   thrust::device_vector<uint32_t> point_ids_;   // point ids
   nlohmann::json stats_;
   mbr_t mbr_;
-  cell_pos_t grid_size_;
+  cell_idx_t grid_size_;
 
   // Gini index function for unsigned int input
   float gini_index_thrust(const Stream& stream,

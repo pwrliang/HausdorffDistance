@@ -11,6 +11,7 @@
 #include "geoms/hd_bounds.h"
 #include "geoms/mbr.h"
 #include "hausdorff_distance.h"
+#include "index/uniform_grid.h"
 #include "rt/launch_parameters.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
@@ -32,7 +33,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
   using coord_t = COORD_T;
   using point_t = typename base_t::point_t;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
-  using grid_t = Grid<COORD_T, N_DIMS>;
+  using grid_t = UniformGrid<COORD_T, N_DIMS>;
 
  public:
   struct Config {
@@ -213,7 +214,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 
       sw.start();
       if (use_grid) {
-        details::LaunchParamsNNCompress<COORD_T, N_DIMS> params;
+        details::LaunchParamsNNUniformGrid<COORD_T, N_DIMS> params;
 
         params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
         params.miss_queue = out_queue_.DeviceObject();
@@ -236,15 +237,15 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 
         if (typeid(COORD_T) == typeid(float)) {
           if (N_DIMS == 2) {
-            mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_2D;
+            mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D;
           } else if (N_DIMS == 3) {
-            mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_3D;
+            mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D;
           }
         } else if (typeid(COORD_T) == typeid(double)) {
           if (N_DIMS == 2) {
-            mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_2D;
+            mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D;
           } else if (N_DIMS == 3) {
-            mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_3D;
+            mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_3D;
           }
         }
         rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
@@ -485,15 +486,15 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     if (use_grid) {
       if (typeid(COORD_T) == typeid(float)) {
         if (N_DIMS == 2) {
-          mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_2D;
+          mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D;
         } else if (N_DIMS == 3) {
-          mod_nn = details::MODULE_ID_FLOAT_NN_COMPRESS_3D;
+          mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D;
         }
       } else if (typeid(COORD_T) == typeid(double)) {
         if (N_DIMS == 2) {
-          mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_2D;
+          mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D;
         } else if (N_DIMS == 3) {
-          mod_nn = details::MODULE_ID_DOUBLE_NN_COMPRESS_3D;
+          mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_3D;
         }
       }
     } else {

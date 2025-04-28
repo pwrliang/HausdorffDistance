@@ -42,10 +42,14 @@ enum ModuleIdentifier {
   MODULE_ID_DOUBLE_NN_2D,
   MODULE_ID_FLOAT_NN_3D,
   MODULE_ID_DOUBLE_NN_3D,
-  MODULE_ID_FLOAT_NN_COMPRESS_2D,
-  MODULE_ID_DOUBLE_NN_COMPRESS_2D,
-  MODULE_ID_FLOAT_NN_COMPRESS_3D,
-  MODULE_ID_DOUBLE_NN_COMPRESS_3D,
+  MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D,
+  MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D,
+  MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D,
+  MODULE_ID_DOUBLE_NN_UNIFORM_GRID_3D,
+  MODULE_ID_FLOAT_NN_QUANTIZED_GRID_2D,
+  MODULE_ID_DOUBLE_NN_QUANTIZED_GRID_2D,
+  MODULE_ID_FLOAT_NN_QUANTIZED_GRID_3D,
+  MODULE_ID_DOUBLE_NN_QUANTIZED_GRID_3D,
   NUM_MODULE_IDENTIFIERS
 };
 
@@ -189,39 +193,72 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
   {
     Module mod;
 
-    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_COMPRESS_2D);
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D);
     mod.set_type(ModuleType::kCUSTOM);
-    mod.set_program_path(ptx_root + "/float_shaders_nn_compress_2d.ptx");
-    mod.set_function_suffix("nn_compress_2d");
+    mod.set_program_path(ptx_root + "/float_shaders_nn_uniform_grid_2d.ptx");
+    mod.set_function_suffix("nn_uniform_grid_2d");
     mod.EnableIsIntersection();
     mod.EnableAnyHit();
     mod.set_n_payload(4);
 
     config.AddModule(mod);
 
-    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_COMPRESS_2D);
-    mod.set_program_path(ptx_root + "/double_shaders_nn_compress_2d.ptx");
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D);
+    mod.set_program_path(ptx_root + "/double_shaders_nn_uniform_grid_2d.ptx");
     config.AddModule(mod);
   }
 
   {
     Module mod;
 
-    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_COMPRESS_3D);
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D);
     mod.set_type(ModuleType::kCUSTOM);
-    mod.set_program_path(ptx_root + "/float_shaders_nn_compress_3d.ptx");
-    mod.set_function_suffix("nn_compress_3d");
+    mod.set_program_path(ptx_root + "/float_shaders_nn_uniform_grid_3d.ptx");
+    mod.set_function_suffix("nn_uniform_grid_3d");
     mod.EnableIsIntersection();
     mod.EnableAnyHit();
     mod.set_n_payload(4);
 
     config.AddModule(mod);
 
-    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_COMPRESS_3D);
-    mod.set_program_path(ptx_root + "/double_shaders_nn_compress_3d.ptx");
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_3D);
+    mod.set_program_path(ptx_root + "/double_shaders_nn_uniform_grid_3d.ptx");
     config.AddModule(mod);
   }
 
+  {
+    Module mod;
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_QUANTIZED_GRID_2D);
+    mod.set_type(ModuleType::kCUSTOM);
+    mod.set_program_path(ptx_root + "/float_shaders_nn_quantized_grid_2d.ptx");
+    mod.set_function_suffix("nn_quantized_grid_2d");
+    mod.EnableIsIntersection();
+    mod.set_n_payload(4);
+
+    config.AddModule(mod);
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_QUANTIZED_GRID_2D);
+    mod.set_program_path(ptx_root + "/double_shaders_nn_quantized_grid_2d.ptx");
+    config.AddModule(mod);
+  }
+
+  {
+    Module mod;
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_NN_QUANTIZED_GRID_3D);
+    mod.set_type(ModuleType::kCUSTOM);
+    mod.set_program_path(ptx_root + "/float_shaders_nn_quantized_grid_3d.ptx");
+    mod.set_function_suffix("nn_quantized_grid_3d");
+    mod.EnableIsIntersection();
+    mod.set_n_payload(4);
+
+    config.AddModule(mod);
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_NN_QUANTIZED_GRID_3D);
+    mod.set_program_path(ptx_root + "/double_shaders_nn_quantized_grid_3d.ptx");
+    config.AddModule(mod);
+  }
 #ifndef NDEBUG
   config.opt_level = OPTIX_COMPILE_OPTIMIZATION_LEVEL_0;
   config.dbg_level = OPTIX_COMPILE_DEBUG_LEVEL_FULL;

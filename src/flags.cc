@@ -33,7 +33,7 @@ DEFINE_int32(max_reg, 0, "Max # of registers for RT");
 DEFINE_int32(
     n_points_cell, 0,
     "Number of points per cell. Setting 0 disables the grid optimization");
-
+DEFINE_int32(bit_count, 7, "Grid bit count setting of RT-HDIST");
 // For experiments only
 DEFINE_bool(vary_params, false,
             "Varying parameters for producing training data");

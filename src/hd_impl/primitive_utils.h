@@ -85,6 +85,28 @@ DEV_HOST_INLINE OptixAabb GetOptixAABB(float3 p, float radius) {
   return aabb;
 }
 
+
+DEV_HOST_INLINE OptixAabb GetOptixAABB(int2 p, float radius) {
+  OptixAabb aabb;
+  aabb.minX = p.x - radius;
+  aabb.maxX = p.x + radius;
+  aabb.minY = p.y - radius;
+  aabb.maxY = p.y + radius;
+  aabb.minZ = aabb.maxZ = 0;
+  return aabb;
+}
+
+DEV_HOST_INLINE OptixAabb GetOptixAABB(int3 p, float radius) {
+  OptixAabb aabb;
+  aabb.minX = p.x - radius;
+  aabb.maxX = p.x + radius;
+  aabb.minY = p.y - radius;
+  aabb.maxY = p.y + radius;
+  aabb.minZ = p.z - radius;
+  aabb.maxZ = p.z + radius;
+  return aabb;
+}
+
 DEV_HOST_INLINE OptixAabb GetOptixAABB(double2 p, double radius) {
   OptixAabb aabb;
   aabb.minX = next_float_from_double(p.x - radius, -1, 2);
