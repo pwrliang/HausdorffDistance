@@ -134,7 +134,7 @@ extern "C" __global__ void __raygen__nn_uniform_grid_3d() {
       if (cmin2 != std::numeric_limits<FLOAT_TYPE>::max()) {
         atomicMax(params.cmax2, cmin2);
       } else {
-        if (params.term_queue.capacity()) {
+        if (params.miss_queue.capacity()) {
           params.miss_queue.Append(point_id_a);
         }
       }
