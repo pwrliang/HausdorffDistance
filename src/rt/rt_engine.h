@@ -234,7 +234,8 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     mod.set_program_path(ptx_root + "/float_shaders_nn_quantized_grid_2d.ptx");
     mod.set_function_suffix("nn_quantized_grid_2d");
     mod.EnableIsIntersection();
-    mod.set_n_payload(4);
+    mod.EnableAnyHit();
+    mod.set_n_payload(5);
 
     config.AddModule(mod);
 
@@ -251,7 +252,8 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     mod.set_program_path(ptx_root + "/float_shaders_nn_quantized_grid_3d.ptx");
     mod.set_function_suffix("nn_quantized_grid_3d");
     mod.EnableIsIntersection();
-    mod.set_n_payload(4);
+    mod.EnableAnyHit();
+    mod.set_n_payload(5);
 
     config.AddModule(mod);
 

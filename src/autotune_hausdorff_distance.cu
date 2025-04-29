@@ -15,7 +15,7 @@
 #include "loaders/img_loader.h"
 #include "loaders/loader.h"
 #include "loaders/ply_loader.h"
-#include "move_points.h"
+#include "loaders/translate_points.h"
 #include "run_config.h"
 #include "running_stats.h"
 #include "utils/stopwatch.h"
@@ -93,8 +93,12 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
-  if (config.move_offset != 0) {
-    MovePoints(points_a, points_b, config.move_offset);
+  if (config.move_to_origin) {
+    MoveToOrigin(points_a);
+    MoveToOrigin(points_b);
+  }
+  if (config.translate != 0) {
+    TranslatePoints(points_b, 0, config.translate);
   }
   RunningStats& stats = RunningStats::instance();
 
@@ -124,7 +128,7 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   json_input["NumDims"] = N_DIMS;
   json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
 
-  json_input["MoveOffset"] = config.move_offset;
+  json_input["Translate"] = config.translate;
 
   // Calculate MBR of points
   auto write_points_stats = [&](const std::string& key,

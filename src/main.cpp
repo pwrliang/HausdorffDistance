@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
   config.n_dims = FLAGS_n_dims;
   config.is_double = FLAGS_is_double;
   config.limit = FLAGS_limit;
-  config.move_offset = FLAGS_move_offset;
+  config.translate = FLAGS_translate;
   config.repeat = FLAGS_repeat;
   config.auto_tune = FLAGS_auto_tune;
   config.fast_build_bvh = FLAGS_fast_build_bvh;
@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
     CHECK_GT(config.sample_rate_list.size(), 0);
     CHECK_GT(config.max_hit_list.size(), 0);
     CHECK_GT(config.n_points_cell_list.size(), 0);
-    hd::AutoTuneHausdorffDistance(config);
+    // hd::AutoTuneHausdorffDistance(config);
   } else {
     hd::RunHausdorffDistance(config);
   }

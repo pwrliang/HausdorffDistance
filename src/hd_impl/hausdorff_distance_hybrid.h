@@ -330,7 +330,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
 
     grid_.Init(grid_size, mbr_b);
     grid_.Insert(stream, points_b);
-    auto mbrs_b = grid_.GetCellMbrs(stream);
+    auto mbrs_b = grid_.GetTightCellMbrs(stream, points_b);
 
     stats["Grid"] = grid_.GetStats();
     sw.stop();

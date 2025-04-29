@@ -131,8 +131,6 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
       iter++;
       auto& json_iter = stats["Iter" + std::to_string(iter)];
 
-      details::ModuleIdentifier mod_nn = getRTModule();
-
       sw.start();
       details::LaunchParamsNNQuantizedGrid<COORD_T, N_DIMS> params;
 
@@ -183,7 +181,6 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
       json_iter["CMax2"] = cmax2;
       json_iter["RTTime"] = sw.ms();
       json_iter["Radius"] = radius;
-      // compared_pairs += json_iter["Hits"].template get<uint32_t>();
 
       if (in_size > 0) {
         radius += grid_.GetDiagonalQuantizedLength();

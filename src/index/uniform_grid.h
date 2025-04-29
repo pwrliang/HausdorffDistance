@@ -108,16 +108,14 @@ class UniformGrid {
     auto cell_p = CalculateCellPos(p);
     auto cell_idx = EncodeCellPos(cell_p);
     auto cell_mbr = GetCellBounds(cell_idx);
-    assert(cell_mbr.Contains(p));
 
-    // assert(mbr_.Contains(p));
-    // if (!cell_mbr.Contains(p)) {
-    //   printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u,
-    //   %u\n",
-    //          p.x, p.y, p.z, cell_mbr.lower().x, cell_mbr.upper().x,
-    //          cell_mbr.lower().y, cell_mbr.upper().y, cell_mbr.lower().z,
-    //          cell_mbr.upper().z, cell_p.x, cell_p.y, cell_p.z);
-    // }
+    if (!cell_mbr.Contains(p)) {
+      printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u, %u\n",
+             p.x, p.y, p.z, cell_mbr.lower().x, cell_mbr.upper().x,
+             cell_mbr.lower().y, cell_mbr.upper().y, cell_mbr.lower().z,
+             cell_mbr.upper().z, cell_p.x, cell_p.y, cell_p.z);
+    }
+    assert(cell_mbr.Contains(p));
 
     return occupied_cells_.set_bit_atomic(cell_idx);
   }
@@ -129,22 +127,16 @@ class UniformGrid {
       auto extent = mbr_.get_extent(dim);
       auto grid_size = get_grid_size(dim);
       auto unit = extent / grid_size;
-      int idx = reinterpret_cast<const unsigned int*>(&cell_pos.x)[dim];
+      auto idx = reinterpret_cast<const unsigned int*>(&cell_pos.x)[dim];
       assert(idx < grid_size);
+      // Calculate a conservative bounds
       auto unit_lower = nextafter(unit, unit - 1);
+      unit_lower = nextafter(unit_lower, unit_lower - 1);
       auto unit_upper = nextafter(unit, unit + 1);
-
-      assert(unit_lower <= unit_upper);
-      // auto begin =
-      //     (idx == 0 ? 0 : unit * (idx - 1) + unit_lower) + mbr_.lower(dim);
-      auto begin = (idx - 1) * unit + unit_lower + mbr_.lower(dim);
-      auto end = std::min(unit * idx + unit_upper, mbr_.upper(dim));
-
-      for (int round = 0; round < 2; round++) {
-        begin = nextafter(begin, begin - 1);
-        end = nextafter(end, end + 1);
-      }
-      assert(begin <= end);
+      unit_upper = nextafter(unit_upper, unit_upper + 1);
+      auto begin = idx * unit_lower + mbr_.lower(dim);
+      auto end =
+          std::min(mbr_.lower(dim) + (idx + 1) * unit_upper, mbr_.upper(dim));
 
       reinterpret_cast<COORD_T*>(&lower_p.x)[dim] = begin;
       reinterpret_cast<COORD_T*>(&upper_p.x)[dim] = end;
@@ -430,6 +422,7 @@ class UniformGrid {
     auto* p_points = thrust::raw_pointer_cast(points.data());
     auto d_grid = DeviceObject();
 
+    // TODO: Use thrust
     LaunchKernel(stream, [=] __device__() mutable {
       for (auto i = blockIdx.x; i < n_cells; i += gridDim.x) {
         auto begin = p_prefix_sum[i];

@@ -122,6 +122,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["HDUpperBound"] = hd_ub;
     stats["InitRadius"] = radius;
 
+
     in_queue_.Init(n_points_a);
     out_queue_.Init(n_points_a);
     in_queue_.Clear(stream.cuda_stream());
@@ -138,7 +139,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     if (use_grid) {
       auto grid_size = grid_.CalculateGridResolution(mbr_b, n_points_b,
                                                      config_.n_points_cell);
-
       grid_.Init(grid_size, mbr_b);
       grid_.Insert(stream, points_b);
       mbrs_b = grid_.GetTightCellMbrs(stream, points_b);

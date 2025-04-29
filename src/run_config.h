@@ -36,7 +36,8 @@ struct RunConfig {
   int n_dims;
   bool is_double;
   int limit;
-  float move_offset;
+  float translate;
+  bool move_to_origin;
   int repeat;
   // RT only
   bool auto_tune;

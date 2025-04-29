@@ -82,9 +82,10 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadPLY(
     }
   }
 
+  // move to 0,0
   for (auto& v : vertices) {
     for (int i = 0; i < N_DIMS; ++i) {
-      v[i] = (v[i] - vmin[i]) / range[i];
+      v[i] = (v[i] - vmin[i]);
     }
   }
 

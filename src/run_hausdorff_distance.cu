@@ -18,10 +18,10 @@
 #include "loaders/img_loader.h"
 #include "loaders/loader.h"
 #include "loaders/ply_loader.h"
+#include "loaders/translate_points.h"
 #include "models/features.h"
 #include "models/tree_numpointspercell_3d.h"
 #include "models/tree_samplerate_3d.h"
-#include "move_points.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
 #include "running_stats.h"
@@ -155,10 +155,15 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
 
 #if 1
-  if (config.move_offset != 0) {
-    MovePoints(points_a, points_b, config.move_offset);
+  if (config.move_to_origin) {
+    MoveToOrigin(points_a);
+    MoveToOrigin(points_b);
   }
-  json_input["MoveOffset"] = config.move_offset;
+  if (config.translate != 0) {
+    // translate x
+    TranslatePoints(points_b, 0, config.translate);
+  }
+  json_input["Translate"] = config.translate;
   thrust::device_vector<point_t> d_points_a = points_a, d_points_b = points_b;
 
   // Calculate MBR of points
@@ -231,7 +236,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   }
 
   switch (config.variant) {
-#if 1
+#if 0
   case Variant::kEarlyBreak: {
     using hd_impl_t = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -278,7 +283,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
-#if 1
   case Variant::kRT: {
     using hd_impl_t = HausdorffDistanceRayTracing<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -293,6 +297,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
+#if 0
   case Variant::kITK: {
     using hd_impl_t = HausdorffDistanceITK<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
