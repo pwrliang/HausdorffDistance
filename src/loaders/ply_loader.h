@@ -13,7 +13,7 @@ struct VertexReader {
 };
 
 // This callback is invoked once per vertex property (x, y, or z)
-int vertex_cb(p_ply_argument argument) {
+static int vertex_cb(p_ply_argument argument) {
   void* userdata;
   long prop_index;
   // retrieve our struct pointer and the index (0 for x, 1 for y, 2 for z)

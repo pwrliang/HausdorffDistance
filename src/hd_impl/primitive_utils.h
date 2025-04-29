@@ -1,6 +1,7 @@
 #ifndef PRIMITIVE_UTILS_H
 #define PRIMITIVE_UTILS_H
 #include <optix.h>
+#include <thrust/transform_reduce.h>
 
 #include <cstdint>
 
@@ -85,7 +86,6 @@ DEV_HOST_INLINE OptixAabb GetOptixAABB(float3 p, float radius) {
   return aabb;
 }
 
-
 DEV_HOST_INLINE OptixAabb GetOptixAABB(int2 p, float radius) {
   OptixAabb aabb;
   aabb.minX = p.x - radius;
@@ -145,5 +145,25 @@ DEV_HOST_INLINE OptixAabb GetOptixAABB(const Mbr<COORD_T, N_DIMS>& mbr,
   return aabb;
 }
 }  // namespace details
+template <typename POINT_T>
+POINT_T CalculateCenterPoint(const Stream& stream,
+                             const thrust::device_vector<POINT_T>& points) {
+  using coord_t = typename vec_info<POINT_T>::type;
+  constexpr int n_dims = vec_info<POINT_T>::n_dims;
+  POINT_T center_point;
+
+  for (int dim = 0; dim < n_dims; dim++) {
+    auto sum = thrust::transform_reduce(
+        thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
+        points.end(),
+        [=] __device__(const POINT_T& p) {
+          return reinterpret_cast<const coord_t*>(&p.x)[dim];
+        },
+        (coord_t) 0, thrust::plus<coord_t>());
+    reinterpret_cast<coord_t*>(&center_point.x)[dim] = sum / points.size();
+  }
+
+  return center_point;
+}
 }  // namespace hd
 #endif  // PRIMITIVE_UTILS_H

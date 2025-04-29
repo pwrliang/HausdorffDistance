@@ -112,7 +112,8 @@ class UniformGrid {
 
     // assert(mbr_.Contains(p));
     // if (!cell_mbr.Contains(p)) {
-    //   printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u, %u\n",
+    //   printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u,
+    //   %u\n",
     //          p.x, p.y, p.z, cell_mbr.lower().x, cell_mbr.upper().x,
     //          cell_mbr.lower().y, cell_mbr.upper().y, cell_mbr.lower().z,
     //          cell_mbr.upper().z, cell_p.x, cell_p.y, cell_p.z);
@@ -420,7 +421,8 @@ class UniformGrid {
 
   thrust::device_vector<mbr_t> GetTightCellMbrs(
       const Stream& stream, const thrust::device_vector<point_t>& points) {
-    thrust::device_vector<mbr_t> mbrs(cell_ids_.size());
+    auto n_cells = cell_ids_.size();
+    thrust::device_vector<mbr_t> mbrs(n_cells);
     auto* p_mbrs = thrust::raw_pointer_cast(mbrs.data());
     auto* p_cell_ids = thrust::raw_pointer_cast(cell_ids_.data());
     auto* p_prefix_sum = thrust::raw_pointer_cast(prefix_sum_.data());
@@ -428,6 +430,24 @@ class UniformGrid {
     auto* p_points = thrust::raw_pointer_cast(points.data());
     auto d_grid = DeviceObject();
 
+    LaunchKernel(stream, [=] __device__() mutable {
+      for (auto i = blockIdx.x; i < n_cells; i += gridDim.x) {
+        auto begin = p_prefix_sum[i];
+        auto end = p_prefix_sum[i + 1];
+        auto n_points_in_cell = end - begin;
+        auto n_points_in_cell_roundup =
+            div_round_up(n_points_in_cell, blockDim.x) * blockDim.x;
+        auto& mbr = p_mbrs[i];
+
+        for (auto j = threadIdx.x; j < n_points_in_cell; j += blockDim.x) {
+          auto offset = begin + j;
+          auto point_idx = p_point_ids[offset];
+          const auto& p = p_points[point_idx];
+          mbr.ExpandAtomic(p);
+        }
+      }
+    });
+#if 0
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
                      thrust::make_counting_iterator<uint32_t>(0),
                      thrust::make_counting_iterator<uint32_t>(cell_ids_.size()),
@@ -444,7 +464,7 @@ class UniformGrid {
                        }
                        assert(d_grid.GetCellBounds(cell_id).Contains(mbr));
                      });
-
+#endif
     return mbrs;
   }
 
@@ -502,6 +522,18 @@ class UniformGrid {
 
     stats_["Histogram"] = DumpHistogram(histogram);
     hdr_close(histogram);
+  }
+
+  COORD_T GetCellDigonalLength() const {
+    COORD_T sum2 = 0;
+
+    for (int dim = 0; dim < N_DIMS; dim++) {
+      auto extent = mbr_.get_extent(dim);
+      auto unit =
+          extent / reinterpret_cast<const uint32_t*>(&grid_size_.x)[dim];
+      sum2 += unit * unit;
+    }
+    return sqrt(sum2);
   }
 
   const nlohmann::json& GetStats() const { return stats_; }

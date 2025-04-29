@@ -217,10 +217,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
 
   json_run["AutoTune"] = config.auto_tune;
   json_run["Seed"] = config.seed;
-  json_run["SortRays"] = config.sort_rays;
   json_run["FastBuildBVH"] = config.fast_build_bvh;
   json_run["RebuildBVH"] = config.rebuild_bvh;
-  json_run["RadiusStep"] = config.radius_step;
   json_run["SampleRate"] = config.sample_rate;
   json_run["NumPointsPerCell"] = config.n_points_cell;
 
@@ -233,7 +231,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   }
 
   switch (config.variant) {
-#if 0
+#if 1
   case Variant::kEarlyBreak: {
     using hd_impl_t = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -254,11 +252,9 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hd_config.auto_tune = config.auto_tune;
     hd_config.fast_build = config.fast_build_bvh;
     hd_config.rebuild_bvh = config.rebuild_bvh;
-    hd_config.radius_step = config.radius_step;
     hd_config.sample_rate = config.sample_rate;
     hd_config.n_points_cell = config.n_points_cell;
     hd_config.max_hit = config.max_hit;
-    hd_config.sort_rays = config.sort_rays;
 
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
@@ -282,7 +278,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
-#if 0
+#if 1
   case Variant::kRT: {
     using hd_impl_t = HausdorffDistanceRayTracing<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -291,10 +287,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hd_config.ptx_root = ptx_root.c_str();
     hd_config.fast_build = config.fast_build_bvh;
     hd_config.rebuild_bvh = config.rebuild_bvh;
-    hd_config.radius_step = config.radius_step;
     hd_config.sample_rate = config.sample_rate;
     hd_config.n_points_cell = config.n_points_cell;
-    hd_config.sort_rays = config.sort_rays;
 
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;

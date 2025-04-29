@@ -40,8 +40,6 @@ struct RunConfig {
   int repeat;
   // RT only
   bool auto_tune;
-  float radius_step;
-  bool sort_rays;
   bool fast_build_bvh;
   bool rebuild_bvh;
   float sample_rate;
@@ -49,11 +47,9 @@ struct RunConfig {
   int max_reg_count;
   int n_points_cell;
   int bit_count;
-  std::vector<float> radius_step_list;
   std::vector<float> sample_rate_list;
   std::vector<uint32_t> max_hit_list;
   std::vector<uint32_t> n_points_cell_list;
-  std::vector<bool> sort_rays_list;
   std::vector<bool> fast_build_bvh_list;
   std::vector<bool> rebuild_bvh_list;
 };

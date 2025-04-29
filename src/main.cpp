@@ -112,8 +112,6 @@ int main(int argc, char* argv[]) {
   config.move_offset = FLAGS_move_offset;
   config.repeat = FLAGS_repeat;
   config.auto_tune = FLAGS_auto_tune;
-  config.radius_step = FLAGS_radius_step;
-  config.sort_rays = FLAGS_sort_rays;
   config.fast_build_bvh = FLAGS_fast_build_bvh;
   config.rebuild_bvh = FLAGS_rebuild_bvh;
   config.sample_rate = FLAGS_sample_rate;
@@ -128,15 +126,10 @@ int main(int argc, char* argv[]) {
       << "Wrong number of dimensions, which can only be 2 or 3";
 
   if (FLAGS_vary_params) {
-    config.radius_step_list = splitByComma<float>(FLAGS_radius_step_list);
     config.sample_rate_list = splitByComma<float>(FLAGS_sample_rate_list);
     config.max_hit_list = splitByComma<uint32_t>(FLAGS_max_hit_list);
     config.n_points_cell_list =
         splitByComma<uint32_t>(FLAGS_n_points_cell_list);
-    if (config.sort_rays) {
-      config.sort_rays_list.push_back(true);
-    }
-    config.sort_rays_list.push_back(false);
     if (config.fast_build_bvh) {
       config.fast_build_bvh_list.push_back(true);
     }
@@ -146,7 +139,6 @@ int main(int argc, char* argv[]) {
     }
     config.rebuild_bvh_list.push_back(false);
 
-    CHECK_GT(config.radius_step_list.size(), 0);
     CHECK_GT(config.sample_rate_list.size(), 0);
     CHECK_GT(config.max_hit_list.size(), 0);
     CHECK_GT(config.n_points_cell_list.size(), 0);

@@ -11,6 +11,7 @@
 #include "geoms/hd_bounds.h"
 #include "geoms/mbr.h"
 #include "hausdorff_distance.h"
+#include "hd_impl/primitive_utils.h"
 #include "index/uniform_grid.h"
 #include "rt/launch_parameters.h"
 #include "rt/reusable_buffer.h"
@@ -42,9 +43,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     bool fast_build = false;
     bool compact = false;
     bool rebuild_bvh = false;
-    float radius_step = 2;
     float sample_rate = 0.001;
-    bool sort_rays = false;
     int n_points_cell = 8;
     int max_samples = 100 * 1000;
     int max_reg_count = 0;
@@ -75,21 +74,20 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
     auto hd_ub = hd_bounds.GetUpperBound(mbr_b);
-
+    if (hd_ub == 0) {
+      return 0;
+    }
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
     stats.clear();
 
     stats["Seed"] = config_.seed;
-    stats["SortRays"] = config_.sort_rays;
     stats["FastBuildBVH"] = config_.fast_build;
     stats["RebuildBVH"] = config_.rebuild_bvh;
-    stats["RadiusStep"] = config_.radius_step;
     stats["SampleRate"] = config_.sample_rate;
     stats["NumPointsPerCell"] = config_.n_points_cell;
 
     Stopwatch sw;
-    COORD_T radius;
     // Sample points for a better initial HD
     {
       thrust::device_vector<point_t> points_b_shuffled = points_b;
@@ -102,12 +100,16 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       compared_pairs += CalculateHDEarlyBreak(
           stream, points_a, points_b_shuffled, sampled_point_ids_a);
       auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
-      radius = sqrt(sampled_hd2);
       sw.stop();
       stats["NumSamples"] = n_samples;
       stats["SampleTime"] = sw.ms();
       stats["HD2AfterSampling"] = sampled_hd2;
     }
+
+    auto center_point_a = CalculateCenterPoint(stream, points_a);
+    auto center_point_b = CalculateCenterPoint(stream, points_b);
+    auto radius = sqrt(EuclideanDistance2(center_point_a, center_point_b)) / 2;
+
     if (radius == 0) {
       radius = hd_lb;
     }
@@ -115,8 +117,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       radius = hd_ub / 100;
     }
     CHECK_GT(radius, 0);
-
-    COORD_T max_radius = hd_ub;
 
     stats["HDLowerBound"] = hd_lb;
     stats["HDUpperBound"] = hd_ub;
@@ -141,7 +141,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 
       grid_.Init(grid_size, mbr_b);
       grid_.Insert(stream, points_b);
-      mbrs_b = grid_.GetCellMbrs(stream);
+      mbrs_b = grid_.GetTightCellMbrs(stream, points_b);
 
       stats["Grid"] = grid_.GetStats();
 
@@ -170,7 +170,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 
     int iter = 0;
     uint32_t in_size = n_points_a;
-    thrust::device_vector<uint32_t> morton_codes;
 
 #ifdef PROFILING
     struct hdr_histogram* histogram;
@@ -189,24 +188,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     while (in_size > 0) {
       iter++;
       auto& json_iter = stats["Iter" + std::to_string(iter)];
-
-      if (config_.sort_rays) {
-        auto* p_points_a = thrust::raw_pointer_cast(points_a.data());
-        sw.start();
-        morton_codes.resize(in_size);
-        thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
-                          in_queue_.data(), in_queue_.data() + in_size,
-                          morton_codes.begin(), [=] __device__(uint32_t pid) {
-                            const auto& p = p_points_a[pid];
-                            return details::morton_code(p);
-                          });
-        thrust::sort_by_key(thrust::cuda::par.on(stream.cuda_stream()),
-                            morton_codes.begin(), morton_codes.end(),
-                            in_queue_.data());
-        stream.Sync();
-        sw.stop();
-        json_iter["SortRaysTime"] = sw.ms();
-      }
 
       iter_hits_.set(stream.cuda_stream(), 0);
 
@@ -235,19 +216,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 #endif
         params.max_hit = std::numeric_limits<uint32_t>::max();
 
-        if (typeid(COORD_T) == typeid(float)) {
-          if (N_DIMS == 2) {
-            mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D;
-          } else if (N_DIMS == 3) {
-            mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D;
-          }
-        } else if (typeid(COORD_T) == typeid(double)) {
-          if (N_DIMS == 2) {
-            mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D;
-          } else if (N_DIMS == 3) {
-            mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_3D;
-          }
-        }
         rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
       } else {
         details::LaunchParamsNN<COORD_T, N_DIMS> params;
@@ -298,19 +266,24 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
 
-      if (radius < max_radius) {
-        radius *= config_.radius_step;
-        radius = std::min(radius, max_radius);
-      }
       json_iter["NumInputPoints"] = in_size;
       in_size = in_queue_.size(stream.cuda_stream());
       json_iter["NumOutputPoints"] = in_size;
       json_iter["CMax2"] = cmax2;
       json_iter["RTTime"] = sw.ms();
       json_iter["Hits"] = iter_hits_.get(stream.cuda_stream());
+      json_iter["Radius"] = radius;
       compared_pairs += json_iter["Hits"].template get<uint32_t>();
 
       if (in_size > 0) {
+        if (radius < hd_ub) {
+          if (use_grid) {
+            radius += grid_.GetCellDigonalLength();
+          } else {
+            radius *= 1.5;
+          }
+          radius = std::min(radius, hd_ub);
+        }
         sw.start();
         if (config_.rebuild_bvh) {
           buffer_.Clear();

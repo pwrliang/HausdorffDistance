@@ -11,6 +11,7 @@
 #include "geoms/hd_bounds.h"
 #include "geoms/mbr.h"
 #include "hausdorff_distance.h"
+#include "hd_impl/primitive_utils.h"
 #include "index/quantized_grid.h"
 #include "rt/launch_parameters.h"
 #include "rt/reusable_buffer.h"
@@ -100,8 +101,8 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
     COORD_T radius = n_diagonals * grid_.GetDiagonalQuantizedLength();
 
     VLOG(1) << "half_dist " << half_dist << " radius " << radius
-              << " n_diagonals " << n_diagonals << " cell diagonal "
-              << grid_.GetDiagonalLength();
+            << " n_diagonals " << n_diagonals << " cell diagonal "
+            << grid_.GetDiagonalLength();
 
     stats["InitRadius"] = radius;
 
@@ -176,16 +177,16 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
                          d_in_queue.Append(query_t(point_id, 0));
                        });
 
-      radius += grid_.GetDiagonalQuantizedLength();
-
       json_iter["NumInputPoints"] = in_size;
       in_size = in_queue_.size(stream.cuda_stream());
       json_iter["NumOutputPoints"] = in_size;
       json_iter["CMax2"] = cmax2;
       json_iter["RTTime"] = sw.ms();
+      json_iter["Radius"] = radius;
       // compared_pairs += json_iter["Hits"].template get<uint32_t>();
 
       if (in_size > 0) {
+        radius += grid_.GetDiagonalQuantizedLength();
         sw.start();
         if (config_.rebuild_bvh) {
           buffer_.Clear();
@@ -235,30 +236,6 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
     return rt_engine_.UpdateAccelCustom(stream.cuda_stream(), handle,
                                         ArrayView<OptixAabb>(aabbs_), buffer_,
                                         0, config_.fast_build, config_.compact);
-  }
-
-  point_t CalculateCenterPoint(const Stream& stream,
-                               const thrust::device_vector<point_t>& points) {
-    SharedValue<point_t> center_point;
-    point_t c_point;
-    auto* p_center_point = center_point.data();
-
-    memset(&c_point, 0, sizeof(point_t));
-    center_point.set(stream.cuda_stream(), c_point);
-
-    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
-                     points.end(), [=] __device__(const point_t& p) {
-                       for (int dim = 0; dim < N_DIMS; dim++) {
-                         atomicAdd(&p_center_point->x + dim,
-                                   reinterpret_cast<const COORD_T*>(&p.x)[dim]);
-                       }
-                     });
-
-    c_point = center_point.get(stream.cuda_stream());
-    for (int dim = 0; dim < N_DIMS; dim++) {
-      reinterpret_cast<COORD_T*>(&c_point.x)[dim] /= points.size();
-    }
-    return c_point;
   }
 
  private:
