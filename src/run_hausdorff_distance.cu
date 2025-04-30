@@ -155,14 +155,20 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
 
 #if 1
-  if (config.move_to_origin) {
+  if (config.move_to_origin || config.normalize) {
     MoveToOrigin(points_a);
     MoveToOrigin(points_b);
+    if (config.normalize) {
+      NormalizePoints(points_a);
+      NormalizePoints(points_b);
+    }
   }
   if (config.translate != 0) {
     // translate x
     TranslatePoints(points_b, 0, config.translate);
   }
+  json_input["MoveToOrigin"] = config.move_to_origin;
+  json_input["Normalize"] = config.normalize;
   json_input["Translate"] = config.translate;
   thrust::device_vector<point_t> d_points_a = points_a, d_points_b = points_b;
 
@@ -236,7 +242,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   }
 
   switch (config.variant) {
-#if 0
+#if 1
   case Variant::kEarlyBreak: {
     using hd_impl_t = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;

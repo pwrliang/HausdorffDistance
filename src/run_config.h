@@ -38,6 +38,7 @@ struct RunConfig {
   int limit;
   float translate;
   bool move_to_origin;
+  bool normalize;
   int repeat;
   // RT only
   bool auto_tune;

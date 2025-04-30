@@ -93,13 +93,19 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
-  if (config.move_to_origin) {
+  if (config.move_to_origin || config.normalize) {
     MoveToOrigin(points_a);
     MoveToOrigin(points_b);
+    if (config.normalize) {
+      NormalizePoints(points_a);
+      NormalizePoints(points_b);
+    }
   }
   if (config.translate != 0) {
+    // translate x
     TranslatePoints(points_b, 0, config.translate);
   }
+
   RunningStats& stats = RunningStats::instance();
 
   auto& json_gpu = stats.Log("GPU");
@@ -127,7 +133,8 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   json_input["Limit"] = config.limit;
   json_input["NumDims"] = N_DIMS;
   json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
-
+  json_input["MoveToOrigin"] = config.move_to_origin;
+  json_input["Normalize"] = config.normalize;
   json_input["Translate"] = config.translate;
 
   // Calculate MBR of points

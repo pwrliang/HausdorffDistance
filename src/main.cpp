@@ -110,6 +110,8 @@ int main(int argc, char* argv[]) {
   config.is_double = FLAGS_is_double;
   config.limit = FLAGS_limit;
   config.translate = FLAGS_translate;
+  config.move_to_origin = FLAGS_move_to_origin;
+  config.normalize = FLAGS_normalize;
   config.repeat = FLAGS_repeat;
   config.auto_tune = FLAGS_auto_tune;
   config.fast_build_bvh = FLAGS_fast_build_bvh;
