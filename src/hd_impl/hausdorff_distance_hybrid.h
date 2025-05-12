@@ -74,8 +74,8 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
   coord_t CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) override {
-    Stopwatch sw;
-
+    Stopwatch sw, sw_total;
+    sw_total.start();
     uint64_t compared_pairs = 0;
     auto& stats = this->stats_;
     auto n_points_a = points_a.size();
@@ -103,6 +103,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
                     points_b_shuffled.begin(), points_b_shuffled.end(), g_);
 
+    COORD_T radius;
     // Using sample to find a good starting point of cmax2
     {
       sw.start();
@@ -117,12 +118,12 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       stats["SampleTime"] = sw.ms();
       stats["HD2AfterSampling"] = sampled_hd2;
     }
-    auto center_point_a = CalculateCenterPoint(stream, points_a);
-    auto center_point_b = CalculateCenterPoint(stream, points_b);
-    auto radius = sqrt(EuclideanDistance2(center_point_a, center_point_b)) / 2;
 
     if (radius == 0) {
-      radius = hd_lb;
+      auto center_point_a = CalculateCenterPoint(stream, points_a);
+      auto center_point_b = CalculateCenterPoint(stream, points_b);
+      auto center_distance = EuclideanDistance2(center_point_a, center_point_b);
+      radius = sqrt(center_distance) / 2;
     }
     if (radius == 0) {
       radius = hd_ub / 100;
@@ -252,10 +253,12 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       max_hit = get_max_hit_next(json_iter);
     }
     auto cmax2 = cmax2_.get(stream.cuda_stream());
+    sw_total.stop();
 
     stats["Algorithm"] = "Hybrid";
     stats["Execution"] = "GPU";
     stats["ComparedPairs"] = compared_pairs;
+    stats["ReportedTime"] = sw_total.ms();
 
     return sqrt(cmax2);
   }
@@ -480,7 +483,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["Algorithm"] = "Hybrid";
     stats["Execution"] = "GPU";
     stats["ComparedPairs"] = compared_pairs;
-    stats["TotalTime"] = total_time;
+    stats["ReportedTime"] = total_time;
 
     return sqrt(cmax2);
   }

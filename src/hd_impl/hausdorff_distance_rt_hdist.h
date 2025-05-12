@@ -60,6 +60,9 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
   coord_t CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) override {
+    Stopwatch sw,sw_total;
+
+    sw_total.start();
     uint64_t compared_pairs = 0;
     auto& stats = this->stats_;
     auto n_points_a = points_a.size();
@@ -78,7 +81,6 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["FastBuildBVH"] = config_.fast_build;
     stats["RebuildBVH"] = config_.rebuild_bvh;
 
-    Stopwatch sw;
 
     in_queue_.Init(n_points_a);
     hit_queue_.Init(n_points_a);
@@ -198,10 +200,12 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
       }
     }
     auto cmax2 = cmax2_.get(stream.cuda_stream());
+    sw_total.stop();
 
     stats["Algorithm"] = "RT-HDIST";
     stats["Execution"] = "GPU";
     stats["ComparedPairs"] = compared_pairs;
+    stats["ReportedTime"] = sw_total.ms();
 
     return sqrt(cmax2);
   }

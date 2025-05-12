@@ -33,6 +33,7 @@ class HausdorffDistance {
   const nlohmann::json& get_stats() const {
     CHECK(stats_.contains("Algorithm"));
     CHECK(stats_.contains("Execution"));
+    CHECK(stats_.contains("ReportedTime"));
     return stats_;
   }
 

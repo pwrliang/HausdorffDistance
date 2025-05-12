@@ -91,7 +91,12 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadOFFPoints(
 
   CHECK(line.substr(0, 3) == "OFF")
       << "Not a valid OFF file. First token must be 'OFF'.";
+
   line = line.substr(3);
+
+  if (line.empty()) {
+    std::getline(ifs, line);
+  }
   std::istringstream headerStream(line);
 
   // Read the counts either from the same line or next line

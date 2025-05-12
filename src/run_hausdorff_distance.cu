@@ -9,6 +9,7 @@
 #include <random>  // For random number generators
 #include <sstream>
 
+#include "hd_impl/hausdorff_distance_branch_n_bound.h"
 #include "hd_impl/hausdorff_distance_early_break.h"
 #include "hd_impl/hausdorff_distance_hybrid.h"
 #include "hd_impl/hausdorff_distance_itk.h"
@@ -59,7 +60,7 @@ void RunHausdorffDistance(const RunConfig& config) {
     }
   } else {
     if (config.n_dims == 2) {
-      // dist = RunHausdorffDistanceImpl<float, 2>(config);
+      dist = RunHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
       dist = RunHausdorffDistanceImpl<float, 3>(config);
     }
@@ -242,7 +243,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   }
 
   switch (config.variant) {
-#if 1
+#if 0
   case Variant::kEarlyBreak: {
     using hd_impl_t = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -254,6 +255,49 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
             hd_config);
     break;
   }
+  case Variant::kBranchAndBound: {
+    using hd_impl_t = HausdorffDistanceBranchNBound<COORD_T, N_DIMS>;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>();
+    break;
+  }
+  case Variant::kNearestNeighborSearch: {
+    using hd_impl_t = HausdorffDistanceNearestNeighborSearch<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+
+    hd_config.n_threads = config.parallelism;
+    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
+  case Variant::kRT_HDIST: {
+    using hd_impl_t = HausdorffDistanceRTHDist<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+    std::string ptx_root = config.exec_path + "/ptx";
+    hd_config.ptx_root = ptx_root.c_str();
+    hd_config.fast_build = config.fast_build_bvh;
+    hd_config.rebuild_bvh = config.rebuild_bvh;
+    hd_config.bit_count = config.bit_count;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
+#endif
+
+  case Variant::kRT: {
+    using hd_impl_t = HausdorffDistanceRayTracing<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+    std::string ptx_root = config.exec_path + "/ptx";
+    hd_config.seed = config.seed;
+    hd_config.ptx_root = ptx_root.c_str();
+    hd_config.fast_build = config.fast_build_bvh;
+    hd_config.rebuild_bvh = config.rebuild_bvh;
+    hd_config.sample_rate = config.sample_rate;
+    hd_config.n_points_cell = config.n_points_cell;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
+#if 0
   case Variant::kHybrid: {
     using hd_impl_t = HausdorffDistanceHybrid<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -270,40 +314,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
-  case Variant::kNearestNeighborSearch: {
-    using hd_impl_t = HausdorffDistanceNearestNeighborSearch<COORD_T, N_DIMS>;
-
-    hausdorff_distance = std::make_unique<hd_impl_t>();
-    break;
-  }
-#endif
-  case Variant::kRT_HDIST: {
-    using hd_impl_t = HausdorffDistanceRTHDist<COORD_T, N_DIMS>;
-    typename hd_impl_t::Config hd_config;
-    std::string ptx_root = config.exec_path + "/ptx";
-    hd_config.ptx_root = ptx_root.c_str();
-    hd_config.fast_build = config.fast_build_bvh;
-    hd_config.rebuild_bvh = config.rebuild_bvh;
-    hd_config.bit_count = config.bit_count;
-
-    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
-    break;
-  }
-  case Variant::kRT: {
-    using hd_impl_t = HausdorffDistanceRayTracing<COORD_T, N_DIMS>;
-    typename hd_impl_t::Config hd_config;
-    std::string ptx_root = config.exec_path + "/ptx";
-    hd_config.seed = config.seed;
-    hd_config.ptx_root = ptx_root.c_str();
-    hd_config.fast_build = config.fast_build_bvh;
-    hd_config.rebuild_bvh = config.rebuild_bvh;
-    hd_config.sample_rate = config.sample_rate;
-    hd_config.n_points_cell = config.n_points_cell;
-
-    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
-    break;
-  }
-#if 0
   case Variant::kITK: {
     using hd_impl_t = HausdorffDistanceITK<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -316,6 +326,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     break;
   }
 #endif
+  default:
+    LOG(FATAL) << "Unknown variant: " << static_cast<int>(config.variant);
   }
 
   LOG(INFO) << "Points A: " << points_a.size()
@@ -335,7 +347,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
           hausdorff_distance->CalculateDistance(stream, d_points_a, d_points_b);
     }
     sw.stop();
-    json_repeat["TotalTime"] = sw.ms();
+    json_repeat["ReportedTime"] = sw.ms();
     json_repeat.update(hausdorff_distance->get_stats());
     running_time += sw.ms();
   }

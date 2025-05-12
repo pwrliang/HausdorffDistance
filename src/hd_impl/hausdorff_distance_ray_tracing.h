@@ -64,6 +64,9 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
   coord_t CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) override {
+    Stopwatch sw, sw_total;
+
+    sw_total.start();
     uint64_t compared_pairs = 0;
     auto& stats = this->stats_;
     auto n_points_a = points_a.size();
@@ -87,7 +90,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["SampleRate"] = config_.sample_rate;
     stats["NumPointsPerCell"] = config_.n_points_cell;
 
-    Stopwatch sw;
+    COORD_T radius;
     // Sample points for a better initial HD
     {
       thrust::device_vector<point_t> points_b_shuffled = points_b;
@@ -104,24 +107,24 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       stats["NumSamples"] = n_samples;
       stats["SampleTime"] = sw.ms();
       stats["HD2AfterSampling"] = sampled_hd2;
+      radius = sqrt(sampled_hd2);
     }
 
-    auto center_point_a = CalculateCenterPoint(stream, points_a);
-    auto center_point_b = CalculateCenterPoint(stream, points_b);
-    auto radius = sqrt(EuclideanDistance2(center_point_a, center_point_b)) / 2;
-
     if (radius == 0) {
-      radius = hd_lb;
+      auto center_point_a = CalculateCenterPoint(stream, points_a);
+      auto center_point_b = CalculateCenterPoint(stream, points_b);
+      auto center_distance = EuclideanDistance2(center_point_a, center_point_b);
+      radius = sqrt(center_distance) / 2;
     }
     if (radius == 0) {
       radius = hd_ub / 100;
     }
+
     CHECK_GT(radius, 0);
 
     stats["HDLowerBound"] = hd_lb;
     stats["HDUpperBound"] = hd_ub;
     stats["InitRadius"] = radius;
-
 
     in_queue_.Init(n_points_a);
     out_queue_.Init(n_points_a);
@@ -152,7 +155,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       gas_handle = BuildBVH(stream, mbrs_b, radius);
       stream.Sync();
       sw.stop();
-
       stats["BVHBuildTime"] = sw.ms();
       stats["BVHMemoryKB"] = mem_bytes / 1024;
     } else {
@@ -163,7 +165,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       gas_handle = BuildBVH(stream, points_b, radius);
       stream.Sync();
       sw.stop();
-
       stats["BVHBuildTime"] = sw.ms();
       stats["BVHMemoryKB"] = mem_bytes / 1024;
     }
@@ -190,6 +191,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       auto& json_iter = stats["Iter" + std::to_string(iter)];
 
       iter_hits_.set(stream.cuda_stream(), 0);
+      compared_pairs_.set(stream.cuda_stream(), 0);
 
       details::ModuleIdentifier mod_nn = getRTModule(use_grid);
 
@@ -208,6 +210,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
         params.prefix_sum = grid_.get_prefix_sum();
         params.point_b_ids = grid_.get_point_ids();
         params.n_hits = iter_hits_.data();
+        params.compared_pairs = compared_pairs_.data();
 #ifdef PROFILING
         hits_counters_.resize(in_size, 0);
         params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
@@ -272,7 +275,9 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       json_iter["CMax2"] = cmax2;
       json_iter["RTTime"] = sw.ms();
       json_iter["Hits"] = iter_hits_.get(stream.cuda_stream());
+      json_iter["ComparedPairs"] = compared_pairs_.get(stream.cuda_stream());
       json_iter["Radius"] = radius;
+      json_iter["CoveredCells"] = radius / grid_.GetCellDigonalLength();
       compared_pairs += json_iter["Hits"].template get<uint32_t>();
 
       if (in_size > 0) {
@@ -306,9 +311,12 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     }
     auto cmax2 = cmax2_.get(stream.cuda_stream());
 
+    sw_total.stop();
+
     stats["Algorithm"] = "Ray Tracing";
     stats["Execution"] = "GPU";
     stats["ComparedPairs"] = compared_pairs;
+    stats["ReportedTime"] = sw_total.ms();
 
     return sqrt(cmax2);
   }
@@ -452,6 +460,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
   SharedValue<COORD_T> cmax2_;
   Sampler sampler_;
   SharedValue<uint32_t> iter_hits_;
+  SharedValue<unsigned long long int> compared_pairs_;
 
   details::ModuleIdentifier getRTModule(bool use_grid) {
     details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;

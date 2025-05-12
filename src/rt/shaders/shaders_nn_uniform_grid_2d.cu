@@ -27,23 +27,23 @@ extern "C" __global__ void __intersection__nn_uniform_grid_2d() {
   auto update_cmin2 = [](FLOAT_TYPE dist2) {
     FLOAT_TYPE cmin2;
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
-      auto cmin2_storage = optixGetPayload_2();
+      auto cmin2_storage = optixGetPayload_3();
       cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
 
       if (dist2 < cmin2) {
         cmin2 = dist2;
         cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
-        optixSetPayload_2(cmin2_storage);
+        optixSetPayload_3(cmin2_storage);
       }
     } else {
-      uint2 cmin2_storage{optixGetPayload_2(), optixGetPayload_3()};
+      uint2 cmin2_storage{optixGetPayload_3(), optixGetPayload_4()};
       hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
 
       if (dist2 < cmin2) {
         cmin2 = dist2;
         hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
-        optixSetPayload_2(cmin2_storage.x);
-        optixSetPayload_3(cmin2_storage.y);
+        optixSetPayload_3(cmin2_storage.x);
+        optixSetPayload_4(cmin2_storage.y);
       }
     }
   };
@@ -74,9 +74,11 @@ extern "C" __global__ void __intersection__nn_uniform_grid_2d() {
     }
 
     if (dist2 <= *params.cmax2 || n_hits > params.max_hit) {
+      optixSetPayload_2(optixGetPayload_2() + (offset - begin + 1));
       optixReportIntersection(0, 0);
     }
   }
+  optixSetPayload_2(optixGetPayload_2() + end - begin);
 }
 
 extern "C" __global__ void __anyhit__nn_uniform_grid_2d() { optixTerminateRay(); }
@@ -99,6 +101,7 @@ extern "C" __global__ void __raygen__nn_uniform_grid_2d() {
 
     auto cmin2 = std::numeric_limits<FLOAT_TYPE>::max();
     unsigned int n_hits = 0;
+    unsigned int n_compared_pairs = 0;
 
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
       auto cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
@@ -108,7 +111,7 @@ extern "C" __global__ void __raygen__nn_uniform_grid_2d() {
                  SURFACE_RAY_TYPE,     // SBT offset
                  RAY_TYPE_COUNT,       // SBT stride
                  SURFACE_RAY_TYPE,     // missSBTIndex
-                 point_id_a, n_hits, cmin2_storage);
+                 point_id_a, n_hits, n_compared_pairs, cmin2_storage);
       cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
     } else {
       uint2 cmin2_storage;
@@ -119,11 +122,15 @@ extern "C" __global__ void __raygen__nn_uniform_grid_2d() {
                  SURFACE_RAY_TYPE,     // SBT offset
                  RAY_TYPE_COUNT,       // SBT stride
                  SURFACE_RAY_TYPE,     // missSBTIndex
-                 point_id_a, n_hits, cmin2_storage.x, cmin2_storage.y);
+                 point_id_a, n_hits, n_compared_pairs, cmin2_storage.x, cmin2_storage.y);
       hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
     }
     if (params.n_hits != nullptr) {
       atomicAdd(params.n_hits, n_hits);
+    }
+
+    if (params.compared_pairs != nullptr) {
+      atomicAdd(params.compared_pairs, n_compared_pairs);
     }
 
     if (n_hits > params.max_hit) {

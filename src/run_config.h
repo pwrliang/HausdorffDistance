@@ -8,10 +8,9 @@ enum class Variant {
   kEarlyBreak,
   kRT,
   kRT_HDIST,
-  kNN,
   kNearestNeighborSearch,
   kHybrid,
-  kBRANCH_N_BOUND,
+  kBranchAndBound,
   kITK
 };
 

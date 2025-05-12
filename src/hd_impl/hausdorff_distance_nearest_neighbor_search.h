@@ -33,6 +33,80 @@ class HausdorffDistanceNearestNeighborSearch
   using kdtree_t = cukd::SpatialKDTree<point_t, data_traits>;
 
  public:
+  struct Config {
+    uint32_t n_threads = 1;
+  };
+
+  HausdorffDistanceNearestNeighborSearch() = default;
+
+  HausdorffDistanceNearestNeighborSearch(const Config& config) {
+    CHECK_GT(config.n_threads, 0);
+    config_ = config;
+  }
+
+  COORD_T CalculateDistance(std::vector<point_t>& points_a,
+                            std::vector<point_t>& points_b) override {
+    double build_time, compute_time;
+    Stopwatch sw;
+    Stream stream;
+
+    sw.start();
+    thrust::device_vector<point_t> temp_points = points_b;
+    kd_tree_b_.Build(stream, temp_points);
+    sw.stop();
+
+    build_time = sw.ms();
+
+    sw.start();
+    std::atomic<coord_t> cmax2 = 0;
+
+    auto thread_count = config_.n_threads;
+    auto avg_points = (points_a.size() + thread_count - 1) / thread_count;
+
+    auto compute = [&](int tid) {
+      auto begin = tid * avg_points;
+      auto end = std::min(begin + avg_points, points_a.size());
+      COORD_T local_cmax2 = 0;
+
+      for (int i = begin; i < end; i++) {
+        const auto& p_a = points_a[i];
+        auto point_b_id = kd_tree_b_.fcp(p_a);
+        auto dist2 = EuclideanDistance2(p_a, points_b[point_b_id]);
+        local_cmax2 = std::max(local_cmax2, dist2);
+      }
+      update_maximum(cmax2, local_cmax2);
+    };
+
+    if (thread_count == 1) {
+      compute(0);
+    } else {
+      std::vector<std::thread> threads;
+      for (int tid = 0; tid < thread_count; tid++) {
+        threads.emplace_back(compute, tid);
+      }
+
+      for (auto& thread : threads) {
+        thread.join();
+      }
+    }
+
+    sw.stop();
+
+    compute_time = sw.ms();
+
+    auto& stats = this->stats_;
+
+    stats["Algorithm"] = "Nearest Neighbor Search";
+    stats["Execution"] = "CPU";
+    stats["Threads"] = thread_count;
+    stats["ComparedPairs"] = points_a.size();
+    stats["BuildIndexTime"] = build_time;
+    stats["ComputeTime"] = compute_time;
+    stats["ReportedTime"] = compute_time;
+
+    return sqrt(cmax2);
+  }
+
   coord_t CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) override {
@@ -74,6 +148,16 @@ class HausdorffDistanceNearestNeighborSearch
     stats["ComparedPairs"] = points_a.size();
 
     return sqrt(max2);
+  }
+
+ private:
+  Config config_;
+  KDTree<COORD_T, N_DIMS> kd_tree_b_;
+  template <typename T>
+  void update_maximum(std::atomic<T>& maximum_value, T const& value) noexcept {
+    T prev_value = maximum_value;
+    while (prev_value < value &&
+           !maximum_value.compare_exchange_weak(prev_value, value)) {}
   }
 };
 }  // namespace hd

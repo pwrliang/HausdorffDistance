@@ -19,16 +19,6 @@
 #include "utils/type_traits.h"
 
 namespace hd {
-namespace detail {
-
-template <typename T>
-inline void update_maximum(std::atomic<T>& maximum_value,
-                           T const& value) noexcept {
-  T prev_value = maximum_value;
-  while (prev_value < value &&
-         !maximum_value.compare_exchange_weak(prev_value, value)) {}
-}
-}  // namespace detail
 
 template <typename COORD_T, int N_DIMS>
 class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
@@ -39,7 +29,7 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
  public:
   struct Config {
     int seed;
-    uint32_t n_threads;
+    uint32_t n_threads = 1;
   };
 
   HausdorffDistanceEarlyBreak() = default;
@@ -51,47 +41,63 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
 
   coord_t CalculateDistance(std::vector<point_t>& points_a,
                             std::vector<point_t>& points_b) override {
+    double shuffle_time, compute_time;
+
+    Stopwatch sw;
+    sw.start();
     std::mt19937 g(config_.seed);  // Mersenne Twister engine seeded with rd()
     std::shuffle(points_a.begin(), points_a.end(), g);
     std::shuffle(points_b.begin(), points_b.end(), g);
+    sw.stop();
+    shuffle_time = sw.ms();
 
-    std::vector<std::thread> threads;
+    sw.start();
+
     auto thread_count = config_.n_threads;
     auto avg_points = (points_a.size() + thread_count - 1) / thread_count;
-    std::atomic<coord_t> cmax;
+    std::atomic<coord_t> cmax2 = 0;
     std::atomic_uint64_t compared_pairs = 0;
 
-    cmax = 0;
+    auto compute = [&](int tid) {
+      auto begin = tid * avg_points;
+      auto end = std::min(begin + avg_points, points_a.size());
+      uint64_t local_compared_pairs = 0;
 
-    for (int tid = 0; tid < thread_count; tid++) {
-      threads.emplace_back(std::thread([&, tid]() {
-        auto begin = tid * avg_points;
-        auto end = std::min(begin + avg_points, points_a.size());
-        uint64_t local_compared_pairs = 0;
-
-        for (int i = begin; i < end; i++) {
-          auto cmin = std::numeric_limits<coord_t>::max();
-          for (size_t j = 0; j < points_b.size(); j++) {
-            auto d = EuclideanDistance2(points_a[i], points_b[j]);
-            local_compared_pairs++;
-            if (d < cmin) {
-              cmin = d;
-            }
-            if (cmin < cmax) {
-              break;
-            }
+      for (int i = begin; i < end; i++) {
+        auto cmin2 = std::numeric_limits<coord_t>::max();
+        for (size_t j = 0; j < points_b.size(); j++) {
+          auto d = EuclideanDistance2(points_a[i], points_b[j]);
+          local_compared_pairs++;
+          if (d < cmin2) {
+            cmin2 = d;
           }
-          if (cmin != std::numeric_limits<coord_t>::max()) {
-            detail::update_maximum(cmax, cmin);
+          if (cmin2 < cmax2) {
+            break;
           }
         }
-        compared_pairs += local_compared_pairs;
-      }));
+        if (cmin2 != std::numeric_limits<coord_t>::max()) {
+          update_maximum(cmax2, cmin2);
+        }
+      }
+      compared_pairs += local_compared_pairs;
+    };
+
+    if (thread_count == 1) {
+      compute(0);
+    } else {
+      std::vector<std::thread> threads;
+
+      for (int tid = 0; tid < thread_count; tid++) {
+        threads.emplace_back(std::thread(compute, tid));
+      }
+
+      for (auto& thread : threads) {
+        thread.join();
+      }
     }
 
-    for (auto& thread : threads) {
-      thread.join();
-    }
+    sw.stop();
+    compute_time = sw.ms();
 
     auto& stats = this->stats_;
 
@@ -100,13 +106,18 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["Execution"] = "CPU";
     stats["Threads"] = thread_count;
     stats["ComparedPairs"] = compared_pairs.load();
+    stats["ShuffleTime"] = shuffle_time;
+    stats["ComputeTime"] = compute_time;
+    stats["ReportedTime"] = compute_time;
 
-    return sqrt(cmax);
+    return sqrt(cmax2);
   }
 
   coord_t CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) override {
+    Stopwatch sw;
+    sw.start();
     thrust::default_random_engine g(config_.seed);
     SharedValue<coord_t> cmax;
     SharedValue<uint32_t> compared_pairs;
@@ -170,6 +181,7 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
       }
     });
     auto n_compared_pairs = compared_pairs.get(stream.cuda_stream());
+    sw.stop();
 
     auto& stats = this->stats_;
 
@@ -177,12 +189,19 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["Algorithm"] = "Early Break";
     stats["Execution"] = "GPU";
     stats["ComparedPairs"] = n_compared_pairs;
+    stats["ReportedTime"] = sw.ms();
 
     return sqrt(cmax.get(stream.cuda_stream()));
   }
 
  private:
   Config config_;
+  template <typename T>
+  void update_maximum(std::atomic<T>& maximum_value, T const& value) noexcept {
+    T prev_value = maximum_value;
+    while (prev_value < value &&
+           !maximum_value.compare_exchange_weak(prev_value, value)) {}
+  }
 };
 }  // namespace hd
 

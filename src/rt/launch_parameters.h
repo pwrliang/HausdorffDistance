@@ -45,6 +45,7 @@ struct LaunchParamsNNUniformGrid {
   COORD_T* cmax2;
   COORD_T radius;
   uint32_t* n_hits;
+  unsigned long long int* compared_pairs;
   uint32_t* hits_counters;
   uint32_t max_hit;
 };

@@ -18,7 +18,7 @@ class HausdorffDistanceITK : public HausdorffDistance<COORD_T, N_DIMS> {
   using coord_t = COORD_T;
   using point_t = typename base_t::point_t;
   using PixelType = unsigned char;
-  using ImageType = itk::Image<PixelType, 3>;
+  using ImageType = itk::Image<PixelType, N_DIMS>;
 
  public:
   struct Config {
@@ -41,21 +41,26 @@ class HausdorffDistanceITK : public HausdorffDistance<COORD_T, N_DIMS> {
     auto image_a = CreateImage(points_a, config_.size_a);
     auto image_b = CreateImage(points_b, config_.size_b);
     sw.stop();
-
     stats["CreateImageTime"] = sw.ms();
-    stats["Algorithm"] = "ITK";
-    stats["Execution"] = "CPU";
-    stats["Threads"] = config_.n_threads;
 
     using FilterType =
         itk::DirectedHausdorffDistanceImageFilter<ImageType, ImageType>;
+
+    sw.start();
     auto hausdorffFilter = FilterType::New();
     hausdorffFilter->SetNumberOfWorkUnits(config_.n_threads);
     hausdorffFilter->SetInput1(image_a);
     hausdorffFilter->SetInput2(image_b);
     hausdorffFilter->Update();
 
-    return hausdorffFilter->GetDirectedHausdorffDistance();
+    auto hd = hausdorffFilter->GetDirectedHausdorffDistance();
+    sw.stop();
+
+    stats["Algorithm"] = "ITK";
+    stats["Execution"] = "CPU";
+    stats["Threads"] = config_.n_threads;
+    stats["ReportedTime"] = sw.ms();
+    return hd;
   }
 
  private:
@@ -63,17 +68,18 @@ class HausdorffDistanceITK : public HausdorffDistance<COORD_T, N_DIMS> {
                                            const itk::Size<N_DIMS>& size) {
     auto image = ImageType::New();
 
-    ImageType::RegionType region;
+    typename ImageType::RegionType region;
     region.SetSize(size);
     image->SetRegions(region);
     image->Allocate();
     image->FillBuffer(0);
 
-    ImageType::IndexType index;
+    typename ImageType::IndexType index;
     for (const auto& p : points) {
-      index[0] = static_cast<int>(std::round(p.x));
-      index[1] = static_cast<int>(std::round(p.y));
-      index[2] = static_cast<int>(std::round(p.z));
+      for (int dim = 0; dim < N_DIMS; dim++) {
+        index[dim] = static_cast<int>(
+            std::round(reinterpret_cast<const COORD_T*>(&p.x)[dim]));
+      }
       if (region.IsInside(index)) {
         image->SetPixel(index, 1);
       }

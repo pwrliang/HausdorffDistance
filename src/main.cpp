@@ -81,10 +81,10 @@ int main(int argc, char* argv[]) {
     config.variant = Variant::kRT;
   } else if (variant == "hybrid") {
     config.variant = Variant::kHybrid;
-  } else if (variant == "branch-n-bound") {
-    config.variant = Variant::kBRANCH_N_BOUND;
+  } else if (variant == "bnb") {
+    config.variant = Variant::kBranchAndBound;
   } else if (variant == "nn") {
-    config.variant = Variant::kNN;
+    config.variant = Variant::kNearestNeighborSearch;
   } else if (variant == "itk") {
     config.variant = Variant::kITK;
   } else {

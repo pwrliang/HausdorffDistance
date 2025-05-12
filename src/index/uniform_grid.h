@@ -109,12 +109,12 @@ class UniformGrid {
     auto cell_idx = EncodeCellPos(cell_p);
     auto cell_mbr = GetCellBounds(cell_idx);
 
-    if (!cell_mbr.Contains(p)) {
-      printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u, %u\n",
-             p.x, p.y, p.z, cell_mbr.lower().x, cell_mbr.upper().x,
-             cell_mbr.lower().y, cell_mbr.upper().y, cell_mbr.lower().z,
-             cell_mbr.upper().z, cell_p.x, cell_p.y, cell_p.z);
-    }
+    // if (!cell_mbr.Contains(p)) {
+    //   printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u, %u\n",
+    //          p.x, p.y, p.z, cell_mbr.lower().x, cell_mbr.upper().x,
+    //          cell_mbr.lower().y, cell_mbr.upper().y, cell_mbr.lower().z,
+    //          cell_mbr.upper().z, cell_p.x, cell_p.y, cell_p.z);
+    // }
     assert(cell_mbr.Contains(p));
 
     return occupied_cells_.set_bit_atomic(cell_idx);
@@ -367,6 +367,7 @@ class UniformGrid {
       json_dims.push_back(reinterpret_cast<unsigned int*>(&grid_size_)[dim]);
     }
     stats_["GridSize"] = json_dims;
+    stats_["CellDiagonalLength"] = GetCellDigonalLength();
 #ifndef NDEBUG
     auto* p_points = thrust::raw_pointer_cast(points.data());
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
