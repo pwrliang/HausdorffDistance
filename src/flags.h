@@ -31,7 +31,7 @@ DECLARE_bool(auto_tune);
 DECLARE_bool(fast_build_bvh);
 DECLARE_bool(rebuild_bvh);
 DECLARE_double(sample_rate);
-DECLARE_int32(max_hit);
+DECLARE_double(max_hit_ratio);
 DECLARE_int32(max_reg);
 DECLARE_int32(n_points_cell);
 DECLARE_int32(bit_count);

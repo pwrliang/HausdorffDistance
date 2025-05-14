@@ -11,24 +11,6 @@ namespace hd {
 namespace details {
 
 template <typename COORD_T, int N_DIMS>
-struct LaunchParamsNN {
-  using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
-
-  ArrayView<uint32_t> in_queue;
-  dev::Queue<uint32_t> term_queue;
-  dev::Queue<uint32_t> miss_queue;
-  ArrayView<point_t> points_a;
-  ArrayView<point_t> points_b;
-  OptixTraversableHandle handle;
-  COORD_T* cmax2;
-  COORD_T radius;
-  COORD_T max_t;
-  uint32_t* n_hits;
-  uint32_t* hits_counters;
-  uint32_t max_hit;
-};
-
-template <typename COORD_T, int N_DIMS>
 struct LaunchParamsNNUniformGrid {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   using mbr_t = Mbr<COORD_T, N_DIMS>;
@@ -44,9 +26,8 @@ struct LaunchParamsNNUniformGrid {
   OptixTraversableHandle handle;
   COORD_T* cmax2;
   COORD_T radius;
-  uint32_t* n_hits;
-  unsigned long long int* compared_pairs;
-  uint32_t* hits_counters;
+  uint32_t* hit_counters;
+  uint32_t* point_counters;
   uint32_t max_hit;
 };
 

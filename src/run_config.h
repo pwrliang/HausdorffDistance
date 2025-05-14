@@ -5,6 +5,7 @@
 #include "input_type.h"
 namespace hd {
 enum class Variant {
+  kCompareMethods,
   kEarlyBreak,
   kRT,
   kRT_HDIST,
@@ -44,7 +45,7 @@ struct RunConfig {
   bool fast_build_bvh;
   bool rebuild_bvh;
   float sample_rate;
-  int max_hit;
+  float max_hit_ratio;
   int max_reg_count;
   int n_points_cell;
   int bit_count;

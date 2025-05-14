@@ -9,6 +9,7 @@
 #include "utils/stream.h"
 #include "utils/type_traits.h"
 
+
 namespace hd {
 template <typename COORD_T, int N_DIMS>
 class HausdorffDistance {

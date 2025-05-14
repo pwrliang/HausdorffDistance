@@ -131,6 +131,14 @@ class Queue {
 
   size_t capacity() const { return data_.capacity(); }
 
+  thrust::host_vector<T> ToHostVector(const cudaStream_t& stream) const {
+    auto n_items = size(stream);
+    thrust::host_vector<T> out(n_items);
+    thrust::copy(thrust::cuda::par.on(stream), data_.begin(),
+                 data_.begin() + n_items, out.begin());
+    return out;
+  }
+
  private:
   thrust::device_vector<T> data_;
   SharedValue<uint32_t> counter_{};

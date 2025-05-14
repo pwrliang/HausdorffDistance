@@ -18,8 +18,7 @@ DEFINE_bool(move_to_origin, false, "Move input points to the orign");
 DEFINE_string(execution, "serial", "serial, parallel, or gpu");
 DEFINE_string(
     variant, "eb",
-    "can be the following options 'eb', 'zorder', 'yuan', 'rt', 'hybrid', "
-    "'branch-bound'");
+    "can be the following options 'eb', 'rt', 'hybrid', 'branch-bound'");
 DEFINE_int32(parallelism, -1,
              "How many cores to use for the parallel execution");
 DEFINE_int32(repeat, 5, "Number of repeat to evaluate");
@@ -31,11 +30,11 @@ DEFINE_bool(auto_tune, false, "Automatic tuning parameters");
 DEFINE_bool(fast_build_bvh, false, "Prefer fast build BVH");
 DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
 DEFINE_double(sample_rate, 0.001, "");
-DEFINE_int32(max_hit, 128, "Max number of hit by RT method before using EB");
+DEFINE_double(max_hit_ratio, 0.01,
+              "The ratio of the max numbers of hit to non-empty cells with RT "
+              "method before using EB");
 DEFINE_int32(max_reg, 0, "Max # of registers for RT");
-DEFINE_int32(
-    n_points_cell, 0,
-    "Number of points per cell. Setting 0 disables the grid optimization");
+DEFINE_int32(n_points_cell, 8, "Number of points per cell.");
 DEFINE_int32(bit_count, 7, "Grid bit count setting of RT-HDIST");
 
 // Output

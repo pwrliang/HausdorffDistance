@@ -1,12 +1,65 @@
 #ifndef RUNNING_STATS_H
 #define RUNNING_STATS_H
 #include <glog/logging.h>
+#include <hdr/hdr_histogram.h>
+#include <thrust/sort.h>
+#include <thrust/transform_reduce.h>
 
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
 
-#include "hdr/hdr_histogram.h"
+#include "utils/stream.h"
+namespace hd {
+
+namespace dev {
+namespace details {
+
+// Weighted index term: (2i - n + 1) * x_i
+struct weighted_index_term_uint {
+  const uint32_t* data;
+  uint32_t n;
+
+  weighted_index_term_uint(const uint32_t* _data, uint32_t _n)
+      : data(_data), n(_n) {}
+
+  __host__ __device__ float operator()(uint32_t i) const {
+    return (2.0f * i - n + 1) * data[i];
+  }
+};
+}  // namespace details
+}  // namespace dev
+// Gini index function for unsigned int input
+inline float gini_index_thrust(const Stream& stream,
+                               thrust::device_vector<uint32_t> d_values) {
+  uint32_t n = d_values.size();
+  if (n == 0)
+    return 0.0f;
+
+  // Sort values
+  thrust::sort(thrust::cuda::par.on(stream.cuda_stream()), d_values.begin(),
+               d_values.end());
+
+  // Total sum of values
+  auto total = thrust::transform_reduce(
+      thrust::cuda::par.on(stream.cuda_stream()), d_values.begin(),
+      d_values.end(), thrust::identity<uint32_t>(), 0.0f,
+      thrust::plus<float>());
+
+  if (total == 0)
+    return 0.0f;
+
+  // Compute weighted sum
+  auto* raw_ptr = thrust::raw_pointer_cast(d_values.data());
+  auto weighted_sum = thrust::transform_reduce(
+      thrust::cuda::par.on(stream.cuda_stream()),
+      thrust::counting_iterator<uint32_t>(0),
+      thrust::counting_iterator<uint32_t>(n),
+      dev::details::weighted_index_term_uint(raw_ptr, n), 0.0f,
+      thrust::plus<float>());
+
+  return weighted_sum / (n * total);
+}
 
 class RunningStats {
  public:
@@ -86,5 +139,6 @@ inline nlohmann::json DumpHistogram(hdr_histogram* histogram,
   free(buffer);
   return j;
 }
+}  // namespace hd
 
 #endif  // RUNNING_STATS_H

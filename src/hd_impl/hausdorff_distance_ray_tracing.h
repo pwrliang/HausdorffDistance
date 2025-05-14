@@ -7,6 +7,7 @@
 
 #include <sstream>
 
+#include "flags.h"
 #include "geoms/distance.h"
 #include "geoms/hd_bounds.h"
 #include "geoms/mbr.h"
@@ -67,7 +68,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     Stopwatch sw, sw_total;
 
     sw_total.start();
-    uint64_t compared_pairs = 0;
+    uint64_t compared_points = 0;
     auto& stats = this->stats_;
     auto n_points_a = points_a.size();
     auto n_points_b = points_b.size();
@@ -91,6 +92,11 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["NumPointsPerCell"] = config_.n_points_cell;
 
     COORD_T radius;
+
+    // TODO: Build a Histogram over the sample-based EB
+    // Find the median compared pairs
+    // use the median as threshold
+
     // Sample points for a better initial HD
     {
       thrust::device_vector<point_t> points_b_shuffled = points_b;
@@ -100,10 +106,12 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       uint32_t n_samples = ceil(points_a.size() * config_.sample_rate);
       auto sampled_point_ids_a =
           sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
-      compared_pairs += CalculateHDEarlyBreak(
-          stream, points_a, points_b_shuffled, sampled_point_ids_a);
+      CalculateHDEarlyBreak(stream, points_a, points_b_shuffled,
+                            sampled_point_ids_a);
       auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
       sw.stop();
+      LOG(INFO) << "Sample Time " << sw.ms() << " ms" << " compared "
+                << compared_points;
       stats["NumSamples"] = n_samples;
       stats["SampleTime"] = sw.ms();
       stats["HD2AfterSampling"] = sampled_hd2;
@@ -131,54 +139,35 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     in_queue_.Clear(stream.cuda_stream());
     out_queue_.Clear(stream.cuda_stream());
 
-    OptixTraversableHandle gas_handle;
-
     // Build BVH
-    buffer_.Clear();
 
     thrust::device_vector<mbr_t> mbrs_b;
-    bool use_grid = config_.n_points_cell > 0;
 
-    if (use_grid) {
-      auto grid_size = grid_.CalculateGridResolution(mbr_b, n_points_b,
-                                                     config_.n_points_cell);
-      grid_.Init(grid_size, mbr_b);
-      grid_.Insert(stream, points_b);
-      mbrs_b = grid_.GetTightCellMbrs(stream, points_b);
+    auto grid_size =
+        grid_.CalculateGridResolution(mbr_b, n_points_b, config_.n_points_cell);
+    grid_.Init(grid_size, mbr_b);
+    grid_.Insert(stream, points_b);
+    mbrs_b = grid_.GetTightCellMbrs(stream, points_b);
 
-      stats["Grid"] = grid_.GetStats();
+    stats["Grid"] = grid_.GetStats();
 
-      sw.start();
-      auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
-          mbrs_b.size(), config_.fast_build, config_.compact);
-      buffer_.Init(mem_bytes * 1.2);
-      gas_handle = BuildBVH(stream, mbrs_b, radius);
-      stream.Sync();
-      sw.stop();
-      stats["BVHBuildTime"] = sw.ms();
-      stats["BVHMemoryKB"] = mem_bytes / 1024;
-    } else {
-      sw.start();
-      auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
-          n_points_b, config_.fast_build, config_.compact);
-      buffer_.Init(mem_bytes * 1.2);
-      gas_handle = BuildBVH(stream, points_b, radius);
-      stream.Sync();
-      sw.stop();
-      stats["BVHBuildTime"] = sw.ms();
-      stats["BVHMemoryKB"] = mem_bytes / 1024;
-    }
+    sw.start();
+    auto mem_bytes = rt_engine_.EstimateMemoryUsageForAABB(
+        mbrs_b.size(), config_.fast_build, config_.compact);
+    buffer_.Init(mem_bytes * 1.2);
+    buffer_.Clear();
+    auto gas_handle = BuildBVH(stream, mbrs_b, radius);
+    stream.Sync();
+    sw.stop();
+    stats["BVHBuildTime"] = sw.ms();
+    stats["BVHMemoryKB"] = mem_bytes / 1024;
 
     int iter = 0;
     uint32_t in_size = n_points_a;
 
 #ifdef PROFILING
-    struct hdr_histogram* histogram;
-    // Initialise the histogram
-    hdr_init(1,                     // Minimum value
-             (int64_t) n_points_b,  // Maximum value
-             3,                     // Number of significant figures
-             &histogram);           // Pointer to initialise
+    hit_counters_.resize(n_points_a, 0);
+    point_counters_.resize(n_points_a, 0);
     stats["Profiling"] = true;
 #else
     stats["Profiling"] = false;
@@ -190,73 +179,34 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       iter++;
       auto& json_iter = stats["Iter" + std::to_string(iter)];
 
-      iter_hits_.set(stream.cuda_stream(), 0);
-      compared_pairs_.set(stream.cuda_stream(), 0);
-
-      details::ModuleIdentifier mod_nn = getRTModule(use_grid);
+      details::ModuleIdentifier mod_nn = getRTModule();
 
       sw.start();
-      if (use_grid) {
-        details::LaunchParamsNNUniformGrid<COORD_T, N_DIMS> params;
+      details::LaunchParamsNNUniformGrid<COORD_T, N_DIMS> params;
 
-        params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
-        params.miss_queue = out_queue_.DeviceObject();
-        params.points_a = points_a;
-        params.points_b = points_b;
-        params.handle = gas_handle;
-        params.cmax2 = cmax2_.data();
-        params.radius = radius;
-        params.mbrs_b = mbrs_b;
-        params.prefix_sum = grid_.get_prefix_sum();
-        params.point_b_ids = grid_.get_point_ids();
-        params.n_hits = iter_hits_.data();
-        params.compared_pairs = compared_pairs_.data();
+      params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
+      params.miss_queue = out_queue_.DeviceObject();
+      params.points_a = points_a;
+      params.points_b = points_b;
+      params.handle = gas_handle;
+      params.cmax2 = cmax2_.data();
+      params.radius = radius;
+      params.mbrs_b = mbrs_b;
+      params.prefix_sum = grid_.get_prefix_sum();
+      params.point_b_ids = grid_.get_point_ids();
 #ifdef PROFILING
-        hits_counters_.resize(in_size, 0);
-        params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
+      params.hit_counters = thrust::raw_pointer_cast(hit_counters_.data());
+      params.point_counters = thrust::raw_pointer_cast(point_counters_.data());
 #else
-        params.hits_counters = nullptr;
+      params.hit_counters = nullptr;
+      params.point_counters = nullptr;
 #endif
-        params.max_hit = std::numeric_limits<uint32_t>::max();
+      params.max_hit = std::numeric_limits<uint32_t>::max();
 
-        rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
-      } else {
-        details::LaunchParamsNN<COORD_T, N_DIMS> params;
-
-        params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
-        params.miss_queue = out_queue_.DeviceObject();
-        params.points_a = ArrayView<point_t>(points_a);
-        params.points_b = ArrayView<point_t>(points_b);
-        params.handle = gas_handle;
-        params.cmax2 = cmax2_.data();
-        params.radius = radius;
-        params.n_hits = iter_hits_.data();
-#ifdef PROFILING
-        hits_counters_.resize(in_size, 0);
-        params.hits_counters = thrust::raw_pointer_cast(hits_counters_.data());
-#else
-        params.hits_counters = nullptr;
-#endif
-        params.max_hit = std::numeric_limits<uint32_t>::max();
-
-        rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
-      }
-
+      rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
       rt_engine_.Render(stream.cuda_stream(), mod_nn, dim3{in_size, 1, 1});
       auto cmax2 = cmax2_.get(stream.cuda_stream());
       sw.stop();
-
-#ifdef PROFILING
-      thrust::host_vector<uint32_t> h_hits_counters = hits_counters_;
-
-      for (auto val : h_hits_counters) {
-        if (val > 0)
-          hdr_record_value(histogram,  // Histogram to record to
-                           val);       // Value to record
-      }
-      json_iter["HitsHistogram"] = DumpHistogram(histogram);
-      hdr_reset(histogram);
-#endif
 
       auto cmax = sqrt(cmax2);
 
@@ -266,43 +216,34 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
               << " out_size: " << out_queue_.size(stream.cuda_stream())
               << " Time: " << sw.ms() << " ms";
 
+      json_iter["NumInputPoints"] = in_size;
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
-
-      json_iter["NumInputPoints"] = in_size;
       in_size = in_queue_.size(stream.cuda_stream());
       json_iter["NumOutputPoints"] = in_size;
       json_iter["CMax2"] = cmax2;
       json_iter["RTTime"] = sw.ms();
-      json_iter["Hits"] = iter_hits_.get(stream.cuda_stream());
-      json_iter["ComparedPairs"] = compared_pairs_.get(stream.cuda_stream());
+#ifdef PROFILING
+      json_iter["AccumulatedHits"] = thrust::reduce(
+          thrust::cuda::par.on(stream.cuda_stream()), hit_counters_.begin(),
+          hit_counters_.end(), 0ul, thrust::plus<uint64_t>());
+      json_iter["AccumulatedComparedPoints"] = thrust::reduce(
+          thrust::cuda::par.on(stream.cuda_stream()), point_counters_.begin(),
+          point_counters_.end(), 0ul, thrust::plus<uint64_t>());
+#endif
       json_iter["Radius"] = radius;
       json_iter["CoveredCells"] = radius / grid_.GetCellDigonalLength();
-      compared_pairs += json_iter["Hits"].template get<uint32_t>();
 
-      if (in_size > 0) {
-        if (radius < hd_ub) {
-          if (use_grid) {
-            radius += grid_.GetCellDigonalLength();
-          } else {
-            radius *= 1.5;
-          }
-          radius = std::min(radius, hd_ub);
-        }
+      if (in_size > 0 && radius < hd_ub) {
+        radius += grid_.GetCellDigonalLength();
+        radius = std::min(radius, hd_ub);
+
         sw.start();
         if (config_.rebuild_bvh) {
           buffer_.Clear();
-          if (mbrs_b.empty()) {
-            gas_handle = BuildBVH(stream, points_b, radius);
-          } else {
-            gas_handle = BuildBVH(stream, mbrs_b, radius);
-          }
+          gas_handle = BuildBVH(stream, mbrs_b, radius);
         } else {
-          if (mbrs_b.empty()) {
-            gas_handle = UpdateBVH(stream, gas_handle, points_b, radius);
-          } else {
-            gas_handle = UpdateBVH(stream, gas_handle, mbrs_b, radius);
-          }
+          gas_handle = UpdateBVH(stream, gas_handle, mbrs_b, radius);
         }
         stream.Sync();
         sw.stop();
@@ -315,37 +256,10 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 
     stats["Algorithm"] = "Ray Tracing";
     stats["Execution"] = "GPU";
-    stats["ComparedPairs"] = compared_pairs;
+    stats["ComparedPairs"] = compared_points;
     stats["ReportedTime"] = sw_total.ms();
 
     return sqrt(cmax2);
-  }
-
-  OptixTraversableHandle BuildBVH(const Stream& stream,
-                                  ArrayView<point_t> points, COORD_T radius) {
-    aabbs_.resize(points.size());
-    thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
-                      points.begin(), points.end(), aabbs_.begin(),
-                      [=] __device__(const point_t& p) {
-                        return details::GetOptixAABB(p, radius);
-                      });
-    return rt_engine_.BuildAccelCustom(stream.cuda_stream(),
-                                       ArrayView<OptixAabb>(aabbs_), buffer_,
-                                       config_.fast_build, config_.compact);
-  }
-
-  OptixTraversableHandle UpdateBVH(const Stream& stream,
-                                   OptixTraversableHandle handle,
-                                   ArrayView<point_t> points, COORD_T radius) {
-    aabbs_.resize(points.size());
-    thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
-                      points.begin(), points.end(), aabbs_.begin(),
-                      [=] __device__(const point_t& p) {
-                        return details::GetOptixAABB(p, radius);
-                      });
-    return rt_engine_.UpdateAccelCustom(stream.cuda_stream(), handle,
-                                        ArrayView<OptixAabb>(aabbs_), buffer_,
-                                        0, config_.fast_build, config_.compact);
   }
 
   OptixTraversableHandle BuildBVH(const Stream& stream, ArrayView<mbr_t> mbrs,
@@ -375,16 +289,13 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
                                         0, config_.fast_build, config_.compact);
   }
 
-  uint64_t CalculateHDEarlyBreak(
+  void CalculateHDEarlyBreak(
       const Stream& stream, const thrust::device_vector<point_t>& points_a,
       const thrust::device_vector<point_t>& points_b,
       ArrayView<uint32_t> v_point_ids_a = ArrayView<uint32_t>()) {
-    SharedValue<unsigned long long int> compared_pairs;
     auto* p_cmax2 = cmax2_.data();
     ArrayView<point_t> v_points_a(points_a);
     ArrayView<point_t> v_points_b(points_b);
-
-    auto* p_compared_pairs = compared_pairs.data();
 
     uint32_t n_points_a = v_point_ids_a.size();
 
@@ -392,59 +303,73 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       n_points_a = points_a.size();
     }
 
-    compared_pairs.set(stream.cuda_stream(), 0);
-
     LaunchKernel(stream, [=] __device__() {
       using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
       __shared__ typename BlockReduce::TempStorage temp_storage;
       __shared__ bool early_break;
-      __shared__ const point_t* point_a;
-      uint64_t n_pairs = 0;
+      __shared__ point_t point_a;
 
       for (auto i = blockIdx.x; i < n_points_a; i += gridDim.x) {
         auto size_b_roundup =
             div_round_up(v_points_b.size(), blockDim.x) * blockDim.x;
-        coord_t cmin = std::numeric_limits<coord_t>::max();
 
         if (threadIdx.x == 0) {
           early_break = false;
           if (v_point_ids_a.empty()) {
-            point_a = &v_points_a[i];
+            point_a = v_points_a[i];
           } else {
             auto point_id_s = v_point_ids_a[i];
-            point_a = &v_points_a[point_id_s];
+            point_a = v_points_a[point_id_s];
           }
         }
         __syncthreads();
 
+        int n_iter = 0;
+        auto thread_min = std::numeric_limits<coord_t>::max();
+        uint32_t n_pairs = 0;
+
         for (auto j = threadIdx.x; j < size_b_roundup && !early_break;
-             j += blockDim.x) {
-          auto d = std::numeric_limits<coord_t>::max();
+             j += blockDim.x, n_iter++) {
           if (j < v_points_b.size()) {
             const auto& point_b = v_points_b[j];
-            d = EuclideanDistance2(*point_a, point_b);
+            thread_min =
+                std::min(thread_min, EuclideanDistance2(point_a, point_b));
             n_pairs++;
           }
 
-          auto agg_min = BlockReduce(temp_storage).Reduce(d, cub::Min());
+          // Reduce the frequency of sync
+          if (n_iter % 32 == 0) {
+            auto agg_min =
+                BlockReduce(temp_storage).Reduce(thread_min, cub::Min());
 
-          if (threadIdx.x == 0) {
-            cmin = std::min(cmin, agg_min);
-            if (cmin <= *p_cmax2) {
-              early_break = true;
+            if (threadIdx.x == 0) {
+              if (agg_min <= *p_cmax2) {
+                early_break = true;
+              }
             }
+            __syncthreads();
           }
-          __syncthreads();
         }
+        auto agg_cmin2 =
+            BlockReduce(temp_storage).Reduce(thread_min, cub::Min());
+        auto agg_pairs = BlockReduce(temp_storage).Reduce(n_pairs, cub::Sum());
 
-        __syncthreads();
-        if (threadIdx.x == 0 && cmin != std::numeric_limits<coord_t>::max()) {
-          atomicMax(p_cmax2, cmin);
+        if (threadIdx.x == 0) {
+          if (!early_break &&
+              agg_cmin2 != std::numeric_limits<coord_t>::max()) {
+            atomicMax(p_cmax2, agg_cmin2);
+          }
         }
       }
-      atomicAdd(p_compared_pairs, n_pairs);
     });
-    return compared_pairs.get(stream.cuda_stream());
+  }
+
+  const thrust::device_vector<uint32_t>& get_hit_counters() const {
+    return hit_counters_;
+  }
+
+  const thrust::device_vector<uint32_t>& get_point_counters() const {
+    return point_counters_;
   }
 
  private:
@@ -452,46 +377,28 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
   thrust::default_random_engine g_;
   grid_t grid_;
   thrust::device_vector<OptixAabb> aabbs_;
-  thrust::device_vector<uint32_t> hits_counters_;
+  thrust::device_vector<uint32_t> hit_counters_, point_counters_;
   SharedValue<mbr_t> mbr_;
   Queue<uint32_t> in_queue_, out_queue_;
   ReusableBuffer buffer_;
   details::RTEngine rt_engine_;
   SharedValue<COORD_T> cmax2_;
   Sampler sampler_;
-  SharedValue<uint32_t> iter_hits_;
-  SharedValue<unsigned long long int> compared_pairs_;
 
-  details::ModuleIdentifier getRTModule(bool use_grid) {
+  details::ModuleIdentifier getRTModule() {
     details::ModuleIdentifier mod_nn = details::NUM_MODULE_IDENTIFIERS;
 
-    if (use_grid) {
-      if (typeid(COORD_T) == typeid(float)) {
-        if (N_DIMS == 2) {
-          mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D;
-        } else if (N_DIMS == 3) {
-          mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D;
-        }
-      } else if (typeid(COORD_T) == typeid(double)) {
-        if (N_DIMS == 2) {
-          mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D;
-        } else if (N_DIMS == 3) {
-          mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_3D;
-        }
+    if (typeid(COORD_T) == typeid(float)) {
+      if (N_DIMS == 2) {
+        mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D;
+      } else if (N_DIMS == 3) {
+        mod_nn = details::MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D;
       }
-    } else {
-      if (typeid(COORD_T) == typeid(float)) {
-        if (N_DIMS == 2) {
-          mod_nn = details::MODULE_ID_FLOAT_NN_2D;
-        } else if (N_DIMS == 3) {
-          mod_nn = details::MODULE_ID_FLOAT_NN_3D;
-        }
-      } else if (typeid(COORD_T) == typeid(double)) {
-        if (N_DIMS == 2) {
-          mod_nn = details::MODULE_ID_DOUBLE_NN_2D;
-        } else if (N_DIMS == 3) {
-          mod_nn = details::MODULE_ID_DOUBLE_NN_3D;
-        }
+    } else if (typeid(COORD_T) == typeid(double)) {
+      if (N_DIMS == 2) {
+        mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D;
+      } else if (N_DIMS == 3) {
+        mod_nn = details::MODULE_ID_DOUBLE_NN_UNIFORM_GRID_3D;
       }
     }
     return mod_nn;

@@ -73,7 +73,9 @@ int main(int argc, char* argv[]) {
   std::transform(variant.begin(), variant.end(), variant.begin(),
                  [](unsigned char c) { return std::tolower(c); });
 
-  if (variant == "eb") {
+  if (variant == "compare-methods") {
+    config.variant = Variant::kCompareMethods;
+  } else if (variant == "eb") {
     config.variant = Variant::kEarlyBreak;
   } else if (variant == "rt-hdist") {
     config.variant = Variant::kRT_HDIST;
@@ -117,7 +119,7 @@ int main(int argc, char* argv[]) {
   config.fast_build_bvh = FLAGS_fast_build_bvh;
   config.rebuild_bvh = FLAGS_rebuild_bvh;
   config.sample_rate = FLAGS_sample_rate;
-  config.max_hit = FLAGS_max_hit;
+  config.max_hit_ratio = FLAGS_max_hit_ratio;
   config.max_reg_count = FLAGS_max_reg;
   config.n_points_cell = FLAGS_n_points_cell;
   config.bit_count = FLAGS_bit_count;

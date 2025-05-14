@@ -47,9 +47,14 @@ extern "C" __global__ void __intersection__nn_uniform_grid_2d() {
       }
     }
   };
-  if (params.hits_counters != nullptr) {
-    params.hits_counters[optixGetLaunchIndex().x]++;
+
+  n_hits++;
+  optixSetPayload_1(n_hits);
+
+  if (n_hits >= params.max_hit) {
+    optixReportIntersection(0, 0);  // return implicitly
   }
+
   // this box is out of search radius
   // This improves the performance by a lot
   if (min_dist2 > radius * radius) {
@@ -62,8 +67,6 @@ extern "C" __global__ void __intersection__nn_uniform_grid_2d() {
     optixReportIntersection(0, 0);
   }
 
-  optixSetPayload_1(n_hits + 1);
-
   for (auto offset = begin; offset < end; ++offset) {
     auto point_b_id = params.point_b_ids[offset];
     const auto& point_b = params.points_b[point_b_id];
@@ -73,9 +76,9 @@ extern "C" __global__ void __intersection__nn_uniform_grid_2d() {
       update_cmin2(dist2);
     }
 
-    if (dist2 <= *params.cmax2 || n_hits > params.max_hit) {
+    if (dist2 <= *params.cmax2) {
       optixSetPayload_2(optixGetPayload_2() + (offset - begin + 1));
-      optixReportIntersection(0, 0);
+      optixReportIntersection(0, 0); // return implicitly
     }
   }
   optixSetPayload_2(optixGetPayload_2() + end - begin);
@@ -125,15 +128,16 @@ extern "C" __global__ void __raygen__nn_uniform_grid_2d() {
                  point_id_a, n_hits, n_compared_pairs, cmin2_storage.x, cmin2_storage.y);
       hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
     }
-    if (params.n_hits != nullptr) {
-      atomicAdd(params.n_hits, n_hits);
+
+    if (params.hit_counters != nullptr) {
+      params.hit_counters[point_id_a] += n_hits;
     }
 
-    if (params.compared_pairs != nullptr) {
-      atomicAdd(params.compared_pairs, n_compared_pairs);
+    if (params.point_counters != nullptr) {
+      params.point_counters[point_id_a] += n_compared_pairs;
     }
 
-    if (n_hits > params.max_hit) {
+    if (n_hits >= params.max_hit) {
       if (params.term_queue.capacity()) {
         params.term_queue.Append(point_id_a);
       }

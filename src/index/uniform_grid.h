@@ -2,20 +2,18 @@
 #define HAUSDORFF_DISTANCE_INDEX_UNIFORM_GRID_H
 
 #include <glog/logging.h>
+#include <hdr/hdr_histogram.h>
 #include <optix.h>
 #include <thrust/binary_search.h>
 #include <thrust/count.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/sort.h>
-#include <thrust/transform_reduce.h>
 
 #include <iostream>
 #include <nlohmann/json.hpp>
 
 #include "geoms/mbr.h"
-#include "hdr/hdr_histogram.h"
 #include "running_stats.h"
 #include "utils/array_view.h"
 #include "utils/bitset.h"
@@ -76,18 +74,6 @@ DEV_HOST_INLINE uint3 DecodeCellIdx<3>(uint64_t cell_idx,
   return cell_pos;
 }
 
-// Weighted index term: (2i - n + 1) * x_i
-struct weighted_index_term_uint {
-  const uint32_t* data;
-  uint32_t n;
-
-  weighted_index_term_uint(const uint32_t* _data, uint32_t _n)
-      : data(_data), n(_n) {}
-
-  __host__ __device__ float operator()(uint32_t i) const {
-    return (2.0f * i - n + 1) * data[i];
-  }
-};
 
 }  // namespace details
 
@@ -110,7 +96,8 @@ class UniformGrid {
     auto cell_mbr = GetCellBounds(cell_idx);
 
     // if (!cell_mbr.Contains(p)) {
-    //   printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u, %u\n",
+    //   printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u,
+    //   %u\n",
     //          p.x, p.y, p.z, cell_mbr.lower().x, cell_mbr.upper().x,
     //          cell_mbr.lower().y, cell_mbr.upper().y, cell_mbr.lower().z,
     //          cell_mbr.upper().z, cell_p.x, cell_p.y, cell_p.z);
@@ -541,37 +528,6 @@ class UniformGrid {
   mbr_t mbr_;
   cell_idx_t grid_size_;
 
-  // Gini index function for unsigned int input
-  float gini_index_thrust(const Stream& stream,
-                          thrust::device_vector<uint32_t> d_values) {
-    uint32_t n = d_values.size();
-    if (n == 0)
-      return 0.0f;
-
-    // Sort values
-    thrust::sort(thrust::cuda::par.on(stream.cuda_stream()), d_values.begin(),
-                 d_values.end());
-
-    // Total sum of values
-    auto total = thrust::transform_reduce(
-        thrust::cuda::par.on(stream.cuda_stream()), d_values.begin(),
-        d_values.end(), thrust::identity<uint32_t>(), 0.0f,
-        thrust::plus<float>());
-
-    if (total == 0)
-      return 0.0f;
-
-    // Compute weighted sum
-    auto* raw_ptr = thrust::raw_pointer_cast(d_values.data());
-    auto weighted_sum = thrust::transform_reduce(
-        thrust::cuda::par.on(stream.cuda_stream()),
-        thrust::counting_iterator<uint32_t>(0),
-        thrust::counting_iterator<uint32_t>(n),
-        dev::details::weighted_index_term_uint(raw_ptr, n), 0.0f,
-        thrust::plus<float>());
-
-    return weighted_sum / (n * total);
-  }
 };
 }  // namespace hd
 #endif  // HAUSDORFF_DISTANCE_INDEX_UNIFORM_GRID_H
