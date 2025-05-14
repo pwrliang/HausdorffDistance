@@ -69,7 +69,7 @@ class FeaturesMaxHitInit {
 
   std::vector<double> Serialize() const {
     auto n_doubles = sizeof(Input) / sizeof(double);
-    std::vector<double> result(n_doubles);
+    std::vector<double> result(n_doubles + 2);
     for (int i = 0; i < n_doubles; i++) {
       result[i] = reinterpret_cast<const double*>(&input_)[i];
     }
@@ -148,7 +148,7 @@ class FeaturesMaxHitNext {
 
   std::vector<double> Serialize() const {
     auto n_doubles = sizeof(Input) / sizeof(double);
-    std::vector<double> result(n_doubles);
+    std::vector<double> result(n_doubles + 2);
     for (int i = 0; i < n_doubles; i++) {
       result[i] = reinterpret_cast<const double*>(&input_)[i];
     }
@@ -198,7 +198,7 @@ class FeaturesStatic {
 
   std::vector<double> Serialize() const {
     auto n_doubles = sizeof(Input) / sizeof(double);
-    std::vector<double> result(n_doubles * 2);
+    std::vector<double> result(n_doubles * 2 + 1);
     for (int i = 0; i < n_doubles; i++) {
       result[i] = reinterpret_cast<const double*>(&stats_A_)[i];
       result[i + n_doubles] = reinterpret_cast<const double*>(&stats_B_)[i];

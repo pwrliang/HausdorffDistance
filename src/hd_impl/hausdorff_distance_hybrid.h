@@ -158,7 +158,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
 
     int iter = 0;
 
-    auto max_hit = get_max_hit_init();
+    auto max_hit = get_max_hit_init(config_.sample_rate, config_.n_points_cell);
     uint32_t in_size = n_points_a;
 
     in_queue_.Init(n_points_a);
@@ -250,7 +250,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
         sw.stop();
         json_iter["AdjustBVHTime"] = sw.ms();
       }
-      max_hit = get_max_hit_next(json_iter);
+      max_hit = get_max_hit_next(json_iter, config_.sample_rate, config_.n_points_cell);
     }
     auto cmax2 = cmax2_.get(stream.cuda_stream());
     sw_total.stop();
@@ -636,7 +636,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     return n_points_cell;
   }
 
-  uint32_t get_max_hit_init() const {
+  uint32_t get_max_hit_init(float sample_rate, int n_points_cell) const {
     auto max_hit = config_.max_hit;
 
     if (config_.auto_tune) {
@@ -646,6 +646,10 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       features_max_hit_init.UpdateRunningInfo(this->stats_);
 
       auto features_vals = features_max_hit_init.Serialize();
+
+      features_vals[22] = sample_rate;
+      features_vals[23] = n_points_cell;
+ 
 
       if (N_DIMS == 2) {
         // TODO
@@ -657,7 +661,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     return max_hit;
   }
 
-  uint32_t get_max_hit_next(const nlohmann::json& json_iter) const {
+  uint32_t get_max_hit_next(const nlohmann::json& json_iter, float sample_rate, int n_points_cell) const {
     auto max_hit = config_.max_hit;
 
     if (config_.auto_tune) {
@@ -667,6 +671,9 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       features_max_hit_next.UpdateRunningInfo(json_iter);
 
       auto features_vals = features_max_hit_next.Serialize();
+
+	  features_vals[25] = sample_rate;
+      features_vals[26] = n_points_cell;
 
       if (N_DIMS == 2) {
         // TODO

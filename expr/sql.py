@@ -35,7 +35,8 @@ SELECT "Input.FileA.Grid.GiniIndex" AS A_GiniIndex,
        "Input.FileB.Grid.TotalCells" AS B_TotalCells,
        "Input.FileB.MBR" AS B_MBR,
        "Input.FileB.NumPoints" AS B_NumPoints,
-       "Running.SampleRate" as SampleRate
+       "Running.SampleRate" as SampleRate,
+	   concat("Input.FileA.Path", "Input.FileB.Path") as Dataset
 FROM raw_df
 JOIN (
     SELECT renamed_df.Dataset, 
@@ -97,7 +98,8 @@ SELECT "Input.FileA.Grid.GiniIndex" AS A_GiniIndex,
        "Input.FileB.MBR" AS B_MBR,
        "Input.FileB.NumPoints" AS B_NumPoints,
        "Running.SampleRate" as SampleRate,
-       "Running.NumPointsPerCell" as NumPointsPerCell
+       "Running.NumPointsPerCell" as NumPointsPerCell,
+       concat("Input.FileA.Path", "Input.FileB.Path") as Dataset
 FROM raw_df
 JOIN (
     SELECT renamed_df.Dataset, 
@@ -142,7 +144,9 @@ SELECT "Input.FileA.Density" AS A_Density,
        "Running.Train.Grid.NonEmptyCells" as NonEmptyCells,
        "Running.Train.HDLowerBound" as HDLowerBound,
        "Running.Train.HDUpperBound" as HDUpperBound,
-       "Running.Train.Iter1.MaxHit" as MaxHitInit
+       "Running.Train.Iter1.MaxHit" as MaxHitInit,
+       "Running.SampleRate" as SampleRate,
+       "Running.NumPointsPerCell" as NumPointsPerCell
 FROM raw_df
 """
 
@@ -168,6 +172,8 @@ SELECT "Input.FileA.Density" AS A_Density,
        "Running.Train.Iter1.ComparedPairs" as ComparedPairs,
        "Running.Train.Iter1.EBTime" as EBTime,
        "Running.Train.Iter1.RTTime" as RTTime,
-       "Running.Train.Iter2.MaxHit" as MaxHitNext
+       "Running.Train.Iter2.MaxHit" as MaxHitNext,
+       "Running.SampleRate" as SampleRate,
+       "Running.NumPointsPerCell" as NumPointsPerCell
 FROM raw_df
 """

@@ -74,7 +74,11 @@ RunConfig PredicateBestConfig(double* features, const RunConfig& config) {
   double n_points_cell;
 
   sample_rate = PredictSampleRate_3D(features);
+  if (sample_rate <= 0) sample_rate = 0.0001;
+  if (sample_rate >= 1.0) sample_rate = 1.0;
+  features[76] = sample_rate;
   n_points_cell = PredictNumPointsPerCell_3D(features);
+  if (n_points_cell <= 1) n_points_cell = 1;
 
   if (sample_rate <= 0) {
     sample_rate = 0.0001;
@@ -85,7 +89,7 @@ RunConfig PredicateBestConfig(double* features, const RunConfig& config) {
   LOG(INFO) << "Points/Cell: " << config.n_points_cell << ", " << n_points_cell;
 
   CHECK(sample_rate > 0 && sample_rate <= 1);
-  CHECK(n_points_cell > 1);
+  CHECK(n_points_cell >= 1);
 
   auto_tune_config.sample_rate = sample_rate;
   auto_tune_config.n_points_cell = n_points_cell;
