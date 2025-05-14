@@ -51,9 +51,9 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     bool rebuild_bvh = false;
     float sample_rate = 0.001;
     int n_points_cell = 8;
-    int max_samples = 100 * 1000;
+    uint32_t max_samples = 100 * 1000;
     int max_reg_count = 0;
-    float max_hit_ratio = 0.01;
+    float max_hit_ratio = 0;
   };
 
   HausdorffDistanceHybrid() = default;
@@ -90,6 +90,8 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     }
 
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
+    hit_counters_.resize(n_points_a, 0);
+    point_counters_.resize(n_points_a, 0);
 
     stats.clear();
 
@@ -103,20 +105,31 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
                     points_b_shuffled.begin(), points_b_shuffled.end(), g_);
 
     COORD_T radius;
+    uint32_t avg_compared_pairs;
     // Sampling to find a good starting point of cmax2
     {
       sw.start();
       uint32_t n_samples = ceil(points_a.size() * config_.sample_rate);
+      n_samples = std::min(n_samples, config_.max_samples);
+      thrust::device_vector<uint32_t> counters(n_samples);
+
       auto sampled_point_ids_a =
           sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
+
       CalculateHDEarlyBreak(stream, points_a, points_b_shuffled,
-                            sampled_point_ids_a);
+                            sampled_point_ids_a,
+                            thrust::raw_pointer_cast(counters.data()));
+      auto total_pairs = thrust::reduce(
+          thrust::cuda::par.on(stream.cuda_stream()), counters.begin(),
+          counters.end(), 0u, thrust::plus<uint32_t>());
       auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
       sw.stop();
       radius = sqrt(sampled_hd2);
       stats["NumSamples"] = n_samples;
       stats["SampleTime"] = sw.ms();
       stats["HD2AfterSampling"] = sampled_hd2;
+
+      avg_compared_pairs = total_pairs / n_samples;
     }
 
     if (radius == 0) {
@@ -137,6 +150,21 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
     grid_.Insert(stream, points_b);
     auto mbrs_b = grid_.GetTightCellMbrs(stream, points_b);
     auto n_mbrs = mbrs_b.size();
+
+    auto median_points_per_cell =
+        grid_.GetStats().at("MedianPointsPerCell").template get<uint32_t>();
+
+    if (config_.max_hit_ratio == 0) {
+      auto best_max_hit_ratio =
+          (float) (avg_compared_pairs / config_.n_points_cell) / mbrs_b.size();
+
+      LOG(INFO) << "Avg pairs: " << avg_compared_pairs << " Median Points/Cell "
+                << median_points_per_cell << " Avg Points/Cell "
+                << config_.n_points_cell << " Best Hit Ratio "
+                << best_max_hit_ratio;
+
+      config_.max_hit_ratio = best_max_hit_ratio;
+    }
 
     stats["Grid"] = grid_.GetStats();
 
@@ -170,9 +198,6 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
 
     in_queue_.SetSequence(stream.cuda_stream(), in_size);
     sw.stop();
-
-    hit_counters_.resize(n_points_a, 0);
-    point_counters_.resize(n_points_a, 0);
 
     while (in_size > 0) {
       iter++;
@@ -221,6 +246,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
                         eb_point_a_ids.begin(), eb_point_a_ids.end(), g_);
         CalculateHDEarlyBreak(stream, points_a, points_b_shuffled,
                               eb_point_a_ids);
+        stream.Sync();
         sw.stop();
         json_iter["EBTime"] = sw.ms();
       } else {
@@ -518,7 +544,8 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
   void CalculateHDEarlyBreak(
       const Stream& stream, const thrust::device_vector<point_t>& points_a,
       const thrust::device_vector<point_t>& points_b,
-      ArrayView<uint32_t> v_point_ids_a = ArrayView<uint32_t>()) {
+      ArrayView<uint32_t> v_point_ids_a = ArrayView<uint32_t>(),
+      uint32_t* p_counters = nullptr) {
     auto* p_cmax2 = cmax2_.data();
     ArrayView<point_t> v_points_a(points_a);
     ArrayView<point_t> v_points_b(points_b);
@@ -584,6 +611,9 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
           if (!early_break &&
               agg_cmin2 != std::numeric_limits<coord_t>::max()) {
             atomicMax(p_cmax2, agg_cmin2);
+          }
+          if (p_counters != nullptr) {
+            p_counters[i] = agg_pairs;
           }
         }
       }

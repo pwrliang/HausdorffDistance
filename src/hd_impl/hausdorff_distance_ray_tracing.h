@@ -46,7 +46,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     bool rebuild_bvh = false;
     float sample_rate = 0.001;
     int n_points_cell = 8;
-    int max_samples = 100 * 1000;
+    uint32_t max_samples = 100 * 1000;
     int max_reg_count = 0;
   };
 
@@ -104,14 +104,13 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
                       points_b_shuffled.begin(), points_b_shuffled.end(), g_);
       sw.start();
       uint32_t n_samples = ceil(points_a.size() * config_.sample_rate);
+      n_samples = std::min(n_samples, config_.max_samples);
       auto sampled_point_ids_a =
           sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
       CalculateHDEarlyBreak(stream, points_a, points_b_shuffled,
                             sampled_point_ids_a);
       auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
       sw.stop();
-      LOG(INFO) << "Sample Time " << sw.ms() << " ms" << " compared "
-                << compared_points;
       stats["NumSamples"] = n_samples;
       stats["SampleTime"] = sw.ms();
       stats["HD2AfterSampling"] = sampled_hd2;

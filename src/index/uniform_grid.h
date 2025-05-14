@@ -74,7 +74,6 @@ DEV_HOST_INLINE uint3 DecodeCellIdx<3>(uint64_t cell_idx,
   return cell_pos;
 }
 
-
 }  // namespace details
 
 template <typename COORD_T, int N_DIMS>
@@ -355,6 +354,13 @@ class UniformGrid {
     }
     stats_["GridSize"] = json_dims;
     stats_["CellDiagonalLength"] = GetCellDigonalLength();
+
+    // now, n_primitves is useless
+    thrust::sort(thrust::cuda::par.on(stream.cuda_stream()),
+                 n_primitives.begin(), n_primitives.end());
+    uint32_t median_points_per_cell = n_primitives[n_primitives.size() / 2];
+
+    stats_["MedianPointsPerCell"] = median_points_per_cell;
 #ifndef NDEBUG
     auto* p_points = thrust::raw_pointer_cast(points.data());
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
@@ -527,7 +533,6 @@ class UniformGrid {
   nlohmann::json stats_;
   mbr_t mbr_;
   cell_idx_t grid_size_;
-
 };
 }  // namespace hd
 #endif  // HAUSDORFF_DISTANCE_INDEX_UNIFORM_GRID_H

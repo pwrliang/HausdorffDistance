@@ -30,9 +30,10 @@ DEFINE_bool(auto_tune, false, "Automatic tuning parameters");
 DEFINE_bool(fast_build_bvh, false, "Prefer fast build BVH");
 DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
 DEFINE_double(sample_rate, 0.001, "");
-DEFINE_double(max_hit_ratio, 0.01,
+DEFINE_double(max_hit_ratio, 0,
               "The ratio of the max numbers of hit to non-empty cells with RT "
-              "method before using EB");
+              "method before using EB. If it is set to zero, we will try our "
+              "best to find a suitable value");
 DEFINE_int32(max_reg, 0, "Max # of registers for RT");
 DEFINE_int32(n_points_cell, 8, "Number of points per cell.");
 DEFINE_int32(bit_count, 7, "Grid bit count setting of RT-HDIST");
