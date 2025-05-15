@@ -17,7 +17,7 @@ source "${script_dir}/common.sh"
 
 log_dir="${script_dir}/logs"
 
-function vary_variables_dependent() {
+function vary_variables() {
   out_prefix=$1
   input1=$2
   input2=$3
@@ -27,37 +27,7 @@ function vary_variables_dependent() {
   name1=$(basename $input1)
   name2=$(basename $input2)
 
-  log="${log_dir}/${out_prefix}/${name1}_${name2}"
-
-  echo "${log}" | xargs dirname | xargs mkdir -p
-
-  $PROG_ROOT/hd_exec \
-    -input1 $input1 \
-    -input2 $input2 \
-    -input_type $input_type \
-    -n_dims $n_dims \
-    -serialize $SERIALIZE_ROOT \
-    -vary_params \
-    -n_points_cell_list "1,2,4,8,16,32" \
-    -max_hit_list "8,16,32,64,128,256" \
-    -radius_step_list "1.2,1.4,1.6,1.8,2.0" \
-    -sample_rate_list "0.0001,0.0005,0.001,0.005,0.01" \
-    -check=false \
-    -repeat 3 \
-    -json "$log"
-}
-
-function vary_variables_independent() {
-  out_prefix=$1
-  input1=$2
-  input2=$3
-  input_type=$4
-  n_dims=$5
-
-  name1=$(basename $input1)
-  name2=$(basename $input2)
-
-  log="${log_dir}/${out_prefix}/${name1}_${name2}"
+  log="${log_dir}/train/${out_prefix}/${name1}_${name2}"
 
   echo "${log}" | xargs dirname | xargs mkdir -p
 
@@ -69,7 +39,6 @@ function vary_variables_independent() {
     -serialize $SERIALIZE_ROOT \
     -vary_params \
     -n_points_cell_list "2,4,6,8,10,12,14,16,18,20,22,24" \
-    -check=false \
     -repeat 5 \
     -json "$log"
 
@@ -80,31 +49,7 @@ function vary_variables_independent() {
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
     -vary_params \
-    -max_hit_list "20,40,60,80,100,120,140,160,180,200" \
-    -check=false \
-    -repeat 5 \
-    -json "$log"
-
-  $PROG_ROOT/hd_exec \
-    -input1 $input1 \
-    -input2 $input2 \
-    -input_type $input_type \
-    -n_dims $n_dims \
-    -serialize $SERIALIZE_ROOT \
-    -vary_params \
-    -check=false \
-    -repeat 5 \
-    -json "$log"
-
-  $PROG_ROOT/hd_exec \
-    -input1 $input1 \
-    -input2 $input2 \
-    -input_type $input_type \
-    -n_dims $n_dims \
-    -serialize $SERIALIZE_ROOT \
-    -vary_params \
-    -radius_step_list "1.2,1.4,1.6,1.8,2.0" \
-    -check=false \
+    -max_hit_ratio_list "0,0.001,0.01,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99" \
     -repeat 5 \
     -json "$log"
 
@@ -116,11 +61,9 @@ function vary_variables_independent() {
     -serialize $SERIALIZE_ROOT \
     -vary_params \
     -sample_rate_list "0.0001,0.0005,0.001,0.005,0.01" \
-    -check=false \
     -repeat 5 \
     -json "$log"
 }
-
 
 function run_all_datasets() {
   root=$1
@@ -196,7 +139,7 @@ function run_datasets() {
       echo "Pick $((counter + 1)): $file2"
       ((counter++))
 
-      vary_variables_independent "$out_prefix" "$file1" "$file2" $type $dims
+      vary_variables "$out_prefix" "$file1" "$file2" $type $dims
     else
       echo "Error: Could not pick two files. Skipping iteration."
       ((counter += 2)) # Still increment to avoid infinite loop
@@ -204,5 +147,6 @@ function run_datasets() {
   done
 }
 
-#run_datasets "/local/storage/shared/BraTS2020_TrainingData" "image" 3
-run_all_datasets "/local/storage/shared/hd_datasets" "wkt" 2
+run_datasets "/local/storage/shared/HDDatasets/BraTS2020_TrainingData" "image" 3
+run_datasets "/local/storage/shared/HDDatasets/ModelNet40" "off" 3
+#run_all_datasets "/local/storage/shared/hd_datasets" "wkt" 2

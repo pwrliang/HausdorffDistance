@@ -15,7 +15,7 @@ DEFINE_bool(normalize, false, "Normalize points to [0, 1]");
 DEFINE_bool(move_to_origin, false, "Move input points to the orign");
 
 // Execution/Algorithm
-DEFINE_string(execution, "serial", "serial, parallel, or gpu");
+DEFINE_string(execution, "gpu", "cpu or gpu");
 DEFINE_string(
     variant, "eb",
     "can be the following options 'eb', 'rt', 'hybrid', 'branch-bound'");
@@ -47,5 +47,5 @@ DEFINE_bool(check, true, "check correctness");
 DEFINE_bool(vary_params, false,
             "Varying parameters for producing training data");
 DEFINE_string(sample_rate_list, "0.001", "");
-DEFINE_string(max_hit_list, "128", "");
+DEFINE_string(max_hit_ratio_list, "0.01", "");
 DEFINE_string(n_points_cell_list, "8", "");

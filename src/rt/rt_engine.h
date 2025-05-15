@@ -163,7 +163,7 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     mod.set_function_suffix("nn_uniform_grid_2d");
     mod.EnableIsIntersection();
     mod.EnableAnyHit();
-    mod.set_n_payload(5);
+    mod.set_n_payload(6);
 
     config.AddModule(mod);
 
@@ -181,7 +181,7 @@ inline RTConfig get_default_rt_config(const std::string& ptx_root) {
     mod.set_function_suffix("nn_uniform_grid_3d");
     mod.EnableIsIntersection();
     mod.EnableAnyHit();
-    mod.set_n_payload(5);
+    mod.set_n_payload(6);
 
     config.AddModule(mod);
 

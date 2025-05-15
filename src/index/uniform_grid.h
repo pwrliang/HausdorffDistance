@@ -85,26 +85,22 @@ class UniformGrid {
  public:
   UniformGrid() = default;
 
+  DEV_HOST UniformGrid(const mbr_t& mbr, const cell_idx_t& grid_size)
+      : mbr_(mbr), grid_size_(grid_size) {}
+
   DEV_HOST UniformGrid(const mbr_t& mbr, const cell_idx_t& grid_size,
-                       const dev::Bitset<uint64_t>& occupied_cells)
-      : mbr_(mbr), grid_size_(grid_size), occupied_cells_(occupied_cells) {}
+                       const ArrayView<uint64_t>& cell_ids)
+      : mbr_(mbr), grid_size_(grid_size), cell_ids_(cell_ids) {}
 
-  DEV_INLINE bool Insert(const point_t& p) {
-    auto cell_p = CalculateCellPos(p);
-    auto cell_idx = EncodeCellPos(cell_p);
-    auto cell_mbr = GetCellBounds(cell_idx);
-
-    // if (!cell_mbr.Contains(p)) {
-    //   printf("p %f, %f, %f, cell [%f, %f] [%f, %f] [%f, %f], cell %u, %u,
-    //   %u\n",
-    //          p.x, p.y, p.z, cell_mbr.lower().x, cell_mbr.upper().x,
-    //          cell_mbr.lower().y, cell_mbr.upper().y, cell_mbr.lower().z,
-    //          cell_mbr.upper().z, cell_p.x, cell_p.y, cell_p.z);
-    // }
-    assert(cell_mbr.Contains(p));
-
-    return occupied_cells_.set_bit_atomic(cell_idx);
-  }
+  DEV_HOST UniformGrid(const mbr_t& mbr, const cell_idx_t& grid_size,
+                       const ArrayView<uint64_t>& cell_ids,
+                       const ArrayView<uint32_t>& prefix_sum,
+                       const ArrayView<uint32_t> point_ids)
+      : mbr_(mbr),
+        grid_size_(grid_size),
+        cell_ids_(cell_ids),
+        prefix_sum_(prefix_sum),
+        point_ids_(point_ids) {}
 
   DEV_INLINE mbr_t GetCellBounds(const cell_idx_t& cell_pos) const {
     point_t lower_p, upper_p;
@@ -171,10 +167,28 @@ class UniformGrid {
     return details::DecodeCellIdx<N_DIMS>(cell_idx, grid_size_);
   }
 
+  DEV_HOST_INLINE uint32_t GetNonEmptyCellId(const point_t& p) const {
+    auto cell_pos = CalculateCellPos(p);
+    auto cell_idx = EncodeCellPos(cell_pos);
+    auto it = thrust::lower_bound(thrust::seq, cell_ids_.begin(),
+                                  cell_ids_.end(), cell_idx);
+    auto cell_renumbered_idx = it - cell_ids_.begin();
+    assert(cell_renumbered_idx >= 0 && cell_renumbered_idx < cell_ids_.size());
+    return cell_renumbered_idx;
+  }
+
+  DEV_INLINE auto begin(uint32_t cell_idx) const { return prefix_sum_[cell_idx]; }
+
+  DEV_INLINE auto end(uint32_t cell_idx) const { return prefix_sum_[cell_idx + 1]; }
+
+  DEV_INLINE uint32_t get_point_id(uint32_t offset) const { return point_ids_[offset]; }
+
  private:
   mbr_t mbr_;
   cell_idx_t grid_size_;
-  dev::Bitset<uint64_t> occupied_cells_;
+  ArrayView<uint64_t> cell_ids_;
+  ArrayView<uint32_t> prefix_sum_;
+  ArrayView<uint32_t> point_ids_;
 };
 
 }  // namespace dev
@@ -233,19 +247,26 @@ class UniformGrid {
   }
 
   void Insert(const Stream& stream,
-              const thrust::device_vector<point_t>& points) {
+              const thrust::device_vector<point_t>& points,
+              bool insert_point_ids = true) {
     Stopwatch sw;
     sw.start();
-    auto d_grid = DeviceObject();
+    // auto d_grid = DeviceObject();
+    dev::UniformGrid<COORD_T, N_DIMS> d_grid(mbr_, grid_size_);
     thrust::device_vector<uint32_t> n_primitives;
     SharedValue<uint32_t> tmp_offset;
+    auto d_occupied_cells = occupied_cells_.DeviceObject();
 
     occupied_cells_.Clear(stream.cuda_stream());
     tmp_offset.set(stream.cuda_stream(), 0);
 
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
                      points.end(), [=] __device__(const point_t& p) mutable {
-                       d_grid.Insert(p);
+                       auto cell_p = d_grid.CalculateCellPos(p);
+                       auto cell_idx = d_grid.EncodeCellPos(cell_p);
+                       auto cell_mbr = d_grid.GetCellBounds(cell_idx);
+                       assert(cell_mbr.Contains(p));
+                       d_occupied_cells.set_bit_atomic(cell_idx);
                      });
 
     auto non_empty_cells =
@@ -261,91 +282,96 @@ class UniformGrid {
     auto* p_cell_ids = thrust::raw_pointer_cast(cell_ids_.data());
     auto* p_n_primitives = thrust::raw_pointer_cast(n_primitives.data());
     auto* p_offset = tmp_offset.data();
-    auto d_occupied_cells = occupied_cells_.DeviceObject();
 
     // collect non-empty cell ids
-    thrust::for_each(
+    thrust::copy_if(
         thrust::cuda::par.on(stream.cuda_stream()),
         thrust::make_counting_iterator<size_t>(0),
         thrust::make_counting_iterator<size_t>(occupied_cells_.GetSize()),
-        [=] __device__(size_t cell_idx) mutable {
-          if (d_occupied_cells.get_bit(cell_idx)) {
-            p_cell_ids[atomicAdd(p_offset, 1)] = cell_idx;
-          }
+        cell_ids_.begin(), [=] __device__(size_t cell_idx) {
+          return d_occupied_cells.get_bit(cell_idx);
         });
 
     // sort cell ids for binary search
     thrust::sort(thrust::cuda::par.on(stream.cuda_stream()), cell_ids_.begin(),
                  cell_ids_.end());
+    d_grid = dev::UniformGrid<COORD_T, N_DIMS>(mbr_, grid_size_, cell_ids_);
     // count the number of primitives per cell
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()), points.begin(),
                      points.end(), [=] __device__(const point_t& p) mutable {
-                       auto cell_pos = d_grid.CalculateCellPos(p);
-                       auto cell_idx = d_grid.EncodeCellPos(cell_pos);
-                       auto it = thrust::lower_bound(
-                           thrust::seq, p_cell_ids,
-                           p_cell_ids + non_empty_cells, cell_idx);
-                       auto cell_renumbered_idx = it - p_cell_ids;
-                       assert(cell_renumbered_idx >= 0 &&
-                              cell_renumbered_idx < non_empty_cells);
+                       auto cell_renumbered_idx = d_grid.GetNonEmptyCellId(p);
                        atomicAdd(&p_n_primitives[cell_renumbered_idx], 1);
                      });
 
-    SharedValue<uint32_t> min_points, max_points;
-    auto* p_min_points = min_points.data();
-    auto* p_max_points = max_points.data();
-
-    min_points.set(stream.cuda_stream(), std::numeric_limits<uint32_t>::max());
-    max_points.set(stream.cuda_stream(), 0);
-
-    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
-                     n_primitives.begin(), n_primitives.end(),
-                     [=] __device__(uint32_t n) {
-                       assert(n > 0);
-                       atomicMin(p_min_points, n);
-                       atomicMax(p_max_points, n);
-                     });
-    stats_["MinPoints"] = min_points.get(stream.cuda_stream());
-    stats_["MaxPoints"] = max_points.get(stream.cuda_stream());
+    stats_["MaxPoints"] = stats_["MaxPoints"] = thrust::reduce(
+        thrust::cuda::par.on(stream.cuda_stream()), n_primitives.begin(),
+        n_primitives.end(), 0u, thrust::maximum<uint32_t>());
     stats_["GiniIndex"] = gini_index_thrust(stream, n_primitives);
 
     thrust::inclusive_scan(thrust::cuda::par.on(stream.cuda_stream()),
                            n_primitives.begin(), n_primitives.end(),
                            prefix_sum_.begin() + 1);
-    // write back points
-    point_ids_.resize(points.size());
-    auto* p_prefix_sum = thrust::raw_pointer_cast(prefix_sum_.data());
-    auto* p_point_ids = thrust::raw_pointer_cast(point_ids_.data());
 
-    // fill point ids to the corresponding cells
-    thrust::for_each(
-        thrust::cuda::par.on(stream.cuda_stream()),
-        thrust::make_zip_iterator(thrust::make_tuple(
-            thrust::make_counting_iterator<uint32_t>(0), points.begin())),
-        thrust::make_zip_iterator(thrust::make_tuple(
-            thrust::make_counting_iterator<uint32_t>(points.size()),
-            points.end())),
-        [=] __device__(const thrust::tuple<uint32_t, point_t>& tuple) mutable {
-          auto point_idx = thrust::get<0>(tuple);
-          const auto& p = thrust::get<1>(tuple);
-          auto cell_pos = d_grid.CalculateCellPos(p);
-          auto cell_idx = d_grid.EncodeCellPos(cell_pos);
-          auto cell_renumbered_idx =
-              thrust::lower_bound(thrust::seq, p_cell_ids,
-                                  p_cell_ids + non_empty_cells, cell_idx) -
-              p_cell_ids;
-          assert(cell_renumbered_idx < non_empty_cells);
-          assert(p_cell_ids[cell_renumbered_idx] == cell_idx);
-          auto last = atomicAdd(&p_prefix_sum[cell_renumbered_idx], 1);
+    if (insert_point_ids) {
+      // write back points
+      point_ids_.resize(points.size());
+      auto* p_prefix_sum = thrust::raw_pointer_cast(prefix_sum_.data());
+      auto* p_point_ids = thrust::raw_pointer_cast(point_ids_.data());
 
-          p_point_ids[last] = point_idx;
-        });
-    thrust::fill_n(thrust::cuda::par.on(stream.cuda_stream()),
-                   prefix_sum_.begin(), 1, 0);
-    // restore prefix sum
-    thrust::inclusive_scan(thrust::cuda::par.on(stream.cuda_stream()),
-                           n_primitives.begin(), n_primitives.end(),
-                           prefix_sum_.begin() + 1);
+      // fill point ids to the corresponding cells
+      thrust::for_each(
+          thrust::cuda::par.on(stream.cuda_stream()),
+          thrust::make_zip_iterator(thrust::make_tuple(
+              thrust::make_counting_iterator<uint32_t>(0), points.begin())),
+          thrust::make_zip_iterator(thrust::make_tuple(
+              thrust::make_counting_iterator<uint32_t>(points.size()),
+              points.end())),
+          [=] __device__(
+              const thrust::tuple<uint32_t, point_t>& tuple) mutable {
+            auto point_idx = thrust::get<0>(tuple);
+            const auto& p = thrust::get<1>(tuple);
+            auto cell_pos = d_grid.CalculateCellPos(p);
+            auto cell_idx = d_grid.EncodeCellPos(cell_pos);
+            auto cell_renumbered_idx =
+                thrust::lower_bound(thrust::seq, p_cell_ids,
+                                    p_cell_ids + non_empty_cells, cell_idx) -
+                p_cell_ids;
+            assert(cell_renumbered_idx < non_empty_cells);
+            assert(p_cell_ids[cell_renumbered_idx] == cell_idx);
+            auto last = atomicAdd(&p_prefix_sum[cell_renumbered_idx], 1);
+
+            p_point_ids[last] = point_idx;
+          });
+
+      thrust::fill_n(thrust::cuda::par.on(stream.cuda_stream()),
+                     prefix_sum_.begin(), 1, 0);
+      // restore prefix sum
+      thrust::inclusive_scan(thrust::cuda::par.on(stream.cuda_stream()),
+                             n_primitives.begin(), n_primitives.end(),
+                             prefix_sum_.begin() + 1);
+#ifndef NDEBUG
+      auto* p_points = thrust::raw_pointer_cast(points.data());
+      thrust::for_each(
+          thrust::cuda::par.on(stream.cuda_stream()),
+          thrust::make_counting_iterator<uint32_t>(0),
+          thrust::make_counting_iterator<uint32_t>(non_empty_cells),
+          [=] __device__(uint32_t cell_idx) {
+            auto begin = p_prefix_sum[cell_idx];
+            auto end = p_prefix_sum[cell_idx + 1];
+            assert(begin < end);
+
+            uint64_t original_cell_idx = p_cell_ids[cell_idx];
+            auto cell_mbr = d_grid.GetCellBounds(original_cell_idx);
+
+            for (int i = begin; i < end; i++) {
+              auto point_idx = p_point_ids[i];
+              const auto& p = p_points[point_idx];
+
+              assert(cell_mbr.Contains(p));
+            }
+          });
+#endif
+    }
     sw.stop();
     stats_["BuildTime"] = sw.ms();
     auto json_dims = nlohmann::json::array();
@@ -361,32 +387,11 @@ class UniformGrid {
     uint32_t median_points_per_cell = n_primitives[n_primitives.size() / 2];
 
     stats_["MedianPointsPerCell"] = median_points_per_cell;
-#ifndef NDEBUG
-    auto* p_points = thrust::raw_pointer_cast(points.data());
-    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
-                     thrust::make_counting_iterator<uint32_t>(0),
-                     thrust::make_counting_iterator<uint32_t>(non_empty_cells),
-                     [=] __device__(uint32_t cell_idx) {
-                       auto begin = p_prefix_sum[cell_idx];
-                       auto end = p_prefix_sum[cell_idx + 1];
-                       assert(begin < end);
-
-                       uint64_t original_cell_idx = p_cell_ids[cell_idx];
-                       auto cell_mbr = d_grid.GetCellBounds(original_cell_idx);
-
-                       for (int i = begin; i < end; i++) {
-                         auto point_idx = p_point_ids[i];
-                         const auto& p = p_points[point_idx];
-
-                         assert(cell_mbr.Contains(p));
-                       }
-                     });
-#endif
   }
 
   dev::UniformGrid<COORD_T, N_DIMS> DeviceObject() {
-    return dev::UniformGrid<COORD_T, N_DIMS>(mbr_, grid_size_,
-                                             occupied_cells_.DeviceObject());
+    return dev::UniformGrid<COORD_T, N_DIMS>(mbr_, grid_size_, cell_ids_,
+                                             prefix_sum_, point_ids_);
   }
 
   static uint32_t EstimatedMaxCells(uint32_t memory_quota_mb) {
@@ -395,7 +400,7 @@ class UniformGrid {
 
   thrust::device_vector<mbr_t> GetCellMbrs(const Stream& stream) {
     thrust::device_vector<mbr_t> mbrs(cell_ids_.size());
-    auto d_grid = DeviceObject();
+    dev::UniformGrid<COORD_T, N_DIMS> d_grid(mbr_, grid_size_);
 
     thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
                       cell_ids_.begin(), cell_ids_.end(), mbrs.begin(),
@@ -403,6 +408,18 @@ class UniformGrid {
                         return d_grid.GetCellBounds(cell_id);
                       });
     return mbrs;
+  }
+
+  thrust::device_vector<point_t> GetCellCenters(const Stream& stream) {
+    thrust::device_vector<point_t> centers(cell_ids_.size());
+    auto d_grid = DeviceObject();
+
+    thrust::transform(thrust::cuda::par.on(stream.cuda_stream()),
+                      cell_ids_.begin(), cell_ids_.end(), centers.begin(),
+                      [=] __device__(uint64_t cell_id) {
+                        return d_grid.GetCellBounds(cell_id).get_center();
+                      });
+    return centers;
   }
 
   thrust::device_vector<mbr_t> GetTightCellMbrs(
@@ -414,7 +431,6 @@ class UniformGrid {
     auto* p_prefix_sum = thrust::raw_pointer_cast(prefix_sum_.data());
     auto* p_point_ids = thrust::raw_pointer_cast(point_ids_.data());
     auto* p_points = thrust::raw_pointer_cast(points.data());
-    auto d_grid = DeviceObject();
 
     // TODO: Use thrust
     LaunchKernel(stream, [=] __device__() mutable {
@@ -435,6 +451,7 @@ class UniformGrid {
       }
     });
 #if 0
+    auto d_grid = DeviceObject();
     thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
                      thrust::make_counting_iterator<uint32_t>(0),
                      thrust::make_counting_iterator<uint32_t>(cell_ids_.size()),

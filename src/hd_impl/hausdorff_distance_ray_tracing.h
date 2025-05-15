@@ -139,14 +139,11 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     out_queue_.Clear(stream.cuda_stream());
 
     // Build BVH
-
-    thrust::device_vector<mbr_t> mbrs_b;
-
     auto grid_size =
         grid_.CalculateGridResolution(mbr_b, n_points_b, config_.n_points_cell);
     grid_.Init(grid_size, mbr_b);
     grid_.Insert(stream, points_b);
-    mbrs_b = grid_.GetTightCellMbrs(stream, points_b);
+    auto mbrs_b = grid_.GetTightCellMbrs(stream, points_b);
 
     stats["Grid"] = grid_.GetStats();
 
@@ -191,6 +188,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       params.cmax2 = cmax2_.data();
       params.radius = radius;
       params.mbrs_b = mbrs_b;
+      // params.grid = grid_.DeviceObject();
       params.prefix_sum = grid_.get_prefix_sum();
       params.point_b_ids = grid_.get_point_ids();
 #ifdef PROFILING
@@ -200,7 +198,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       params.hit_counters = nullptr;
       params.point_counters = nullptr;
 #endif
-      params.max_hit = std::numeric_limits<uint32_t>::max();
+      params.max_kcycles = std::numeric_limits<uint32_t>::max();
 
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
       rt_engine_.Render(stream.cuda_stream(), mod_nn, dim3{in_size, 1, 1});

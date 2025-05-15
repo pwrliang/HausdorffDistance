@@ -19,39 +19,48 @@ extern "C" __global__ void __intersection__nn_uniform_grid_3d() {
   auto mbr_id = optixGetPrimitiveIndex();
   const auto& point_a = params.points_a[point_a_id];
   const auto& mbr_b = params.mbrs_b[mbr_id];
-  auto begin = params.prefix_sum[mbr_id];
-  auto end = params.prefix_sum[mbr_id + 1];
   auto radius = params.radius;
   auto min_dist2 = mbr_b.GetMinDist2(point_a);
   auto max_dist2 = mbr_b.GetMaxDist2(point_a);
   auto update_cmin2 = [](FLOAT_TYPE dist2) {
     FLOAT_TYPE cmin2;
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
-      auto cmin2_storage = optixGetPayload_3();
+      auto cmin2_storage = optixGetPayload_4();
       cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
 
       if (dist2 < cmin2) {
         cmin2 = dist2;
         cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
-        optixSetPayload_3(cmin2_storage);
+        optixSetPayload_4(cmin2_storage);
       }
     } else {
-      uint2 cmin2_storage{optixGetPayload_3(), optixGetPayload_4()};
+      uint2 cmin2_storage{optixGetPayload_4(), optixGetPayload_5()};
       hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
 
       if (dist2 < cmin2) {
         cmin2 = dist2;
         hd::pack64(&cmin2, cmin2_storage.x, cmin2_storage.y);
-        optixSetPayload_3(cmin2_storage.x);
-        optixSetPayload_4(cmin2_storage.y);
+        optixSetPayload_4(cmin2_storage.x);
+        optixSetPayload_5(cmin2_storage.y);
       }
     }
   };
 
   n_hits++;
   optixSetPayload_1(n_hits);
+  auto begin_clk = optixGetPayload_3();
 
-  if (n_hits >= params.max_hit) {
+  // first hit;
+  if (begin_clk == std::numeric_limits<unsigned int>::max()) {
+    begin_clk = clock();
+    optixSetPayload_3(begin_clk);
+  }
+
+  auto max_kcycles = params.max_kcycles;
+  uint32_t past_kcycles = ((uint32_t) clock() - begin_clk) / 1000;
+
+  if (past_kcycles > max_kcycles / 2) {
+    optixSetPayload_3(0);
     optixReportIntersection(0, 0);  // return implicitly
   }
 
@@ -67,6 +76,9 @@ extern "C" __global__ void __intersection__nn_uniform_grid_3d() {
     update_cmin2(max_dist2);
     optixReportIntersection(0, 0);
   }
+
+  auto begin = params.prefix_sum[mbr_id];
+  auto end = params.prefix_sum[mbr_id + 1];
 
   for (auto offset = begin; offset < end; ++offset) {
     auto point_b_id = params.point_b_ids[offset];
@@ -108,16 +120,18 @@ extern "C" __global__ void __raygen__nn_uniform_grid_3d() {
     auto cmin2 = std::numeric_limits<FLOAT_TYPE>::max();
     unsigned int n_hits = 0;
     unsigned int n_compared_pairs = 0;
+    // max: unset, 0: timeout
+    unsigned int begin_cycle = std::numeric_limits<unsigned int>::max();
 
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
       auto cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);
-      optixTrace(params.handle, origin, dir, tmin, tmax, 0,
-                 OptixVisibilityMask(255),
-                 OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
-                 SURFACE_RAY_TYPE,     // SBT offset
-                 RAY_TYPE_COUNT,       // SBT stride
-                 SURFACE_RAY_TYPE,     // missSBTIndex
-                 point_id_a, n_hits, n_compared_pairs, cmin2_storage);
+      optixTrace(
+          params.handle, origin, dir, tmin, tmax, 0, OptixVisibilityMask(255),
+          OPTIX_RAY_FLAG_NONE,  // OPTIX_RAY_FLAG_NONE,
+          SURFACE_RAY_TYPE,     // SBT offset
+          RAY_TYPE_COUNT,       // SBT stride
+          SURFACE_RAY_TYPE,     // missSBTIndex
+          point_id_a, n_hits, n_compared_pairs, begin_cycle, cmin2_storage);
       cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
     } else {
       uint2 cmin2_storage;
@@ -128,8 +142,8 @@ extern "C" __global__ void __raygen__nn_uniform_grid_3d() {
                  SURFACE_RAY_TYPE,     // SBT offset
                  RAY_TYPE_COUNT,       // SBT stride
                  SURFACE_RAY_TYPE,     // missSBTIndex
-                 point_id_a, n_hits, n_compared_pairs, cmin2_storage.x,
-                 cmin2_storage.y);
+                 point_id_a, n_hits, n_compared_pairs, begin_cycle,
+                 cmin2_storage.x, cmin2_storage.y);
       hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
     }
 
@@ -141,7 +155,7 @@ extern "C" __global__ void __raygen__nn_uniform_grid_3d() {
       params.point_counters[point_id_a] += n_compared_pairs;
     }
 
-    if (n_hits >= params.max_hit) {
+    if (begin_cycle == 0) {  // timeout
       if (params.term_queue.capacity()) {
         params.term_queue.Append(point_id_a);
       }

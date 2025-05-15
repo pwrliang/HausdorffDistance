@@ -44,6 +44,6 @@ DECLARE_bool(check);
 // For experiments only
 DECLARE_bool(vary_params);
 DECLARE_string(sample_rate_list);
-DECLARE_string(max_hit_list);
+DECLARE_string(max_hit_ratio_list);
 DECLARE_string(n_points_cell_list);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

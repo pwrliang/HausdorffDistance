@@ -23,7 +23,7 @@ void LaunchKernel(const Stream& stream, dim3 grid_size, dim3 block_size, F f,
 }
 
 template <typename F, typename... Args>
-void LaunchKernel(const Stream& stream, F f, Args&&... args) {
+int2 LaunchKernel(const Stream& stream, F f, Args&&... args) {
   int grid_size, block_size;
 
   CUDA_CHECK(cudaOccupancyMaxPotentialBlockSize(
@@ -32,6 +32,7 @@ void LaunchKernel(const Stream& stream, F f, Args&&... args) {
 
   KernelWrapper<<<grid_size, block_size, 0, stream.cuda_stream()>>>(
       f, std::forward<Args>(args)...);
+  return {grid_size, block_size};
 }
 
 template <typename F, typename... Args>
@@ -57,5 +58,5 @@ void LaunchKernelFix(const Stream& stream, size_t size, F f, Args&&... args) {
   KernelWrapper<<<256, 256, 0, stream.cuda_stream()>>>(
       f, std::forward<Args>(args)...);
 }
-}  // namespace rayjoin
+}  // namespace hd
 #endif  // RAYJOIN_LAUNCHER_H

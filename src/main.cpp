@@ -131,22 +131,13 @@ int main(int argc, char* argv[]) {
 
   if (FLAGS_vary_params) {
     config.sample_rate_list = splitByComma<float>(FLAGS_sample_rate_list);
-    config.max_hit_list = splitByComma<uint32_t>(FLAGS_max_hit_list);
+    config.max_hit_ratio_list = splitByComma<float>(FLAGS_max_hit_ratio_list);
     config.n_points_cell_list =
         splitByComma<uint32_t>(FLAGS_n_points_cell_list);
-    if (config.fast_build_bvh) {
-      config.fast_build_bvh_list.push_back(true);
-    }
-    config.fast_build_bvh_list.push_back(false);
-    if (config.rebuild_bvh) {
-      config.rebuild_bvh_list.push_back(true);
-    }
-    config.rebuild_bvh_list.push_back(false);
-
     CHECK_GT(config.sample_rate_list.size(), 0);
-    CHECK_GT(config.max_hit_list.size(), 0);
+    CHECK_GT(config.max_hit_ratio_list.size(), 0);
     CHECK_GT(config.n_points_cell_list.size(), 0);
-    // hd::AutoTuneHausdorffDistance(config);
+    hd::AutoTuneHausdorffDistance(config);
   } else {
     hd::RunHausdorffDistance(config);
   }

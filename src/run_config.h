@@ -50,10 +50,8 @@ struct RunConfig {
   int n_points_cell;
   int bit_count;
   std::vector<float> sample_rate_list;
-  std::vector<uint32_t> max_hit_list;
+  std::vector<float> max_hit_ratio_list;
   std::vector<uint32_t> n_points_cell_list;
-  std::vector<bool> fast_build_bvh_list;
-  std::vector<bool> rebuild_bvh_list;
 };
 }  // namespace hd
 
