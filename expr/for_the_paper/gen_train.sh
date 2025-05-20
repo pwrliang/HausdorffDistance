@@ -38,18 +38,7 @@ function vary_variables() {
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
     -vary_params \
-    -n_points_cell_list "2,4,6,8,10,12,14,16,18,20,22,24" \
-    -repeat 5 \
-    -json "$log"
-
-  $PROG_ROOT/hd_exec \
-    -input1 $input1 \
-    -input2 $input2 \
-    -input_type $input_type \
-    -n_dims $n_dims \
-    -serialize $SERIALIZE_ROOT \
-    -vary_params \
-    -max_hit_ratio_list "0,0.001,0.01,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.99" \
+    -n_points_cell_list "1,2,4,6,8,10,12,14,16,18,20,22,24,30,60,120,240" \
     -repeat 5 \
     -json "$log"
 
@@ -118,7 +107,7 @@ function run_datasets() {
   fi
   seed=42
   counter=0
-  max=3000 # Total files to pick (2 per iteration = 500 loops)
+  max=1000 # Total files to pick (2 per iteration = 500 loops)
   out_prefix=$(basename "$root")
 
   while ((counter < max)); do

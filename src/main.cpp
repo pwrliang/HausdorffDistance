@@ -112,12 +112,13 @@ int main(int argc, char* argv[]) {
   config.is_double = FLAGS_is_double;
   config.limit = FLAGS_limit;
   config.translate = FLAGS_translate;
-  config.move_to_origin = FLAGS_move_to_origin;
   config.normalize = FLAGS_normalize;
   config.repeat = FLAGS_repeat;
   config.auto_tune = FLAGS_auto_tune;
   config.fast_build_bvh = FLAGS_fast_build_bvh;
   config.rebuild_bvh = FLAGS_rebuild_bvh;
+  config.rt_prune = FLAGS_rt_prune;
+  config.rt_eb = FLAGS_rt_eb;
   config.sample_rate = FLAGS_sample_rate;
   config.max_hit_ratio = FLAGS_max_hit_ratio;
   config.max_reg_count = FLAGS_max_reg;
@@ -131,11 +132,11 @@ int main(int argc, char* argv[]) {
 
   if (FLAGS_vary_params) {
     config.sample_rate_list = splitByComma<float>(FLAGS_sample_rate_list);
-    config.max_hit_ratio_list = splitByComma<float>(FLAGS_max_hit_ratio_list);
+    // config.max_hit_ratio_list = splitByComma<float>(FLAGS_max_hit_ratio_list);
     config.n_points_cell_list =
         splitByComma<uint32_t>(FLAGS_n_points_cell_list);
     CHECK_GT(config.sample_rate_list.size(), 0);
-    CHECK_GT(config.max_hit_ratio_list.size(), 0);
+    // CHECK_GT(config.max_hit_ratio_list.size(), 0);
     CHECK_GT(config.n_points_cell_list.size(), 0);
     hd::AutoTuneHausdorffDistance(config);
   } else {

@@ -37,13 +37,14 @@ struct RunConfig {
   bool is_double;
   int limit;
   float translate;
-  bool move_to_origin;
   bool normalize;
   int repeat;
   // RT only
   bool auto_tune;
   bool fast_build_bvh;
   bool rebuild_bvh;
+  bool rt_prune;
+  bool rt_eb;
   float sample_rate;
   float max_hit_ratio;
   int max_reg_count;

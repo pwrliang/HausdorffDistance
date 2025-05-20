@@ -104,6 +104,16 @@ class Queue {
     counter_.set(stream, tail + 1);
   }
 
+  void Append(cudaStream_t stream, const Queue& queue) {
+    auto tail = counter_.get(stream);
+    auto append_size = queue.size(stream);
+
+    thrust::copy(thrust::cuda::par.on(stream), queue.data_.begin(),
+                 queue.data_.begin() + append_size, data_.begin() + tail);
+
+    counter_.set(stream, tail + append_size);
+  }
+
   void SetSequence(cudaStream_t stream, uint32_t size, uint32_t start = 0) {
     if (size > data_.size()) {
       data_.resize(size);

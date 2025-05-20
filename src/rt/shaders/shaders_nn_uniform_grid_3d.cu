@@ -66,13 +66,13 @@ extern "C" __global__ void __intersection__nn_uniform_grid_3d() {
 
   // this box is out of search radius
   // This improves the performance by a lot
-  if (min_dist2 > radius * radius) {
+  if (params.prune && min_dist2 > radius * radius) {
     return;
   }
 
   // max dist is less than cmax, cannot produce a greater dist, so break
   // this almost does not improve performance
-  if (max_dist2 <= *params.cmax2) {
+  if (params.prune && max_dist2 <= *params.cmax2) {
     update_cmin2(max_dist2);
     optixReportIntersection(0, 0);
   }
@@ -89,7 +89,7 @@ extern "C" __global__ void __intersection__nn_uniform_grid_3d() {
       update_cmin2(dist2);
     }
 
-    if (dist2 <= *params.cmax2) {
+    if (params.eb && dist2 <= *params.cmax2) {
       optixSetPayload_2(optixGetPayload_2() + (offset - begin + 1));
       optixReportIntersection(0, 0);  // return implicitly
     }

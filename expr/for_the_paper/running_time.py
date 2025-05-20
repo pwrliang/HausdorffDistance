@@ -1,0 +1,100 @@
+import json
+import glob
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import hashlib
+import re
+
+from expr.draw.common import dataset_labels
+
+
+def load_df(dir):
+    cache_file = hashlib.md5(dir.encode()).hexdigest()
+    # If cache exists, load from pickle
+    if os.path.exists(cache_file):
+        df = pd.read_pickle(cache_file)
+        print("Loaded DataFrame from cache.", cache_file)
+    else:
+        all_files = glob.glob(os.path.join(dir, '*.json'))
+        # Otherwise, load from JSON files and serialize
+        json_records = []
+        for file in all_files:
+            with open(file) as f:
+                json_records.append(json.load(f))
+
+        df = pd.json_normalize(json_records)
+
+        # Serialize to pickle
+        df.to_pickle(cache_file)
+        print("Loaded DataFrame from JSON and saved to cache.")
+    return df
+
+
+def get_avg_time(df):
+    time_columns = [col for col in df.columns if re.search(r'Running\.Repeat(\d+)\.ReportedTime', col)]
+    return df[time_columns].mean(axis=1)
+
+
+def draw_eb_effectiveness():
+    variants = ("eb_gpu", "rt_gpu", "hybrid_gpu")
+    variant_labels = ("EB", "Ray Tracing", "Hybrid")
+    variants = ("eb_gpu", "rt_gpu",)
+    variant_labels = ("EB", "Ray Tracing",)
+    variants = ("eb_gpu", "itk_cpu", "monai_gpu")
+    variant_labels = ("EB", "ITK", "MONAI")
+
+    datasets = ["BraTS2020_TrainingData", "ModelNet40"]
+    dataset_labels = ["BraTS", "ModelNet"]
+    datasets = ["BraTS2020_TrainingData", ]
+    dataset_labels = ["BraTS", ]
+    # datasets = ["ModelNet40", ]
+    # dataset_labels = ["ModelNet", ]
+
+    fig, axes = plt.subplots(nrows=1, ncols=len(datasets), figsize=(4.5, 4))
+
+    for dataset_id in range(len(datasets)):
+        dataset = datasets[dataset_id]
+        # ax = axes[dataset_id]
+        ax = axes
+        ax.set_xlabel("Percentile (%)")
+        ax.set_ylabel(ylabel='Running Time (ms)', labelpad=1)
+        ax.set_title("Running time distribution on BraTS dataset")
+        ax.set_yscale('log')
+        x = None
+
+        ys = []
+        for variant_idx in range(len(variants)):
+            variant = variants[variant_idx]
+            df = load_df(f"logs/run_all/{variant}/{dataset}")
+            # x = pd.Series([i for i in range(1, len(df) + 1)])
+            y = get_avg_time(df)
+            y = y.values
+            y.sort()
+            percentiles = np.linspace(0, 100, len(y))
+            ax.plot(percentiles, y, label=variant_labels[variant_idx])
+            mean = y.mean()  # or np.mean(arr)
+            std = y.std(ddof=0)  # population std‑dev; use ddof=1 for sample
+            median = np.median(y)
+            print("Variant", variant)
+            print(f"Mean   : {mean:.4f}")
+            print(f"Std dev: {std:.4f}")
+            print(f"Median : {median:.4f}")
+
+            # ys.append(y)
+            # ax.scatter(x, y, label=variant_labels[variant_idx])
+        # df = pd.concat(ys, axis=1)
+        # df.index = x
+        # df.columns = variant_labels
+        # df.boxplot(grid=False, ax=ax)
+
+        ax.legend(loc='upper left', ncol=3, handletextpad=0.3,
+                  fontsize=11, borderaxespad=0.2, frameon=False)
+    fig.tight_layout(pad=0.1)
+    fig.savefig("eb_time.pdf", format='pdf', bbox_inches='tight')
+    plt.show()
+
+
+
+draw_eb_effectiveness()

@@ -207,6 +207,8 @@ class UniformGrid {
   typename cuda_vec<unsigned int, N_DIMS>::type CalculateGridResolution(
       const mbr_t& mbr, unsigned int n_points, int n_points_per_cell) {
     double volume = 1;
+    COORD_T extents[N_DIMS];
+
     for (int dim = 0; dim < N_DIMS; dim++) {
       volume *= mbr.get_extent(dim);
     }

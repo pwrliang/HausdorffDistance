@@ -50,7 +50,7 @@ void AutoTuneHausdorffDistance(const RunConfig& config) {
     }
   } else {
     if (config.n_dims == 2) {
-      // AutoTuneHausdorffDistanceImpl<float, 2>(config);
+      AutoTuneHausdorffDistanceImpl<float, 2>(config);
     } else if (config.n_dims == 3) {
       AutoTuneHausdorffDistanceImpl<float, 3>(config);
     }
@@ -93,13 +93,9 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
   LOG(INFO) << "Points A: " << points_a.size()
             << " Points B: " << points_b.size();
-  if (config.move_to_origin || config.normalize) {
-    MoveToOrigin(points_a);
-    MoveToOrigin(points_b);
-    if (config.normalize) {
-      NormalizePoints(points_a);
-      NormalizePoints(points_b);
-    }
+  if (config.normalize) {
+    NormalizePoints(points_a);
+    NormalizePoints(points_b);
   }
   if (config.translate != 0) {
     // translate x
@@ -133,7 +129,6 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   json_input["Limit"] = config.limit;
   json_input["NumDims"] = N_DIMS;
   json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
-  json_input["MoveToOrigin"] = config.move_to_origin;
   json_input["Normalize"] = config.normalize;
   json_input["Translate"] = config.translate;
 
@@ -183,9 +178,8 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
   json_input["Density"] =
       (points_a.size() + points_b.size()) / merged_mbr.get_volume();
 
-  auto n_combinations = config.n_points_cell_list.size() *
-                        config.sample_rate_list.size() *
-                        config.max_hit_ratio_list.size();
+  auto n_combinations =
+      config.n_points_cell_list.size() * config.sample_rate_list.size();
   uint32_t n_progress = 0;
   uint32_t n_skips = 0;
   double best_running_time = std::numeric_limits<double>::max();
@@ -204,81 +198,75 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
   for (auto sample_rate : config.sample_rate_list) {
     for (auto n_points_cell : config.n_points_cell_list) {
-      for (auto max_hit_ratio : config.max_hit_ratio_list) {
-        CHECK_GT(n_points_cell, 0) << "Avg points / cell cannot be zero";
-        CHECK_LE(sample_rate, 1);
+      CHECK_GT(n_points_cell, 0) << "Avg points / cell cannot be zero";
+      CHECK_LE(sample_rate, 1);
 
-        VLOG(1) << "N_points_cell = " << n_points_cell
-                << ", sample_rate = " << sample_rate
-                << ", max_hit_ratio = " << max_hit_ratio;
+      VLOG(1) << "N_points_cell = " << n_points_cell
+              << ", sample_rate = " << sample_rate;
 
-        char path[PATH_MAX];
-        sprintf(path,
-                "%s_sample_rate_%.6f_n_points_cell_%u_max_hit_ratio_%.6f.json",
-                config.json_file.c_str(), sample_rate, n_points_cell,
-                max_hit_ratio);
-        bool file_exists = access(path, R_OK) == 0;
+      char path[PATH_MAX];
+      sprintf(path, "%s_sample_rate_%.6f_n_points_cell_%u.json",
+              config.json_file.c_str(), sample_rate, n_points_cell);
+      bool file_exists = access(path, R_OK) == 0;
 
-        if (!config.json_file.empty() && !config.overwrite && file_exists) {
-          n_skips++;
-          continue;
-        }
-
-        stats.Log("DateTime", get_current_datetime_string());
-
-        auto& json_run = stats.Log("Running");
-
-        json_run.clear();
-        json_run["Seed"] = config.seed;
-        json_run["SampleRate"] = sample_rate;
-        json_run["MaxHitRatio"] = max_hit_ratio;
-        json_run["NumPointsPerCell"] = n_points_cell;
-
-        COORD_T dist = -1;
-
-        hd_config.sample_rate = sample_rate;
-        hd_config.n_points_cell = n_points_cell;
-        hd_config.max_hit_ratio = max_hit_ratio;
-
-        hausdorff_distance->UpdateConfig(hd_config);
-
-        double running_time = 0;
-
-        for (int i = 0; i < config.repeat; i++) {
-          auto& json_repeat = json_run["Repeat" + std::to_string(i)];
-          json_run["Variant"] = "Hybrid";
-          json_run["Execution"] = "GPU";
-          dist = hausdorff_distance->CalculateDistance(stream, d_points_a,
-                                                       d_points_b);
-          json_repeat = hausdorff_distance->get_stats();
-          running_time += json_repeat.at("ReportedTime").get<double>();
-        }
-        best_running_time =
-            std::min(best_running_time, running_time / config.repeat);
-        json_run["AvgTime"] = running_time / config.repeat;
-        LOG(INFO) << std::fixed << std::setprecision(2) << "Avg Running Time "
-                  << running_time / config.repeat << " ms";
-
-        stats.Log("HDResult", dist);
-
-        if (!config.json_file.empty()) {
-          if (!file_exists || file_exists && config.overwrite) {
-            stats.Dump(path);
-          } else {
-            LOG(WARNING) << "Skip writting to JSON file " << path;
-          }
-        }
-
-        n_progress++;
-        sw_begin.stop();
-
-        LOG(INFO) << "Progress " << std::fixed << std::setprecision(2)
-                  << (float) (n_progress + n_skips) / n_combinations * 100
-                  << " % Remaining Time "
-                  << sw_begin.ms() / n_progress *
-                         (n_combinations - n_progress - n_skips) / 1000
-                  << " s Best Performance " << best_running_time << " ms";
+      if (!config.json_file.empty() && !config.overwrite && file_exists) {
+        LOG(INFO) << "Skip " << path;
+        n_skips++;
+        continue;
       }
+
+      stats.Log("DateTime", get_current_datetime_string());
+
+      auto& json_run = stats.Log("Running");
+
+      json_run.clear();
+      json_run["Seed"] = config.seed;
+      json_run["SampleRate"] = sample_rate;
+      json_run["NumPointsPerCell"] = n_points_cell;
+
+      COORD_T dist = -1;
+
+      hd_config.sample_rate = sample_rate;
+      hd_config.n_points_cell = n_points_cell;
+
+      hausdorff_distance->UpdateConfig(hd_config);
+
+      double running_time = 0;
+
+      for (int i = 0; i < config.repeat; i++) {
+        auto& json_repeat = json_run["Repeat" + std::to_string(i)];
+        json_run["Variant"] = "Hybrid";
+        json_run["Execution"] = "GPU";
+        dist = hausdorff_distance->CalculateDistance(stream, d_points_a,
+                                                     d_points_b);
+        json_repeat = hausdorff_distance->get_stats();
+        running_time += json_repeat.at("ReportedTime").get<double>();
+      }
+      best_running_time =
+          std::min(best_running_time, running_time / config.repeat);
+      json_run["AvgTime"] = running_time / config.repeat;
+      LOG(INFO) << std::fixed << std::setprecision(2) << "Avg Running Time "
+                << running_time / config.repeat << " ms";
+
+      stats.Log("HDResult", dist);
+
+      if (!config.json_file.empty()) {
+        if (!file_exists || file_exists && config.overwrite) {
+          stats.Dump(path);
+        } else {
+          LOG(WARNING) << "Skip writting to JSON file " << path;
+        }
+      }
+
+      n_progress++;
+      sw_begin.stop();
+
+      LOG(INFO) << "Progress " << std::fixed << std::setprecision(2)
+                << (float) (n_progress + n_skips) / n_combinations * 100
+                << " % Remaining Time "
+                << sw_begin.ms() / n_progress *
+                       (n_combinations - n_progress - n_skips) / 1000
+                << " s Best Performance " << best_running_time << " ms";
     }
   }
 }

@@ -69,30 +69,6 @@ void RunHausdorffDistance(const RunConfig& config) {
   LOG(INFO) << "HausdorffDistance: distance is " << dist;
 }
 
-RunConfig PredicateBestConfig(double* features, const RunConfig& config) {
-  RunConfig auto_tune_config = config;
-  double sample_rate;
-  double n_points_cell;
-
-  sample_rate = PredictSampleRate_3D(features);
-  n_points_cell = PredictNumPointsPerCell_3D(features);
-
-  if (sample_rate <= 0) {
-    sample_rate = 0.0001;
-  }
-
-  LOG(INFO) << "User's Config, Auto-tune Config";
-  LOG(INFO) << "Sample Rate: " << config.sample_rate << ", " << sample_rate;
-  LOG(INFO) << "Points/Cell: " << config.n_points_cell << ", " << n_points_cell;
-
-  CHECK(sample_rate > 0 && sample_rate <= 1);
-  CHECK(n_points_cell > 1);
-
-  auto_tune_config.sample_rate = sample_rate;
-  auto_tune_config.n_points_cell = n_points_cell;
-  return auto_tune_config;
-}
-
 template <typename COORD_T, int N_DIMS>
 COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
@@ -154,20 +130,29 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   json_input["NumDims"] = N_DIMS;
   json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
 
-#if 1
-  if (config.move_to_origin || config.normalize) {
-    MoveToOrigin(points_a);
-    MoveToOrigin(points_b);
-    if (config.normalize) {
-      NormalizePoints(points_a);
-      NormalizePoints(points_b);
-    }
+  if (config.normalize) {
+    NormalizePoints(points_a);
+    NormalizePoints(points_b);
   }
   if (config.translate != 0) {
     // translate x
     TranslatePoints(points_b, 0, config.translate);
   }
-  json_input["MoveToOrigin"] = config.move_to_origin;
+  for (int i = 0;
+       i < std::min(10ul, std::min(points_a.size(), points_b.size())); i++) {
+    char sa[100], sb[100];
+    if (N_DIMS == 2) {
+      sprintf(sa, "%.6f,%.6f", points_a[i].x, points_a[i].y);
+      sprintf(sb, "%.6f,%.6f", points_b[i].x, points_b[i].y);
+    } else if (N_DIMS == 3) {
+      auto* p_a = &points_a[i].x;
+      auto* p_b = &points_b[i].x;
+      sprintf(sa, "%.6f,%.6f,%.6f", points_a[i].x, points_a[i].y, p_a[2]);
+      sprintf(sb, "%.6f,%.6f,%.6f", points_b[i].x, points_b[i].y, p_b[2]);
+    }
+    printf("%d A %s B %s\n", i, sa, sb);
+  }
+#if 1
   json_input["Normalize"] = config.normalize;
   json_input["Translate"] = config.translate;
   thrust::device_vector<point_t> d_points_a = points_a, d_points_b = points_b;
@@ -185,7 +170,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
                      points.end(), [=] __device__(const point_t& p) mutable {
                        p_mbr->ExpandAtomic(p);
                      });
-    auto h_mbr = mbr.get(stream.cuda_stream());
+    auto h_mbr = mbr.get(stream.cuda_stream()).ToNonemptyMBR();
 
     auto grid_size = stats_grid.CalculateGridResolution(
         h_mbr, points.size(), config.stats_n_points_cell);
@@ -216,17 +201,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   json_input["Density"] =
       (points_a.size() + points_b.size()) / merged_mbr.get_volume();
 
-  if (config.auto_tune) {
-    CHECK(config.variant == Variant::kHybrid)
-        << "You can only use auto-tune for the hybrid variant";
-    FeaturesStatic<N_DIMS, 8> features(json_input);
-    auto feature_vals = features.Serialize();
-    config = PredicateBestConfig(feature_vals.data(), config);
-  }
-
   auto& json_run = stats.Log("Running");
 
-  json_run["AutoTune"] = config.auto_tune;
   json_run["Seed"] = config.seed;
   json_run["FastBuildBVH"] = config.fast_build_bvh;
   json_run["RebuildBVH"] = config.rebuild_bvh;
@@ -287,17 +263,31 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     using hd_impl_t = HausdorffDistanceRayTracing<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
     std::string ptx_root = config.exec_path + "/ptx";
+
+    hd_config.auto_tune = config.auto_tune;
     hd_config.seed = config.seed;
     hd_config.ptx_root = ptx_root.c_str();
     hd_config.fast_build = config.fast_build_bvh;
     hd_config.rebuild_bvh = config.rebuild_bvh;
     hd_config.sample_rate = config.sample_rate;
     hd_config.n_points_cell = config.n_points_cell;
+    hd_config.prune = config.rt_prune;
+    hd_config.eb = config.rt_eb;
 
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
-#if 0
+  case Variant::kITK: {
+    using hd_impl_t = HausdorffDistanceITK<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+
+    hd_config.size_a = img_size_a;
+    hd_config.size_b = img_size_b;
+    hd_config.n_threads = config.parallelism;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
   case Variant::kBranchAndBound: {
     using hd_impl_t = HausdorffDistanceBranchNBound<COORD_T, N_DIMS>;
 
@@ -324,19 +314,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
-
-  case Variant::kITK: {
-    using hd_impl_t = HausdorffDistanceITK<COORD_T, N_DIMS>;
-    typename hd_impl_t::Config hd_config;
-
-    hd_config.size_a = img_size_a;
-    hd_config.size_b = img_size_b;
-    hd_config.n_threads = config.parallelism;
-
-    hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
-    break;
-  }
-#endif
   default:
     LOG(FATAL) << "Unknown variant: " << static_cast<int>(config.variant);
   }

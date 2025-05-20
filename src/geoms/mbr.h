@@ -285,6 +285,16 @@ class Mbr {
     return true;
   }
 
+  Mbr ToNonemptyMBR() const {
+    Mbr mbr = *this;
+    for (int dim = 0; dim < N_DIMS; ++dim) {
+      if (mbr.get_extent(dim) == 0) {
+        mbr.set_upper(dim, mbr.lower(dim) + 1e-5);
+      }
+    }
+    return mbr;
+  }
+
  private:
   point_t lower_, upper_;
 };

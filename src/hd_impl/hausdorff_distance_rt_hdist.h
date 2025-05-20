@@ -156,6 +156,8 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
                         dim3{in_size, 1, 1});
       auto cmax2 = cmax2_.get(stream.cuda_stream());
       sw.stop();
+      auto hit_size = hit_queue_.size(stream.cuda_stream());
+      auto miss_size = miss_queue_.size(stream.cuda_stream());
 
       auto cmax = sqrt(cmax2);
 
@@ -185,7 +187,11 @@ class HausdorffDistanceRTHDist : public HausdorffDistance<COORD_T, N_DIMS> {
       json_iter["Radius"] = radius;
 
       if (in_size > 0) {
+        // if (hit_size == 0) {
+          // radius *= 2;
+        // } else {
         radius += grid_.GetDiagonalQuantizedLength();
+        // }
         sw.start();
         if (config_.rebuild_bvh) {
           buffer_.Clear();

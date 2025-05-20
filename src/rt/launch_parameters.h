@@ -23,6 +23,8 @@ struct LaunchParamsNNUniformGrid {
   ArrayView<point_t> points_a;
   ArrayView<point_t> points_b;
   ArrayView<mbr_t> mbrs_b;
+  bool eb;
+  bool prune;
 
   ArrayView<uint32_t> prefix_sum;
   ArrayView<uint32_t> point_b_ids;

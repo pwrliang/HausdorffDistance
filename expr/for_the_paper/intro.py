@@ -162,6 +162,7 @@ def draw_time():
     axes[1].set_title("(b) Running time by moving the blue model", y=-0.25)
     axes[1].legend(loc='upper left', ncol=3, handletextpad=0.3,
                    fontsize=11, borderaxespad=0.2, frameon=False)
+    axes[1].set_yscale('log')
     plt.tight_layout()
     fig.savefig('intro.pdf', format='pdf', bbox_inches='tight')
     plt.show()

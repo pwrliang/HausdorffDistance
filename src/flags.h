@@ -16,7 +16,6 @@ DECLARE_int32(limit);
 // Preprocess
 DECLARE_double(translate);
 DECLARE_bool(normalize);
-DECLARE_bool(move_to_origin);
 
 // Execution/Algorithm
 DECLARE_string(execution);
@@ -30,6 +29,8 @@ DECLARE_int32(seed);
 DECLARE_bool(auto_tune);
 DECLARE_bool(fast_build_bvh);
 DECLARE_bool(rebuild_bvh);
+DECLARE_bool(rt_prune);
+DECLARE_bool(rt_eb);
 DECLARE_double(sample_rate);
 DECLARE_double(max_hit_ratio);
 DECLARE_int32(max_reg);

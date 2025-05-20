@@ -12,7 +12,6 @@ DEFINE_int32(limit, INT32_MAX, "limit how many point to calculate");
 // Preprocess
 DEFINE_double(translate, 0.0, "Move points from dataset2 by a given ratio");
 DEFINE_bool(normalize, false, "Normalize points to [0, 1]");
-DEFINE_bool(move_to_origin, false, "Move input points to the orign");
 
 // Execution/Algorithm
 DEFINE_string(execution, "gpu", "cpu or gpu");
@@ -29,6 +28,8 @@ DEFINE_int32(seed, 0, "Random number seed");
 DEFINE_bool(auto_tune, false, "Automatic tuning parameters");
 DEFINE_bool(fast_build_bvh, false, "Prefer fast build BVH");
 DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
+DEFINE_bool(rt_prune, true, "prune with UB and LB");
+DEFINE_bool(rt_eb, true, "use eb in RT");
 DEFINE_double(sample_rate, 0.001, "");
 DEFINE_double(max_hit_ratio, 0,
               "The ratio of the max numbers of hit to non-empty cells with RT "

@@ -14,6 +14,9 @@
 #include "hausdorff_distance.h"
 #include "hd_impl/primitive_utils.h"
 #include "index/uniform_grid.h"
+#include "models/features.h"
+#include "models/tree_numpointspercell_3d.h"
+#include "models/tree_samplerate_3d.h"
 #include "rt/launch_parameters.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
@@ -40,6 +43,9 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
  public:
   struct Config {
     const char* ptx_root;
+    bool auto_tune = false;
+    bool prune = true;
+    bool eb = true;
     int seed = 0;
     bool fast_build = false;
     bool compact = false;
@@ -72,8 +78,10 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     auto& stats = this->stats_;
     auto n_points_a = points_a.size();
     auto n_points_b = points_b.size();
-    const auto mbr_a = CalculateMbr(stream, points_a.begin(), points_a.end());
-    const auto mbr_b = CalculateMbr(stream, points_b.begin(), points_b.end());
+    const auto mbr_a =
+        CalculateMbr(stream, points_a.begin(), points_a.end()).ToNonemptyMBR();
+    const auto mbr_b =
+        CalculateMbr(stream, points_b.begin(), points_b.end()).ToNonemptyMBR();
 
     HdBounds<COORD_T, N_DIMS> hd_bounds(mbr_a);
     auto hd_lb = hd_bounds.GetLowerBound(mbr_b);
@@ -84,6 +92,14 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     cmax2_.set(stream.cuda_stream(), hd_lb * hd_lb);
 
     stats.clear();
+
+    config_.n_points_cell = get_n_points_cell();
+    config_.sample_rate = get_sample_rate();
+
+    if (config_.auto_tune) {
+      VLOG(1) << "Sample Rate " << config_.sample_rate;
+      VLOG(1) << "N Points Cell " << config_.n_points_cell;
+    }
 
     stats["Seed"] = config_.seed;
     stats["FastBuildBVH"] = config_.fast_build;
@@ -133,11 +149,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["HDUpperBound"] = hd_ub;
     stats["InitRadius"] = radius;
 
-    in_queue_.Init(n_points_a);
-    out_queue_.Init(n_points_a);
-    in_queue_.Clear(stream.cuda_stream());
-    out_queue_.Clear(stream.cuda_stream());
-
     // Build BVH
     auto grid_size =
         grid_.CalculateGridResolution(mbr_b, n_points_b, config_.n_points_cell);
@@ -169,7 +180,10 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["Profiling"] = false;
 #endif
 
+    in_queue_.Init(n_points_a);
     in_queue_.SetSequence(stream.cuda_stream(), in_size);
+    out_queue_.Init(n_points_a);
+    out_queue_.Clear(stream.cuda_stream());
 
     while (in_size > 0) {
       iter++;
@@ -199,6 +213,8 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       params.point_counters = nullptr;
 #endif
       params.max_kcycles = std::numeric_limits<uint32_t>::max();
+      params.prune = config_.prune;
+      params.eb = config_.eb;
 
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
       rt_engine_.Render(stream.cuda_stream(), mod_nn, dim3{in_size, 1, 1});
@@ -216,6 +232,8 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       json_iter["NumInputPoints"] = in_size;
       in_queue_.Clear(stream.cuda_stream());
       in_queue_.Swap(out_queue_);
+
+      uint32_t last_in_size = in_size;
       in_size = in_queue_.size(stream.cuda_stream());
       json_iter["NumOutputPoints"] = in_size;
       json_iter["CMax2"] = cmax2;
@@ -232,7 +250,11 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       json_iter["CoveredCells"] = radius / grid_.GetCellDigonalLength();
 
       if (in_size > 0 && radius < hd_ub) {
-        radius += grid_.GetCellDigonalLength();
+        if (last_in_size == in_size) {
+          radius *= 2;
+        } else {
+          radius += grid_.GetCellDigonalLength();
+        }
         radius = std::min(radius, hd_ub);
 
         sw.start();
@@ -399,6 +421,34 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       }
     }
     return mod_nn;
+  }
+
+  double get_sample_rate() const {
+    auto sample_rate = config_.sample_rate;
+
+    if (config_.auto_tune) {
+      const auto& json_input = RunningStats::instance().Get("Input");
+      FeaturesStatic<8> features(json_input, N_DIMS);
+      auto feature_vals = features.Serialize();
+
+      sample_rate = PredictSampleRate_3D(feature_vals.data());
+      sample_rate = std::max(0.00001f, sample_rate);
+    }
+    return sample_rate;
+  }
+
+  uint32_t get_n_points_cell() const {
+    auto n_points_cell = config_.n_points_cell;
+
+    if (config_.auto_tune) {
+      const auto& json_input = RunningStats::instance().Get("Input");
+      FeaturesStatic<8> features(json_input, N_DIMS);
+      auto feature_vals = features.Serialize();
+
+      n_points_cell = PredictNumPointsPerCell_3D(feature_vals.data());
+      n_points_cell = std::max(1, n_points_cell);
+    }
+    return n_points_cell;
   }
 };
 }  // namespace hd

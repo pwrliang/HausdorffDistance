@@ -17,9 +17,23 @@ void MoveToOrigin(std::vector<POINT_T>& points) {
 
   mbr.Expand(points);
 
+  coord_t center[n_dims];
+  memset(center, 0, sizeof(center));
+
   for (auto& p : points) {
     for (int dim = 0; dim < n_dims; dim++) {
-      reinterpret_cast<coord_t*>(&p.x)[dim] -= mbr.lower(dim);
+      center[dim] += reinterpret_cast<coord_t*>(&p.x)[dim];
+    }
+  }
+
+  for (int dim = 0; dim < n_dims; dim++) {
+    center[dim] /= points.size();
+  }
+
+  for (auto& p : points) {
+    for (int dim = 0; dim < n_dims; dim++) {
+      auto val = reinterpret_cast<coord_t*>(&p.x)[dim];
+      reinterpret_cast<coord_t*>(&p.x)[dim] = val - center[dim];
     }
   }
 }
@@ -40,12 +54,10 @@ void NormalizePoints(std::vector<POINT_T>& points) {
     max_extent = 1;
   }
   auto invScale = 1.0 / max_extent;
-  // assuming the points have moved to origin
   for (auto& p : points) {
     for (int dim = 0; dim < n_dims; dim++) {
-      CHECK_GE(reinterpret_cast<coord_t*>(&p.x)[dim], 0);
-      reinterpret_cast<coord_t*>(&p.x)[dim] /= max_extent;
-      CHECK_LE(reinterpret_cast<coord_t*>(&p.x)[dim], 1);
+      reinterpret_cast<coord_t*>(&p.x)[dim] =
+          (reinterpret_cast<coord_t*>(&p.x)[dim] - mbr.lower(dim)) / max_extent;
     }
   }
 }
