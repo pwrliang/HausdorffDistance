@@ -203,7 +203,7 @@ def train_num_points_per_cell(df, n_dims):
 
     base_score = df_filtered["NumPointsPerCell"].mean()
     #base_score = 1.0
-    regressor = XGBRegressor(objective='reg:pseudohubererror', random_state=42, max_depth=10, learning_rate=0.4, n_estimators=20, min_child_weight=10, gamma=1.0, max_leaves=10, reg_lambda=1.0
+    regressor = XGBRegressor(objective='reg:squarederror', random_state=42, max_depth=10, learning_rate=0.4, n_estimators=20, min_child_weight=10, gamma=1.0, max_leaves=10, reg_lambda=1.0
                             , base_score=base_score)
     #regressor = DecisionTreeRegressor(criterion="poisson", random_state=42,
     #                                  max_depth=10,
