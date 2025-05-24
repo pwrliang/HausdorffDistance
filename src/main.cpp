@@ -120,7 +120,8 @@ int main(int argc, char* argv[]) {
   config.rt_prune = FLAGS_rt_prune;
   config.rt_eb = FLAGS_rt_eb;
   config.sample_rate = FLAGS_sample_rate;
-  config.max_hit_ratio = FLAGS_max_hit_ratio;
+  config.eb_only_threshold = FLAGS_eb_only_threshold;
+  config.max_hit = FLAGS_max_hit;
   config.max_reg_count = FLAGS_max_reg;
   config.n_points_cell = FLAGS_n_points_cell;
   config.bit_count = FLAGS_bit_count;
@@ -132,11 +133,12 @@ int main(int argc, char* argv[]) {
 
   if (FLAGS_vary_params) {
     config.sample_rate_list = splitByComma<float>(FLAGS_sample_rate_list);
-    // config.max_hit_ratio_list = splitByComma<float>(FLAGS_max_hit_ratio_list);
+    config.max_hit_list = splitByComma<uint32_t>(FLAGS_max_hit_list);
+    config.eb_only_threshold_list =
+        splitByComma<uint32_t>(FLAGS_eb_only_threshold_list);
     config.n_points_cell_list =
         splitByComma<uint32_t>(FLAGS_n_points_cell_list);
     CHECK_GT(config.sample_rate_list.size(), 0);
-    // CHECK_GT(config.max_hit_ratio_list.size(), 0);
     CHECK_GT(config.n_points_cell_list.size(), 0);
     hd::AutoTuneHausdorffDistance(config);
   } else {

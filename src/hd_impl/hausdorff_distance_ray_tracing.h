@@ -15,8 +15,6 @@
 #include "hd_impl/primitive_utils.h"
 #include "index/uniform_grid.h"
 #include "models/features.h"
-#include "models/tree_numpointspercell_3d.h"
-#include "models/tree_samplerate_3d.h"
 #include "rt/launch_parameters.h"
 #include "rt/reusable_buffer.h"
 #include "rt/rt_engine.h"
@@ -43,7 +41,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
  public:
   struct Config {
     const char* ptx_root;
-    bool auto_tune = false;
     bool prune = true;
     bool eb = true;
     int seed = 0;
@@ -93,68 +90,58 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 
     stats.clear();
 
-    config_.n_points_cell = get_n_points_cell();
-    config_.sample_rate = get_sample_rate();
-
-    if (config_.auto_tune) {
-      VLOG(1) << "Sample Rate " << config_.sample_rate;
-      VLOG(1) << "N Points Cell " << config_.n_points_cell;
-    }
-
-    stats["Seed"] = config_.seed;
-    stats["FastBuildBVH"] = config_.fast_build;
-    stats["RebuildBVH"] = config_.rebuild_bvh;
-    stats["SampleRate"] = config_.sample_rate;
-    stats["NumPointsPerCell"] = config_.n_points_cell;
-
-    COORD_T radius;
-
-    // TODO: Build a Histogram over the sample-based EB
-    // Find the median compared pairs
-    // use the median as threshold
-
-    // Sample points for a better initial HD
-    {
-      thrust::device_vector<point_t> points_b_shuffled = points_b;
-      thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
-                      points_b_shuffled.begin(), points_b_shuffled.end(), g_);
-      sw.start();
-      uint32_t n_samples = ceil(points_a.size() * config_.sample_rate);
-      n_samples = std::min(n_samples, config_.max_samples);
-      auto sampled_point_ids_a =
-          sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
-      CalculateHDEarlyBreak(stream, points_a, points_b_shuffled,
-                            sampled_point_ids_a);
-      auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
-      sw.stop();
-      stats["NumSamples"] = n_samples;
-      stats["SampleTime"] = sw.ms();
-      stats["HD2AfterSampling"] = sampled_hd2;
-      radius = sqrt(sampled_hd2);
-    }
-
-    if (radius == 0) {
-      auto center_point_a = CalculateCenterPoint(stream, points_a);
-      auto center_point_b = CalculateCenterPoint(stream, points_b);
-      auto center_distance = EuclideanDistance2(center_point_a, center_point_b);
-      radius = sqrt(center_distance) / 2;
-    }
-    if (radius == 0) {
-      radius = hd_ub / 100;
-    }
-
-    CHECK_GT(radius, 0);
-
-    stats["HDLowerBound"] = hd_lb;
-    stats["HDUpperBound"] = hd_ub;
-    stats["InitRadius"] = radius;
-
     // Build BVH
     auto grid_size =
         grid_.CalculateGridResolution(mbr_b, n_points_b, config_.n_points_cell);
     grid_.Init(grid_size, mbr_b);
     grid_.Insert(stream, points_b);
     auto mbrs_b = grid_.GetTightCellMbrs(stream, points_b);
+
+    COORD_T radius = hd_lb;
+
+    if (radius == 0) {
+      radius = grid_.GetCellDigonalLength();
+    }
+    // TODO: Build a Histogram over the sample-based EB
+    // Find the median compared pairs
+    // use the median as threshold
+
+    // Sample points for a better initial HD
+    // {
+    //   thrust::device_vector<point_t> points_b_shuffled = points_b;
+    //   thrust::shuffle(thrust::cuda::par.on(stream.cuda_stream()),
+    //                   points_b_shuffled.begin(), points_b_shuffled.end(),
+    //                   g_);
+    //   sw.start();
+    //   uint32_t n_samples = ceil(points_a.size() * config_.sample_rate);
+    //   n_samples = std::min(n_samples, config_.max_samples);
+    //   auto sampled_point_ids_a =
+    //       sampler_.Sample(stream.cuda_stream(), points_a.size(), n_samples);
+    //   CalculateHDEarlyBreak(stream, points_a, points_b_shuffled,
+    //                         sampled_point_ids_a);
+    //   auto sampled_hd2 = cmax2_.get(stream.cuda_stream());
+    //   sw.stop();
+    //   stats["NumSamples"] = n_samples;
+    //   stats["SampleTime"] = sw.ms();
+    //   stats["HD2AfterSampling"] = sampled_hd2;
+    //   radius = sqrt(sampled_hd2);
+    // }
+
+    // if (radius == 0) {
+    //   auto center_point_a = CalculateCenterPoint(stream, points_a);
+    //   auto center_point_b = CalculateCenterPoint(stream, points_b);
+    //   auto center_distance = EuclideanDistance2(center_point_a,
+    //   center_point_b); radius = sqrt(center_distance) / 2;
+    // }
+    // if (radius == 0) {
+    //   radius = hd_ub / 100;
+    // }
+    //
+    // CHECK_GT(radius, 0);
+
+    stats["HDLowerBound"] = hd_lb;
+    stats["HDUpperBound"] = hd_ub;
+    stats["InitRadius"] = radius;
 
     stats["Grid"] = grid_.GetStats();
 
@@ -182,20 +169,22 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
 
     in_queue_.Init(n_points_a);
     in_queue_.SetSequence(stream.cuda_stream(), in_size);
-    out_queue_.Init(n_points_a);
-    out_queue_.Clear(stream.cuda_stream());
+    miss_queue_.Init(n_points_a);
+    miss_queue_.Clear(stream.cuda_stream());
+
+    auto& json_iters = stats["Iterations"];
 
     while (in_size > 0) {
       iter++;
-      auto& json_iter = stats["Iter" + std::to_string(iter)];
-
-      details::ModuleIdentifier mod_nn = getRTModule();
+      json_iters.push_back(nlohmann::json());
+      nlohmann::json& json_iter = json_iters.back();
+      json_iter["Iteration"] = iter;
 
       sw.start();
       details::LaunchParamsNNUniformGrid<COORD_T, N_DIMS> params;
 
       params.in_queue = ArrayView<uint32_t>(in_queue_.data(), in_size);
-      params.miss_queue = out_queue_.DeviceObject();
+      params.miss_queue = miss_queue_.DeviceObject();
       params.points_a = points_a;
       params.points_b = points_b;
       params.handle = gas_handle;
@@ -212,12 +201,14 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       params.hit_counters = nullptr;
       params.point_counters = nullptr;
 #endif
+      params.max_hits = std::numeric_limits<uint32_t>::max();
       params.max_kcycles = std::numeric_limits<uint32_t>::max();
       params.prune = config_.prune;
       params.eb = config_.eb;
 
       rt_engine_.CopyLaunchParams(stream.cuda_stream(), params);
-      rt_engine_.Render(stream.cuda_stream(), mod_nn, dim3{in_size, 1, 1});
+      rt_engine_.Render(stream.cuda_stream(), getRTModule(),
+                        dim3{in_size, 1, 1});
       auto cmax2 = cmax2_.get(stream.cuda_stream());
       sw.stop();
 
@@ -226,12 +217,12 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       VLOG(1) << "Iter: " << iter << " radius: " << radius << std::fixed
               << std::setprecision(8) << " cmax2: " << cmax2
               << " cmax: " << cmax << " in_size: " << in_size
-              << " out_size: " << out_queue_.size(stream.cuda_stream())
+              << " out_size: " << miss_queue_.size(stream.cuda_stream())
               << " Time: " << sw.ms() << " ms";
 
       json_iter["NumInputPoints"] = in_size;
       in_queue_.Clear(stream.cuda_stream());
-      in_queue_.Swap(out_queue_);
+      in_queue_.Swap(miss_queue_);
 
       uint32_t last_in_size = in_size;
       in_size = in_queue_.size(stream.cuda_stream());
@@ -250,10 +241,14 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
       json_iter["CoveredCells"] = radius / grid_.GetCellDigonalLength();
 
       if (in_size > 0 && radius < hd_ub) {
-        if (last_in_size == in_size) {
-          radius *= 2;
-        } else {
-          radius += grid_.GetCellDigonalLength();
+        auto reduced_factor = (float) (last_in_size - in_size) / last_in_size;
+        float expand_factors[] = {8, 4, 2, 1};
+
+        for (auto expand_factor : expand_factors) {
+          if (reduced_factor < 1 / expand_factor) {
+            radius += expand_factor * grid_.GetCellDigonalLength();
+            break;
+          }
         }
         radius = std::min(radius, hd_ub);
 
@@ -398,7 +393,7 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
   thrust::device_vector<OptixAabb> aabbs_;
   thrust::device_vector<uint32_t> hit_counters_, point_counters_;
   SharedValue<mbr_t> mbr_;
-  Queue<uint32_t> in_queue_, out_queue_;
+  Queue<uint32_t> in_queue_, miss_queue_;
   ReusableBuffer buffer_;
   details::RTEngine rt_engine_;
   SharedValue<COORD_T> cmax2_;
@@ -423,33 +418,6 @@ class HausdorffDistanceRayTracing : public HausdorffDistance<COORD_T, N_DIMS> {
     return mod_nn;
   }
 
-  double get_sample_rate() const {
-    auto sample_rate = config_.sample_rate;
-
-    if (config_.auto_tune) {
-      const auto& json_input = RunningStats::instance().Get("Input");
-      FeaturesStatic<8> features(json_input, N_DIMS);
-      auto feature_vals = features.Serialize();
-
-      sample_rate = PredictSampleRate_3D(feature_vals.data());
-      sample_rate = std::max(0.00001f, sample_rate);
-    }
-    return sample_rate;
-  }
-
-  uint32_t get_n_points_cell() const {
-    auto n_points_cell = config_.n_points_cell;
-
-    if (config_.auto_tune) {
-      const auto& json_input = RunningStats::instance().Get("Input");
-      FeaturesStatic<8> features(json_input, N_DIMS);
-      auto feature_vals = features.Serialize();
-
-      n_points_cell = PredictNumPointsPerCell_3D(feature_vals.data());
-      n_points_cell = std::max(1, n_points_cell);
-    }
-    return n_points_cell;
-  }
 };
 }  // namespace hd
 

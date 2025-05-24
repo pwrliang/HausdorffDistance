@@ -32,7 +32,8 @@ DECLARE_bool(rebuild_bvh);
 DECLARE_bool(rt_prune);
 DECLARE_bool(rt_eb);
 DECLARE_double(sample_rate);
-DECLARE_double(max_hit_ratio);
+DECLARE_int32(eb_only_threshold);
+DECLARE_int32(max_hit);
 DECLARE_int32(max_reg);
 DECLARE_int32(n_points_cell);
 DECLARE_int32(bit_count);
@@ -45,6 +46,7 @@ DECLARE_bool(check);
 // For experiments only
 DECLARE_bool(vary_params);
 DECLARE_string(sample_rate_list);
-DECLARE_string(max_hit_ratio_list);
+DECLARE_string(eb_only_threshold_list);
+DECLARE_string(max_hit_list);
 DECLARE_string(n_points_cell_list);
 #endif  // HAUSDORFF_DISTANCE_FLAGS_H

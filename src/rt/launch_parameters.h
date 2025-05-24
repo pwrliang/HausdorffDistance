@@ -10,6 +10,21 @@
 
 namespace hd {
 namespace details {
+template <typename COORD_T, int N_DIMS>
+struct LaunchParamsOverlapUniformGrid {
+  using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
+  using mbr_t = Mbr<COORD_T, N_DIMS>;
+
+  ArrayView<uint32_t> in_queue;
+  dev::Queue<uint32_t> hit_queue;
+  dev::Queue<uint32_t> miss_queue;
+  ArrayView<point_t> points_a;
+  ArrayView<OptixAabb> aabbs;
+  ArrayView<mbr_t> mbrs_b;
+  COORD_T radius;
+  OptixTraversableHandle handle;
+  COORD_T hd_lb;
+};
 
 template <typename COORD_T, int N_DIMS>
 struct LaunchParamsNNUniformGrid {
@@ -35,6 +50,7 @@ struct LaunchParamsNNUniformGrid {
   uint32_t* hit_counters;
   uint32_t* point_counters;
   uint32_t max_kcycles;
+  uint32_t max_hits;
 };
 
 template <typename COORD_T, int N_DIMS>

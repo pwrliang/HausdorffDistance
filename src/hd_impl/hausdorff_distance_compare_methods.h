@@ -11,9 +11,6 @@
 #include "hd_impl/hausdorff_distance_early_break.h"
 #include "hd_impl/hausdorff_distance_ray_tracing.h"
 
-#ifdef PROFILING
-#undef PROFILING
-#endif
 
 namespace hd {
 template <typename COORD_T, int N_DIMS>
@@ -149,5 +146,9 @@ class HausdorffDistanceCompareMethods
   }
 };
 }  // namespace hd
+
+#ifdef PROFILING
+#undef PROFILING
+#endif
 
 #endif  // HAUSDORFF_DISTANCE_COMPARE_METHODS_H

@@ -18,6 +18,7 @@
 #include "utils/array_view.h"
 #include "utils/bitset.h"
 #include "utils/launcher.h"
+#include "utils/queue.h"
 #include "utils/stopwatch.h"
 #include "utils/util.h"
 
@@ -167,6 +168,14 @@ class UniformGrid {
     return details::DecodeCellIdx<N_DIMS>(cell_idx, grid_size_);
   }
 
+  DEV_HOST_INLINE bool IsOverlapping(const point_t& p) const {
+    auto cell_pos = CalculateCellPos(p);
+    auto cell_idx = EncodeCellPos(cell_pos);
+    auto it = thrust::lower_bound(thrust::seq, cell_ids_.begin(),
+                                  cell_ids_.end(), cell_idx);
+    return it != cell_ids_.end();
+  }
+
   DEV_HOST_INLINE uint32_t GetNonEmptyCellId(const point_t& p) const {
     auto cell_pos = CalculateCellPos(p);
     auto cell_idx = EncodeCellPos(cell_pos);
@@ -177,11 +186,17 @@ class UniformGrid {
     return cell_renumbered_idx;
   }
 
-  DEV_INLINE auto begin(uint32_t cell_idx) const { return prefix_sum_[cell_idx]; }
+  DEV_INLINE auto begin(uint32_t cell_idx) const {
+    return prefix_sum_[cell_idx];
+  }
 
-  DEV_INLINE auto end(uint32_t cell_idx) const { return prefix_sum_[cell_idx + 1]; }
+  DEV_INLINE auto end(uint32_t cell_idx) const {
+    return prefix_sum_[cell_idx + 1];
+  }
 
-  DEV_INLINE uint32_t get_point_id(uint32_t offset) const { return point_ids_[offset]; }
+  DEV_INLINE uint32_t get_point_id(uint32_t offset) const {
+    return point_ids_[offset];
+  }
 
  private:
   mbr_t mbr_;
@@ -204,7 +219,7 @@ class UniformGrid {
  public:
   UniformGrid() = default;
 
-  typename cuda_vec<unsigned int, N_DIMS>::type CalculateGridResolution(
+  static typename cuda_vec<unsigned int, N_DIMS>::type CalculateGridResolution(
       const mbr_t& mbr, unsigned int n_points, int n_points_per_cell) {
     double volume = 1;
     COORD_T extents[N_DIMS];
@@ -424,6 +439,29 @@ class UniformGrid {
     return centers;
   }
 
+  void FilterOverlapPoints(const Stream& stream,
+                           const thrust::device_vector<point_t>& points,
+                           Queue<uint32_t>& overlapping,
+                           Queue<uint32_t>& no_overlapping) {
+    auto d_grid = DeviceObject();
+    auto d_overlapping = overlapping.DeviceObject();
+    auto d_no_overlapping = no_overlapping.DeviceObject();
+    ArrayView<point_t> v_points(points);
+    auto mbr = mbr_;
+
+    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                     thrust::make_counting_iterator<uint32_t>(0),
+                     thrust::make_counting_iterator<uint32_t>(points.size()),
+                     [=] __device__(uint32_t point_id) mutable {
+                       const auto& p = v_points[point_id];
+                       if (mbr.Contains(p) && d_grid.IsOverlapping(p)) {
+                         d_overlapping.Append(point_id);
+                       } else {
+                         d_no_overlapping.Append(point_id);
+                       }
+                     });
+  }
+
   thrust::device_vector<mbr_t> GetTightCellMbrs(
       const Stream& stream, const thrust::device_vector<point_t>& points) {
     auto n_cells = cell_ids_.size();
@@ -440,8 +478,56 @@ class UniformGrid {
         auto begin = p_prefix_sum[i];
         auto end = p_prefix_sum[i + 1];
         auto n_points_in_cell = end - begin;
-        auto n_points_in_cell_roundup =
-            div_round_up(n_points_in_cell, blockDim.x) * blockDim.x;
+        auto& mbr = p_mbrs[i];
+
+        for (auto j = threadIdx.x; j < n_points_in_cell; j += blockDim.x) {
+          auto offset = begin + j;
+          auto point_idx = p_point_ids[offset];
+          const auto& p = p_points[point_idx];
+          mbr.ExpandAtomic(p);
+        }
+      }
+    });
+    stream.Sync();
+#if 0
+    auto d_grid = DeviceObject();
+    thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                     thrust::make_counting_iterator<uint32_t>(0),
+                     thrust::make_counting_iterator<uint32_t>(cell_ids_.size()),
+                     [=] __device__(uint32_t i) mutable {
+                       auto cell_id = p_cell_ids[i];
+                       auto begin = p_prefix_sum[i];
+                       auto end = p_prefix_sum[i + 1];
+                       auto& mbr = p_mbrs[i];
+
+                       for (int offset = begin; offset < end; offset++) {
+                         auto point_idx = p_point_ids[offset];
+                         const auto& p = p_points[point_idx];
+                         mbr.ExpandAtomic(p);
+                       }
+                       assert(d_grid.GetCellBounds(cell_id).Contains(mbr));
+                     });
+#endif
+    return mbrs;
+  }
+
+  void GetTightCellMbrs(
+      const Stream& stream, const thrust::device_vector<point_t>& points,
+      thrust::device_vector<mbr_t>& mbrs) {
+    auto n_cells = cell_ids_.size();
+    mbrs.resize(n_cells);
+    auto* p_mbrs = thrust::raw_pointer_cast(mbrs.data());
+    auto* p_cell_ids = thrust::raw_pointer_cast(cell_ids_.data());
+    auto* p_prefix_sum = thrust::raw_pointer_cast(prefix_sum_.data());
+    auto* p_point_ids = thrust::raw_pointer_cast(point_ids_.data());
+    auto* p_points = thrust::raw_pointer_cast(points.data());
+
+    // TODO: Use thrust
+    LaunchKernel(stream, [=] __device__() mutable {
+      for (auto i = blockIdx.x; i < n_cells; i += gridDim.x) {
+        auto begin = p_prefix_sum[i];
+        auto end = p_prefix_sum[i + 1];
+        auto n_points_in_cell = end - begin;
         auto& mbr = p_mbrs[i];
 
         for (auto j = threadIdx.x; j < n_points_in_cell; j += blockDim.x) {
@@ -471,7 +557,6 @@ class UniformGrid {
                        assert(d_grid.GetCellBounds(cell_id).Contains(mbr));
                      });
 #endif
-    return mbrs;
   }
 
   ArrayView<uint32_t> get_prefix_sum() { return prefix_sum_; }
@@ -543,6 +628,10 @@ class UniformGrid {
   }
 
   const nlohmann::json& GetStats() const { return stats_; }
+
+  const thrust::device_vector<uint64_t>& get_cell_ids() const {
+    return cell_ids_;
+  }
 
  private:
   Bitset<uint64_t> occupied_cells_;

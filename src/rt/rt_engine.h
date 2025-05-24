@@ -38,10 +38,10 @@ enum class ModuleType {
 
 enum ModuleIdentifier {
   MODULE_ID_PLAY,
-  MODULE_ID_FLOAT_NN_2D,
-  MODULE_ID_DOUBLE_NN_2D,
-  MODULE_ID_FLOAT_NN_3D,
-  MODULE_ID_DOUBLE_NN_3D,
+  MODULE_ID_FLOAT_OVERLAP_UNIFORM_GRID_2D,
+  MODULE_ID_DOUBLE_OVERLAP_UNIFORM_GRID_2D,
+  MODULE_ID_FLOAT_OVERLAP_UNIFORM_GRID_3D,
+  MODULE_ID_DOUBLE_OVERLAP_UNIFORM_GRID_3D,
   MODULE_ID_FLOAT_NN_UNIFORM_GRID_2D,
   MODULE_ID_DOUBLE_NN_UNIFORM_GRID_2D,
   MODULE_ID_FLOAT_NN_UNIFORM_GRID_3D,
@@ -153,6 +153,42 @@ struct RTConfig {
 
 inline RTConfig get_default_rt_config(const std::string& ptx_root) {
   RTConfig config;
+
+  {
+    Module mod;
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_OVERLAP_UNIFORM_GRID_2D);
+    mod.set_type(ModuleType::kCUSTOM);
+    mod.set_program_path(ptx_root + "/float_shaders_overlap_uniform_grid_2d.ptx");
+    mod.set_function_suffix("overlap_uniform_grid_2d");
+    mod.EnableIsIntersection();
+    mod.EnableAnyHit();
+    mod.set_n_payload(2);
+
+    config.AddModule(mod);
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_OVERLAP_UNIFORM_GRID_2D);
+    mod.set_program_path(ptx_root + "/double_shaders_overlap_uniform_grid_2d.ptx");
+    config.AddModule(mod);
+  }
+
+  {
+    Module mod;
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_FLOAT_OVERLAP_UNIFORM_GRID_3D);
+    mod.set_type(ModuleType::kCUSTOM);
+    mod.set_program_path(ptx_root + "/float_shaders_overlap_uniform_grid_3d.ptx");
+    mod.set_function_suffix("overlap_uniform_grid_3d");
+    mod.EnableIsIntersection();
+    mod.EnableAnyHit();
+    mod.set_n_payload(2);
+
+    config.AddModule(mod);
+
+    mod.set_id(ModuleIdentifier::MODULE_ID_DOUBLE_OVERLAP_UNIFORM_GRID_3D);
+    mod.set_program_path(ptx_root + "/double_shaders_overlap_uniform_grid_3d.ptx");
+    config.AddModule(mod);
+  }
 
   {
     Module mod;

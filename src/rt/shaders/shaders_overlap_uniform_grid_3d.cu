@@ -10,30 +10,31 @@
 
 enum { SURFACE_RAY_TYPE = 0, RAY_TYPE_COUNT };
 // FLOAT_TYPE is defined by CMakeLists.txt
-extern "C" __constant__ hd::details::LaunchParamsNNUniformGrid<FLOAT_TYPE, 2>
+extern "C" __constant__ hd::details::LaunchParamsOverlapUniformGrid<FLOAT_TYPE, 3>
     params;
 
-extern "C" __global__ void __intersection__overlap_uniform_grid_2d() {
+extern "C" __global__ void __intersection__overlap_uniform_grid_3d() {
   auto point_a_id = optixGetPayload_0();
   auto mbr_id = optixGetPrimitiveIndex();
   const auto& point_a = params.points_a[point_a_id];
   const auto& mbr_b = params.mbrs_b[mbr_id];
-  auto hd_lb = params.hd_lb;
+//  auto hd_lb = params.hd_lb;
   auto min_dist2 = mbr_b.GetMinDist2(point_a);
   auto max_dist2 = mbr_b.GetMaxDist2(point_a);
 
   if (mbr_b.Contains(point_a)) {
     optixSetPayload_1(1);
+    optixReportIntersection(0, 0);  // return implicitly
   } else {
     optixSetPayload_1(0);
   }
 }
 
-extern "C" __global__ void __anyhit__overlap_uniform_grid_2d() {
+extern "C" __global__ void __anyhit__overlap_uniform_grid_3d() {
   optixTerminateRay();
 }
 
-extern "C" __global__ void __raygen__overlap_uniform_grid_2d() {
+extern "C" __global__ void __raygen__overlap_uniform_grid_3d() {
   const auto& in_queue = params.in_queue;
   float tmin = 0;
   float tmax = FLT_MIN;
@@ -46,7 +47,7 @@ extern "C" __global__ void __raygen__overlap_uniform_grid_2d() {
     float3 origin;
     origin.x = point_a.x;
     origin.y = point_a.y;
-    origin.z = 0;
+    origin.z = point_a.z;
     float3 dir = {0, 0, 1};
 
     unsigned int hit;

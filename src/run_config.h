@@ -46,12 +46,14 @@ struct RunConfig {
   bool rt_prune;
   bool rt_eb;
   float sample_rate;
-  float max_hit_ratio;
+  uint32_t eb_only_threshold;
+  uint32_t max_hit;
   int max_reg_count;
   int n_points_cell;
   int bit_count;
   std::vector<float> sample_rate_list;
-  std::vector<float> max_hit_ratio_list;
+  std::vector<uint32_t> eb_only_threshold_list;
+  std::vector<uint32_t> max_hit_list;
   std::vector<uint32_t> n_points_cell_list;
 };
 }  // namespace hd

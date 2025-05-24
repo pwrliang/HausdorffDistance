@@ -6,95 +6,114 @@
 
 namespace hd {
 
-template <int N_BUCKETS>
-class FeaturesStatic {
+class Features {
   /**
    * The order of the members must follow the generated decision tree
    */
-  struct Input {
-    double GiniIndex;
-    double GridSize[3];
-    double Histogram_count[N_BUCKETS];
-    double Histogram_percentile[N_BUCKETS];
-    double Histogram_value[N_BUCKETS];
+  struct StaticFeatures {
+    double Density;
+    double NumPoints;
     double MBR_Lower[3];
     double MBR_Upper[3];
-    double MaxPoints;
+    double GiniIndex;
+    double P99Value;
+    double P95Value;
+    double P50Value;
+    double P99Count;
+    double P95Count;
+    double P50Count;
+    double GridSize[3];
+    double MedianPointsPerCell;
     double NonEmptyCells;
-    double NumPoints;
     double TotalCells;
   };
 
-  static_assert(sizeof(Input) ==
-                sizeof(double) * (5 + 3 * 3 + N_BUCKETS * 3));
+  struct RuntimeFeatures {
+    double HDLB;
+    double HDUP;
+  };
+
+  struct AllFeatures {
+    StaticFeatures static_features[2];
+    RuntimeFeatures runtime_features;
+  };
 
  public:
-  FeaturesStatic() = default;
+  Features() = default;
 
-  explicit FeaturesStatic(const nlohmann::json& json_Input, int n_dims) {
-    auto& json_FileA = json_Input.at("FileA");
-    auto& json_FileB = json_Input.at("FileB");
-    auto& json_GridA = json_FileA.at("Grid");
-    auto& json_GridB = json_FileB.at("Grid");
+  explicit Features(int n_dims) : n_dims_(n_dims) {}
 
-    memset(&stats_A_, sizeof(Input), 0);
-    memset(&stats_B_, sizeof(Input), 0);
+  void SetStaticFeatures(const nlohmann::json& json_input) {
+    const auto& json_files = json_input.at("Files");
 
-    SetFileInfo(json_FileA, stats_A_, n_dims);
-    SetGridStats(json_GridA, stats_A_, n_dims);
-    SetFileInfo(json_FileB, stats_B_, n_dims);
-    SetGridStats(json_GridB, stats_B_,n_dims );
+    memset(features_.static_features, sizeof(StaticFeatures) * 2, 0);
+
+    for (int i = 0; i < 2; i++) {
+      auto& input = features_.static_features[i];
+      auto& json_file = json_files.at(i);
+
+      input.Density = json_file.at("Density").get<double>();
+      input.NumPoints = json_file.at("NumPoints").get<uint32_t>();
+
+      for (int dim = 0; dim < n_dims_; dim++) {
+        input.MBR_Lower[dim] = json_file.at("MBR")[dim].at("Lower");
+        input.MBR_Upper[dim] = json_file.at("MBR")[dim].at("Upper");
+      }
+
+      auto& json_grid = json_file.at("Grid");
+
+      input.GiniIndex = json_grid.at("GiniIndex");
+
+      const auto& json_histo = json_grid.at("Histogram");
+
+      input.P99Value = -1;
+      input.P95Value = -1;
+      input.P50Value = -1;
+
+      for (int bucket = json_histo.size() - 1; bucket >= 0; bucket--) {
+        double count = json_histo[bucket].at("count");
+        double percentile = json_histo[bucket].at("percentile");
+        double value = json_histo[bucket].at("value");
+
+        if (input.P99Value == -1 && percentile < 0.99) {
+          input.P99Value = value;
+          input.P99Count = count;
+        } else if (input.P95Value == -1 && percentile < 0.95) {
+          input.P95Value = value;
+          input.P95Count = count;
+        } else if (input.P50Value == -1 && percentile < 0.50) {
+          input.P50Value = value;
+          input.P50Count = count;
+        }
+      }
+
+      for (int dim = 0; dim < n_dims_; dim++) {
+        input.GridSize[dim] = json_grid.at("GridSize")[dim];
+      }
+      input.NonEmptyCells = json_grid.at("NonEmptyCells");
+      input.TotalCells = json_grid.at("TotalCells");
+    }
+  }
+
+  void SetRuntimeFeatures(const nlohmann::json& json_repeat) {
+    features_.runtime_features.HDLB =
+        json_repeat.at("HDLowerBound").get<double>();
+    features_.runtime_features.HDUP =
+        json_repeat.at("HDUpperBound").get<double>();
   }
 
   std::vector<double> Serialize() const {
-    auto n_doubles = sizeof(Input) / sizeof(double);
-    std::vector<double> result(n_doubles * 2);
-    for (int i = 0; i < n_doubles; i++) {
-      result[i] = reinterpret_cast<const double*>(&stats_A_)[i];
-      result[i + n_doubles] = reinterpret_cast<const double*>(&stats_B_)[i];
-    }
+    auto n_doubles = sizeof(AllFeatures) / sizeof(double);
+    std::vector<double> result(n_doubles);
+
+    memcpy(result.data(), &features_, sizeof(AllFeatures));
+
     return result;
   }
 
  private:
-  Input stats_A_;
-  Input stats_B_;
-
-  void SetGridStats(const nlohmann::json& j, Input& stats, int n_dims) {
-    stats.GiniIndex = j.at("GiniIndex");
-    for (int dim = 0; dim < n_dims; dim++) {
-      stats.GridSize[dim] = j.at("GridSize")[dim];
-    }
-
-    for (int bucket = 0; bucket < N_BUCKETS; bucket++) {
-      double count;
-      double percentile;
-      double value;
-      if (bucket < j.at("Histogram").size()) {
-        count = j.at("Histogram")[bucket].at("count");
-        percentile = j.at("Histogram")[bucket].at("percentile");
-        value = j.at("Histogram")[bucket].at("value");
-      } else {
-        count = 0;
-        percentile = 0;
-        value = 0;
-      }
-      stats.Histogram_count[bucket] = count;
-      stats.Histogram_percentile[bucket] = percentile;
-      stats.Histogram_value[bucket] = value;
-    }
-    stats.MaxPoints = j.at("MaxPoints");
-    stats.NonEmptyCells = j.at("NonEmptyCells");
-    stats.TotalCells = j.at("TotalCells");
-  }
-
-  void SetFileInfo(const nlohmann::json& j, Input& stats, int n_dims) {
-    stats.NumPoints = j.at("NumPoints");
-    for (int dim = 0; dim < n_dims; dim++) {
-      stats.MBR_Lower[dim] = j.at("MBR")[dim].at("Lower");
-      stats.MBR_Upper[dim] = j.at("MBR")[dim].at("Upper");
-    }
-  }
+  int n_dims_;
+  AllFeatures features_;
 };
 }  // namespace hd
 #endif  // FEATURES_H

@@ -22,6 +22,19 @@ extern "C" __global__ void __intersection__nn_uniform_grid_3d() {
   auto radius = params.radius;
   auto min_dist2 = mbr_b.GetMinDist2(point_a);
   auto max_dist2 = mbr_b.GetMaxDist2(point_a);
+
+  auto get_cmin2 = []() {
+    FLOAT_TYPE cmin2;
+    if (sizeof(FLOAT_TYPE) == sizeof(float)) {
+      auto cmin2_storage = optixGetPayload_4();
+      cmin2 = *reinterpret_cast<FLOAT_TYPE*>(&cmin2_storage);
+    } else {
+      uint2 cmin2_storage{optixGetPayload_4(), optixGetPayload_5()};
+      hd::unpack64(cmin2_storage.x, cmin2_storage.y, &cmin2);
+    }
+    return cmin2;
+  };
+
   auto update_cmin2 = [](FLOAT_TYPE dist2) {
     FLOAT_TYPE cmin2;
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
@@ -50,23 +63,18 @@ extern "C" __global__ void __intersection__nn_uniform_grid_3d() {
   optixSetPayload_1(n_hits);
   auto begin_clk = optixGetPayload_3();
 
-  // first hit;
-  if (begin_clk == std::numeric_limits<unsigned int>::max()) {
-    begin_clk = clock();
-    optixSetPayload_3(begin_clk);
-  }
-
   auto max_kcycles = params.max_kcycles;
   uint32_t past_kcycles = ((uint32_t) clock() - begin_clk) / 1000;
 
-  if (past_kcycles > max_kcycles / 2) {
+  if (n_hits > params.max_hits) {
     optixSetPayload_3(0);
     optixReportIntersection(0, 0);  // return implicitly
   }
 
   // this box is out of search radius
   // This improves the performance by a lot
-  if (params.prune && min_dist2 > radius * radius) {
+  if (params.prune &&
+      (min_dist2 > radius * radius || min_dist2 >= get_cmin2())) {
     return;
   }
 
@@ -121,7 +129,7 @@ extern "C" __global__ void __raygen__nn_uniform_grid_3d() {
     unsigned int n_hits = 0;
     unsigned int n_compared_pairs = 0;
     // max: unset, 0: timeout
-    unsigned int begin_cycle = std::numeric_limits<unsigned int>::max();
+    unsigned int begin_cycle = clock();
 
     if (sizeof(FLOAT_TYPE) == sizeof(float)) {
       auto cmin2_storage = *reinterpret_cast<unsigned int*>(&cmin2);

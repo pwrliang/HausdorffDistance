@@ -30,11 +30,12 @@ DEFINE_bool(fast_build_bvh, false, "Prefer fast build BVH");
 DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
 DEFINE_bool(rt_prune, true, "prune with UB and LB");
 DEFINE_bool(rt_eb, true, "use eb in RT");
-DEFINE_double(sample_rate, 0.001, "");
-DEFINE_double(max_hit_ratio, 0,
-              "The ratio of the max numbers of hit to non-empty cells with RT "
-              "method before using EB. If it is set to zero, we will try our "
-              "best to find a suitable value");
+DEFINE_double(sample_rate, 0.01, "");
+DEFINE_int32(max_hit, 256,
+             "The max numbers of hit to non-empty cells with RT "
+             "method before using EB. If it is set to zero, we will try our "
+             "best to find a suitable value");
+DEFINE_int32(eb_only_threshold, 0, "Number of iters for using EB");
 DEFINE_int32(max_reg, 0, "Max # of registers for RT");
 DEFINE_int32(n_points_cell, 8, "Number of points per cell.");
 DEFINE_int32(bit_count, 7, "Grid bit count setting of RT-HDIST");
@@ -47,6 +48,7 @@ DEFINE_bool(check, true, "check correctness");
 // For experiments only
 DEFINE_bool(vary_params, false,
             "Varying parameters for producing training data");
-DEFINE_string(sample_rate_list, "0.001", "");
-DEFINE_string(max_hit_ratio_list, "0.01", "");
+DEFINE_string(sample_rate_list, "0.01", "");
+DEFINE_string(eb_only_threshold_list, "0", "");
+DEFINE_string(max_hit_list, "256", "");
 DEFINE_string(n_points_cell_list, "8", "");

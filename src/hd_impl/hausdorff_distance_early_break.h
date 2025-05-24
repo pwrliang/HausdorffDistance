@@ -103,7 +103,6 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
 
     auto& stats = this->stats_;
 
-    stats["Seed"] = config_.seed;
     stats["Algorithm"] = "Early Break";
     stats["Execution"] = "CPU";
     stats["Threads"] = thread_count;
@@ -209,7 +208,6 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
     stream.Sync();
     sw.stop();
 
-    stats["Seed"] = config_.seed;
     stats["Algorithm"] = "Early Break";
     stats["Execution"] = "GPU";
     stats["ReportedTime"] = sw.ms();

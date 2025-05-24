@@ -31,6 +31,7 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadWKTPoints(
       boost::geometry::model::point<COORD_T, N_DIMS,
                                     boost::geometry::cs::cartesian>;
   using boost_polygon_t = boost::geometry::model::polygon<boost_point_t>;
+  using boost_linestring_t = boost::geometry::model::linestring<boost_point_t>;
   using point_t = typename cuda_vec<COORD_T, N_DIMS>::type;
   std::vector<point_t> points;
 
@@ -58,6 +59,28 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadWKTPoints(
             break;
           }
         }
+      } else if (line.rfind("LINESTRING") == 0) {
+        boost_linestring_t line_string;
+        boost::geometry::read_wkt(line, line_string);
+        for (auto& p : line_string) {
+          points.push_back(*reinterpret_cast<point_t*>(&p));
+          if (points.size() >= limit) {
+            break;
+          }
+        }
+      } else if (line.rfind("MULTILINESTRING") == 0) {
+        boost::geometry::model::multi_linestring<boost_linestring_t> multi_l;
+        boost::geometry::read_wkt(line, multi_l);
+
+
+        for (auto& l : multi_l) {
+          for (auto& p : l) {
+            points.push_back(*reinterpret_cast<point_t*>(&p));
+            if (points.size() >= limit) {
+              break;
+            }
+          }
+        }
       } else if (line.rfind("POINT", 0) == 0) {
         boost_point_t p;
         boost::geometry::read_wkt(line, p);
@@ -66,6 +89,8 @@ std::vector<typename cuda_vec<COORD_T, N_DIMS>::type> LoadWKTPoints(
         if (points.size() >= limit) {
           break;
         }
+      } else if (line.rfind("GEOMETRYCOLLECTION", 0) == 0) {
+        // TODO
       } else {
         std::cerr << "Bad Geometry " << line << "\n";
         abort();

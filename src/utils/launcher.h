@@ -23,7 +23,21 @@ void LaunchKernel(const Stream& stream, dim3 grid_size, dim3 block_size, F f,
 }
 
 template <typename F, typename... Args>
-int2 LaunchKernel(const Stream& stream, F f, Args&&... args) {
+int2 GetKernelLaunchParams(F f, Args&&... args) {
+  int grid_size, block_size;
+
+  CUDA_CHECK(cudaOccupancyMaxPotentialBlockSize(
+      &grid_size, &block_size, KernelWrapper<F, Args...>, 0,
+      reinterpret_cast<int>(MAX_BLOCK_SIZE)));
+  int numBlocksPerSm;
+  CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &numBlocksPerSm, KernelWrapper<F, Args...>, block_size, 0));
+
+  return {numBlocksPerSm, block_size};
+}
+
+template <typename F, typename... Args>
+void LaunchKernel(const Stream& stream, F f, Args&&... args) {
   int grid_size, block_size;
 
   CUDA_CHECK(cudaOccupancyMaxPotentialBlockSize(
@@ -32,7 +46,23 @@ int2 LaunchKernel(const Stream& stream, F f, Args&&... args) {
 
   KernelWrapper<<<grid_size, block_size, 0, stream.cuda_stream()>>>(
       f, std::forward<Args>(args)...);
-  return {grid_size, block_size};
+}
+
+template <typename F, typename... Args>
+void LaunchCooperativeKernel(const Stream& stream, F f, Args&&... args) {
+  int grid_size, block_size;
+
+  CUDA_CHECK(cudaOccupancyMaxPotentialBlockSize(
+      &grid_size, &block_size, KernelWrapper<F, Args...>, 0,
+      reinterpret_cast<int>(MAX_BLOCK_SIZE)));
+
+  dim3 grid_dims{(uint32_t) grid_size, 1, 1},
+      block_dims{(uint32_t) block_size, 1, 1};
+
+  void* kernelArgs[] = {&f, std::forward<Args>(args)...};
+
+  cudaLaunchCooperativeKernel((void*) KernelWrapper<F, Args...>, grid_dims,
+                              block_dims, kernelArgs, 0, stream.cuda_stream());
 }
 
 template <typename F, typename... Args>

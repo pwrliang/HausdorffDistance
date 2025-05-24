@@ -84,15 +84,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
                           device);  // Get properties of the current device
   json_gpu["Device"] = device;
   json_gpu["name"] = prop.name;
-  json_gpu["l2CacheSize"] = prop.l2CacheSize;
-  json_gpu["multiProcessorCount"] = prop.multiProcessorCount;
-  json_gpu["regsPerBlock"] = prop.regsPerBlock;
-  json_gpu["maxThreadsPerBlock"] = prop.maxThreadsPerBlock;
-  json_gpu["maxBlocksPerMultiProcessor"] = prop.maxBlocksPerMultiProcessor;
-  json_gpu["regsPerMultiprocessor"] = prop.regsPerMultiprocessor;
 
   stats.Log("DateTime", get_current_datetime_string());
-  auto& json_input = stats.Log("Input");
   itk::Size<N_DIMS> img_size_a, img_size_b;
 
   switch (config.input_type) {
@@ -118,17 +111,17 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     break;
   }
   }
+
   CHECK_GT(points_a.size(), 0) << config.input_file1;
   CHECK_GT(points_b.size(), 0) << config.input_file2;
 
-  json_input["FileA"]["Path"] = config.input_file1;
-  json_input["FileA"]["NumPoints"] = points_a.size();
-  json_input["FileB"]["Path"] = config.input_file2;
-  json_input["FileB"]["NumPoints"] = points_b.size();
-  json_input["SerializationPrefix"] = config.serialize_folder;
-  json_input["Limit"] = config.limit;
-  json_input["NumDims"] = N_DIMS;
-  json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
+  nlohmann::json json_file1;
+  nlohmann::json json_file2;
+
+  json_file1["Path"] = config.input_file1;
+  json_file1["NumPoints"] = points_a.size();
+  json_file2["Path"] = config.input_file2;
+  json_file2["NumPoints"] = points_b.size();
 
   if (config.normalize) {
     NormalizePoints(points_a);
@@ -153,12 +146,10 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     printf("%d A %s B %s\n", i, sa, sb);
   }
 #if 1
-  json_input["Normalize"] = config.normalize;
-  json_input["Translate"] = config.translate;
   thrust::device_vector<point_t> d_points_a = points_a, d_points_b = points_b;
 
   // Calculate MBR of points
-  auto write_points_stats = [&](const std::string& key,
+  auto write_points_stats = [&](nlohmann::json& json_file,
                                 const thrust::device_vector<point_t>& points) {
     SharedValue<mbr_t> mbr;
     auto* p_mbr = mbr.data();
@@ -179,11 +170,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     stats_grid.Insert(stream, points);
     stats_grid.ComputeHistogram();
 
-    auto& dataset_stats_json = json_input[key];
-
-    dataset_stats_json["Grid"] = stats_grid.GetStats();
-    dataset_stats_json["StatsGridNumPointsPerCell"] =
-        config.stats_n_points_cell;
+    json_file["Grid"] = stats_grid.GetStats();
+    json_file["StatsGridNumPointsPerCell"] = config.stats_n_points_cell;
 
     auto json_mbr = nlohmann::json::array();
 
@@ -191,13 +179,23 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
       json_mbr.push_back(
           {{"Lower", h_mbr.lower(dim)}, {"Upper", h_mbr.upper(dim)}});
     }
-    dataset_stats_json["MBR"] = json_mbr;
-    dataset_stats_json["Density"] = points.size() / h_mbr.get_volume();
+    json_file["MBR"] = json_mbr;
+    json_file["Density"] = points.size() / h_mbr.get_volume();
     return h_mbr;
   };
 
-  mbr_t merged_mbr = write_points_stats("FileA", d_points_a);
-  merged_mbr.Expand(write_points_stats("FileB", d_points_b));
+  mbr_t merged_mbr = write_points_stats(json_file1, d_points_a);
+  merged_mbr.Expand(write_points_stats(json_file2, d_points_b));
+
+  auto& json_input = stats.Log("Input");
+
+  json_input["Files"] = {json_file1, json_file2};
+  json_input["Normalize"] = config.normalize;
+  json_input["Translate"] = config.translate;
+  json_input["SerializationPrefix"] = config.serialize_folder;
+  json_input["Limit"] = config.limit;
+  json_input["NumDims"] = N_DIMS;
+  json_input["Type"] = typeid(COORD_T) == typeid(float) ? "Float" : "Double";
   json_input["Density"] =
       (points_a.size() + points_b.size()) / merged_mbr.get_volume();
 
@@ -208,6 +206,9 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   json_run["RebuildBVH"] = config.rebuild_bvh;
   json_run["SampleRate"] = config.sample_rate;
   json_run["NumPointsPerCell"] = config.n_points_cell;
+  json_run["MaxHit"] = config.max_hit;
+  json_run["EBOnlyThreshold"] = config.eb_only_threshold;
+  json_run["AutoTune"] = config.auto_tune;
 
   COORD_T dist = -1;
 
@@ -218,6 +219,18 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
   }
 
   switch (config.variant) {
+  case Variant::kEarlyBreak: {
+    using hd_impl_t = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
+    typename hd_impl_t::Config hd_config;
+
+    hd_config.seed = config.seed;
+    hd_config.n_threads = config.parallelism;
+    hausdorff_distance =
+        std::make_unique<HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>>(
+            hd_config);
+    break;
+  }
+#if 0
   case Variant::kCompareMethods: {
     using hd_impl_t = HausdorffDistanceCompareMethods<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -232,21 +245,12 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
-  case Variant::kEarlyBreak: {
-    using hd_impl_t = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
-    typename hd_impl_t::Config hd_config;
-
-    hd_config.seed = config.seed;
-    hd_config.n_threads = config.parallelism;
-    hausdorff_distance =
-        std::make_unique<HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>>(
-            hd_config);
-    break;
-  }
+#endif
   case Variant::kHybrid: {
     using hd_impl_t = HausdorffDistanceHybrid<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
     std::string ptx_root = config.exec_path + "/ptx";
+
     hd_config.seed = config.seed;
     hd_config.ptx_root = ptx_root.c_str();
     hd_config.auto_tune = config.auto_tune;
@@ -254,17 +258,18 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hd_config.rebuild_bvh = config.rebuild_bvh;
     hd_config.sample_rate = config.sample_rate;
     hd_config.n_points_cell = config.n_points_cell;
-    hd_config.max_hit_ratio = config.max_hit_ratio;
+    hd_config.eb_only_threshold = config.eb_only_threshold;
+    hd_config.max_hit = config.max_hit;
 
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
+
   case Variant::kRT: {
     using hd_impl_t = HausdorffDistanceRayTracing<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
     std::string ptx_root = config.exec_path + "/ptx";
 
-    hd_config.auto_tune = config.auto_tune;
     hd_config.seed = config.seed;
     hd_config.ptx_root = ptx_root.c_str();
     hd_config.fast_build = config.fast_build_bvh;
@@ -277,6 +282,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
+#if 0
   case Variant::kITK: {
     using hd_impl_t = HausdorffDistanceITK<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -314,6 +320,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
+#endif
   default:
     LOG(FATAL) << "Unknown variant: " << static_cast<int>(config.variant);
   }
@@ -322,8 +329,13 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
             << " Points B: " << points_b.size();
   double running_time = 0;
 
+  auto& json_repeats = json_run["Repeats"];
+
   for (int i = 0; i < config.repeat; i++) {
-    auto& json_repeat = json_run["Repeat" + std::to_string(i)];
+    json_repeats.push_back(nlohmann::json());
+    auto& json_repeat = json_repeats.back();
+
+    json_repeat["Repeat"] = i + 1;
 
     if (config.execution == Execution::kCPU) {
       dist = hausdorff_distance->CalculateDistance(points_a, points_b);
