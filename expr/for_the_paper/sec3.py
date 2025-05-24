@@ -103,9 +103,10 @@ def draw_hybrid_analysis():
     iterations_rt = run_rt["Iterations"]
     iterations_hybrid = run_hybrid["Iterations"]
 
-    iterations = [i for i in range(15, 26)]
+    iterations = [i for i in range(0, len(iterations_rt), 1)]
     rt_time_per_iter = [iterations_rt[i]['RTTime'] for i in iterations]
     hybrid_time_per_iter = [iterations_hybrid[i]['RTTime'] for i in iterations]
+    iterations = [x+1 for x in iterations]
 
     def get_draw_data(iterations):
         iter_nums = []
@@ -131,11 +132,16 @@ def draw_hybrid_analysis():
     df_hybrid = pd.DataFrame({'Iteration': iterations, 'NN-RT': rt_time_per_iter, 'EarlyTerm': hybrid_time_per_iter})
     df_hybrid.set_index('Iteration', inplace=True)
 
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(6, 3.,))
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(8, 4.,), gridspec_kw={'width_ratios': [6, 6]})
 
-    df_hybrid.plot(kind='bar', ax=axes[0])
-    axes[0].set_xlabel('Iteration')
-    axes[0].set_ylabel('RT Time (ms)')
+    df_hybrid.plot(kind='line', ax=axes[0], alpha=0.7, linewidth=2, color=['orange', 'green'])
+    axes[0].set_xlabel('Iteration', fontsize=14)
+    axes[0].set_ylabel('Time (ms)', fontsize=14)
+    axes[0].set_ylim(bottom=0)
+    axes[0].set_xlim(left=0)
+    axes[0].set_title("(a) Running time of NN-RT and Hybrid\nin each iteration", fontsize=16)
+    axes[0].tick_params(axis='x', labelsize=12)
+    axes[0].tick_params(axis='y', labelsize=12)
 
     breakdown = {'Methods': ['EB-GPU', 'NN-RT', 'Hybrid'],
                  'GridConst.': [0, run_rt['Grid']['BuildTime'], run_hybrid['Grid']['BuildTime']],
@@ -147,15 +153,22 @@ def draw_hybrid_analysis():
     df_breakdown = pd.DataFrame(breakdown)
     df_breakdown.set_index('Methods', inplace=True)
     df_breakdown.plot(kind='bar', stacked=True, ax=axes[1])
-    axes[1].set_title('Running Time Breakdown')
-    axes[1].set_ylabel('Time (ms)')
+    axes[1].set_title('(b) Running Time Breakdown', fontsize=16)
+    axes[1].set_ylabel('Time (ms)', fontsize=14)
+    axes[1].set_xlabel("Method", fontsize=14)
+    axes[1].set_xticklabels(df_breakdown.index, rotation=0)
+    axes[1].tick_params(axis='x', labelsize=12)
+    axes[1].tick_params(axis='y', labelsize=12)
+
+    for label in axes[1].get_xticklabels():
+        label.set_fontweight('bold')
 
     # Add labels and title for clarity
     # plt.title('Stacked Bar Chart Example')
 
     # plt.xticks(rotation=0)  # Rotate x-axis labels if needed
     plt.legend()
-    plt.tight_layout(pad=0.1)  # Adjust layout to prevent labels from overlapping
+    plt.tight_layout(pad=0.5)  # Adjust layout to prevent labels from overlapping
     plt.show()
 
     # print("run_hybrid", run_hybrid)
