@@ -37,7 +37,7 @@ def draw_hybrid_vs_all():
     variants = ("eb_gpu", "rt_gpu", "hybrid_gpu")
     variant_labels = ("EB-GPU", "NN-RT", "Hybrid")
 
-    datasets = ["BraTS2020_TrainingData", "ModelNet40"]
+    datasets = ["BraTS2020_ValidationData", "ModelNet40"]
     dataset_labels = ["(a) BraTS", "(b) ModelNet"]
     linestyles = ['dotted', 'dashed', 'solid', ]
 
@@ -53,17 +53,26 @@ def draw_hybrid_vs_all():
         ax.set_title(f"{dataset_labels[dataset_id]} dataset")
         ax.set_yscale('log')
 
+        print("dataset", dataset, '\n')
+
+        df_rt = None
+        df_hybrid = None
+
         for variant_idx in range(len(variants)):
             variant = variants[variant_idx]
             df = load_df(f"logs/run_all/{variant}/{dataset}")
+            if variant_idx == 1:
+                df_rt = df
+            elif variant_idx == 2:
+                df_hybrid = df
             # x = pd.Series([i for i in range(1, len(df) + 1)])
-            y = get_avg_time(df)
+            y = df["Running.AvgTime"]
             y = y.values
             y.sort()
-            # if variant_idx == 2:
-            #     print(y[:-1])
+
             percentiles = np.linspace(0, 100, len(y))
             ax.plot(percentiles, y, ls=linestyles[variant_idx], label=variant_labels[variant_idx], linewidth=2, )
+       
             mean = y.mean()  # or np.mean(arr)
             std = y.std(ddof=0)  # population std‑dev; use ddof=1 for sample
             median = np.median(y)
@@ -75,6 +84,9 @@ def draw_hybrid_vs_all():
         #     line.set_marker(markers[i])
         ax.legend(loc='upper left', ncol=1, handletextpad=0.3,
                   borderaxespad=0.2, frameon=False)
+        slow_rows = df_hybrid[df_hybrid['Running.AvgTime'] > df_rt['Running.AvgTime']]
+        # print(slow_rows)
+
     fig.tight_layout(pad=0.1)
     fig.savefig("hybrid_vs_all.pdf", format='pdf', bbox_inches='tight')
     plt.show()
@@ -243,5 +255,5 @@ def draw_hybrid_analysis():
     # plt.show()
 
 
-draw_hybrid_analysis()
-# draw_hybrid_vs_all()
+# draw_hybrid_analysis()
+draw_hybrid_vs_all()

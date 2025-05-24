@@ -23,12 +23,12 @@ function vary_variables() {
   input2=$3
   input_type=$4
   n_dims=$5
+  normalize=$6
 
   name1=$(basename $input1)
   name2=$(basename $input2)
 
-  log="${log_dir}/train/${out_prefix}/${name1}_${name2}"
-
+  log="${log_dir}/train/${out_prefix}/eb_only_threshold/${name1}_${name2}"
   echo "${log}" | xargs dirname | xargs mkdir -p
 
   $PROG_ROOT/hd_exec \
@@ -38,9 +38,13 @@ function vary_variables() {
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
     -vary_params \
-    -n_points_cell_list "1,2,4,6,8,10,12,14,16,18,20,22,24,30,60,120,240" \
+    -eb_only_threshold_list "1,100,200,300,400,500,600,700,800,900,1000" \
     -repeat 5 \
-    -json "$log"
+    -json "$log" \
+    -normalize="$normalize"
+
+  log="${log_dir}/train/${out_prefix}/n_points_cell/${name1}_${name2}"
+  echo "${log}" | xargs dirname | xargs mkdir -p
 
   $PROG_ROOT/hd_exec \
     -input1 $input1 \
@@ -49,54 +53,34 @@ function vary_variables() {
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
     -vary_params \
-    -sample_rate_list "0.0001,0.0005,0.001,0.005,0.01" \
+    -n_points_cell_list "1,4,8,12,16,20,24,28,32,36,40,44,48,52,56,60,64,68,72,76,80" \
     -repeat 5 \
-    -json "$log"
+    -json "$log" \
+    -normalize="$normalize"
+
+  log="${log_dir}/train/${out_prefix}/max_hit/${name1}_${name2}"
+  echo "${log}" | xargs dirname | xargs mkdir -p
+
+  $PROG_ROOT/hd_exec \
+    -input1 $input1 \
+    -input2 $input2 \
+    -input_type $input_type \
+    -n_dims $n_dims \
+    -serialize $SERIALIZE_ROOT \
+    -vary_params \
+    -max_hit_list "1,16,32,64,128,256,512" \
+    -repeat 5 \
+    -json "$log" \
+    -normalize="$normalize"
 }
 
-function run_all_datasets() {
+function run_mri_datasets() {
   root=$1
   type=$2
   dims=$3
 
-  if [[ -f "$root/.list" ]]; then
-    list=$(cat "$root/.list")
-  else
-    list=$(find "$root" -type f)
-    list=$(echo "$list" | shuf)
-    echo "$list" >"$root/.list"
-  fi
-
-  out_prefix=$(basename "$root")
-  FILE_LIMIT=1000
-  CURR_FILE_IDX=0
-  while IFS= read -r file1; do
-    while IFS= read -r file2; do
-      if [[ "$file1" != "$file2" ]]; then
-        CURR_FILE_IDX=$((CURR_FILE_IDX + 1))
-        echo "file $CURR_FILE_IDX: $file1 $file2"
-
-        vary_variables_independent "$out_prefix" "$file1" "$file2" $type $dims
-        if [[ $CURR_FILE_IDX -ge $FILE_LIMIT ]]; then
-          return
-        fi
-      fi
-    done < <(printf '%s\n' "$list")
-  done < <(printf '%s\n' "$list")
-}
-
-function run_datasets() {
-  root=$1
-  type=$2
-  dims=$3
-
-  if [[ -f "$root/.list" ]]; then
-    list=$(cat "$root/.list")
-  else
-    list=$(find "$root" -type f)
-    list=$(echo "$list")
-    echo "$list" >"$root/.list"
-  fi
+  list=$(find "$root" -type f | grep nii)
+  list=$(echo "$list")
 
   mapfile -t files <<<"$list"
 
@@ -128,7 +112,11 @@ function run_datasets() {
       echo "Pick $((counter + 1)): $file2"
       ((counter++))
 
-      vary_variables "$out_prefix" "$file1" "$file2" $type $dims
+      if [[ "$file1" != "$file2" ]]; then
+        vary_variables "$out_prefix" "$file1" "$file2" $type $dims "false"
+      else
+        ((counter -= 2))
+      fi
     else
       echo "Error: Could not pick two files. Skipping iteration."
       ((counter += 2)) # Still increment to avoid infinite loop
@@ -136,6 +124,72 @@ function run_datasets() {
   done
 }
 
-run_datasets "/local/storage/shared/HDDatasets/BraTS2020_TrainingData" "image" 3
-run_datasets "/local/storage/shared/HDDatasets/ModelNet40" "off" 3
-#run_all_datasets "/local/storage/shared/hd_datasets" "wkt" 2
+function run_modelnet_datasets() {
+  root=$1
+  type=$2
+  dims=$3
+
+  list=$(find "$root" -type f | grep train)
+  list=$(echo "$list")
+
+  mapfile -t files <<<"$list"
+
+  file_count=${#files[@]}
+  if ((file_count < 2)); then
+    echo "Not enough files in the directory!"
+    exit 1
+  fi
+  seed=42
+  counter=0
+  max=200 # Total files to pick (2 per iteration = 500 loops)
+  out_prefix=$(basename "$root")
+
+  while ((counter < max)); do
+    current_seed="${seed}_${counter}"
+    # Use openssl to generate a stream and feed it directly to shuf
+    mapfile -t picks < <(
+      printf "%s\n" "${files[@]}" |
+        shuf --random-source=<(openssl enc -aes-256-ctr -pass pass:"$current_seed" -nosalt </dev/zero 2>/dev/null) |
+        head -n 2
+    )
+    file1="${picks[0]}"
+    file2="${picks[1]}"
+    # Ensure we got two valid files
+    if [[ -n "$file1" && -n "$file2" ]]; then
+      echo "Pick $((counter + 1)): $file1"
+      ((counter++))
+      echo "Pick $((counter + 1)): $file2"
+      ((counter++))
+
+      name1=$(basename $file1)
+      name2=$(basename $file2)
+
+      if [[ "$file1" != "$file2" ]]; then
+        vary_variables "$out_prefix" "$file1" "$file2" $type $dims "true"
+      else
+        ((counter -= 2))
+      fi
+    else
+      echo "Error: Could not pick two files. Skipping iteration."
+      ((counter += 2)) # Still increment to avoid infinite loop
+    fi
+  done
+}
+
+function run_geo_datasets() {
+  root=$1
+  type=$2
+  dims=$3
+
+  for file1 in "$root"/*.wkt; do
+    for file2 in "$root"/*.wkt; do
+      if [[ "$file1" != "$file2" ]]; then
+        vary_variables "geo" "$file1" "$file2" $type $dims "false"
+      fi
+    done
+  done
+}
+
+run_mri_datasets "$DATASET_ROOT/BraTS2020_TrainingData" "image" 3
+run_modelnet_datasets "$DATASET_ROOT/ModelNet40" "off" 3
+run_geo_datasets "$DATASET_ROOT/geo/train" "wkt" 2
