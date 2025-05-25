@@ -7,6 +7,7 @@ import pandas as pd
 import hashlib
 import re
 from pathlib import Path
+from functools import reduce
 
 
 def load_df(dir):
@@ -33,7 +34,7 @@ def get_avg_time(df):
     return df[time_columns].mean(axis=1)
 
 
-def draw_hybrid_vs_all():
+def draw_mri_modelnet():
     variants = ("eb_gpu", "rt_gpu", "hybrid_gpu")
     variant_labels = ("EB-GPU", "NN-RT", "Hybrid")
 
@@ -72,7 +73,7 @@ def draw_hybrid_vs_all():
 
             percentiles = np.linspace(0, 100, len(y))
             ax.plot(percentiles, y, ls=linestyles[variant_idx], label=variant_labels[variant_idx], linewidth=2, )
-       
+
             mean = y.mean()  # or np.mean(arr)
             std = y.std(ddof=0)  # population std‑dev; use ddof=1 for sample
             median = np.median(y)
@@ -86,6 +87,42 @@ def draw_hybrid_vs_all():
                   borderaxespad=0.2, frameon=False)
         slow_rows = df_hybrid[df_hybrid['Running.AvgTime'] > df_rt['Running.AvgTime']]
         # print(slow_rows)
+
+    fig.tight_layout(pad=0.1)
+    fig.savefig("hybrid_vs_all.pdf", format='pdf', bbox_inches='tight')
+    plt.show()
+
+
+def draw_spatial_graphics():
+    # plt.rcParams.update({'font.size': 15})
+    # plt.rcParams['hatch.linewidth'] = 4
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(9, 4))
+
+    variants = ("eb_gpu", "rt_gpu", "hybrid_gpu")
+    variant_labels = ("EB-GPU", "NN-RT", "Hybrid")
+    geo_dataset_labels = {'USADetailedWaterBodies.wkt': 'USWater', 'USACensusBlockGroupBoundaries.wkt': 'USBlock',
+                          'lakes.bz2.wkt': 'OSMLakes', 'parks.bz2.wkt': 'OSMParks', 'dtl_cnty.wkt': 'USCounty',
+                          'uszipcode.wkt': 'USZipcode'}
+
+    graphics_dataset_labels = {'dragon.ply':'Dragon','asian_dragon.ply':'Asian Dragon',
+                               'thai_statuette.ply': 'Thai','happy_buddha.ply':'Buddha',}
+
+    def draw_subfig(dataset_name, dataset_labels, ax):
+        dfs = []
+        for i in range(len(variants)):
+            df = load_df(f"logs/run_all/{variants[i]}/{dataset_name}")
+            df_data = pd.DataFrame()
+            df_data['Dataset'] = df['Input.Files'].apply(
+                lambda x: dataset_labels[os.path.basename(x[0]['Path'])] + '-' + dataset_labels[
+                    os.path.basename(x[1]['Path'])])
+            df_data[variant_labels[i]] = df['Running.AvgTime']
+            df_data.set_index('Dataset', inplace=True)
+            dfs.append(df_data)
+        merged_df = reduce(lambda left, right: pd.merge(left, right, on='Dataset'), dfs)
+        merged_df.plot(kind='bar', ax=ax, )
+
+    draw_subfig("geo", geo_dataset_labels, axes[0])
+    draw_subfig("graphics", graphics_dataset_labels, axes[1])
 
     fig.tight_layout(pad=0.1)
     fig.savefig("hybrid_vs_all.pdf", format='pdf', bbox_inches='tight')
@@ -118,7 +155,7 @@ def draw_hybrid_analysis():
     iterations = [i for i in range(0, len(iterations_rt), 1)]
     rt_time_per_iter = [iterations_rt[i]['RTTime'] for i in iterations]
     hybrid_time_per_iter = [iterations_hybrid[i]['RTTime'] for i in iterations]
-    iterations = [x+1 for x in iterations]
+    iterations = [x + 1 for x in iterations]
 
     def get_draw_data(iterations):
         iter_nums = []
@@ -160,7 +197,7 @@ def draw_hybrid_analysis():
                  'BVHConst.': [0, run_rt['BVHBuildTime'], run_hybrid['BVHBuildTime']],
                  'EB-GPU': [run_eb['ReportedTime'], 0, run_hybrid['EBTime']],
                  'NN-RT': [0, sum([iterations_rt[i]['RTTime'] for i in range(0, len(iterations_rt))]),
-                        sum([iterations_hybrid[i]['RTTime'] for i in range(0, len(iterations_hybrid))]), ],
+                           sum([iterations_hybrid[i]['RTTime'] for i in range(0, len(iterations_hybrid))]), ],
                  }
     df_breakdown = pd.DataFrame(breakdown)
     df_breakdown.set_index('Methods', inplace=True)
@@ -269,4 +306,5 @@ def draw_hybrid_analysis():
 
 
 # draw_hybrid_analysis()
-draw_hybrid_vs_all()
+# draw_mri_modelnet()
+draw_spatial_graphics()
