@@ -263,6 +263,83 @@ class UniformGrid {
     return total_cells;
   }
 
+  void AutotuneGridSize(const Stream& stream, const mbr_t& mbr,
+                        const thrust::device_vector<point_t>& query_points,
+                        const thrust::device_vector<point_t>& points) {
+    thrust::device_vector<uint32_t> n_primitives;
+    SharedValue<uint32_t> tmp_offset;
+    auto min_cost = std::numeric_limits<uint64_t>::max();
+
+    for (int n_points_per_cell = 1; n_points_per_cell < 20;
+         n_points_per_cell++) {
+      auto grid_size =
+          CalculateGridResolution(mbr, points.size(), n_points_per_cell);
+      dev::UniformGrid<COORD_T, N_DIMS> d_grid(mbr, grid_size);
+      uint64_t total_cells = 1;
+      for (int dim = 0; dim < N_DIMS; dim++) {
+        total_cells *= reinterpret_cast<const unsigned int*>(&grid_size.x)[dim];
+      }
+      occupied_cells_.Init(total_cells);
+      occupied_cells_.Clear(stream.cuda_stream());
+      tmp_offset.set(stream.cuda_stream(), 0);
+
+      auto d_occupied_cells = occupied_cells_.DeviceObject();
+      thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                       points.begin(), points.end(),
+                       [=] __device__(const point_t& p) mutable {
+                         auto cell_p = d_grid.CalculateCellPos(p);
+                         auto cell_idx = d_grid.EncodeCellPos(cell_p);
+                         auto cell_mbr = d_grid.GetCellBounds(cell_idx);
+                         assert(cell_mbr.Contains(p));
+                         d_occupied_cells.set_bit_atomic(cell_idx);
+                       });
+      auto non_empty_cells =
+          occupied_cells_.GetPositiveCount(stream.cuda_stream());
+
+      cell_ids_.resize(non_empty_cells);
+      n_primitives.resize(non_empty_cells, 0);
+      prefix_sum_.resize(non_empty_cells + 1, 0);
+
+      auto* p_n_primitives = thrust::raw_pointer_cast(n_primitives.data());
+
+      // collect non-empty cell ids
+      thrust::copy_if(
+          thrust::cuda::par.on(stream.cuda_stream()),
+          thrust::make_counting_iterator<size_t>(0),
+          thrust::make_counting_iterator<size_t>(occupied_cells_.GetSize()),
+          cell_ids_.begin(), [=] __device__(size_t cell_idx) {
+            return d_occupied_cells.get_bit(cell_idx);
+          });
+
+      // sort cell ids for binary search
+      thrust::sort(thrust::cuda::par.on(stream.cuda_stream()),
+                   cell_ids_.begin(), cell_ids_.end());
+      d_grid = dev::UniformGrid<COORD_T, N_DIMS>(mbr, grid_size, cell_ids_);
+      // count the number of primitives per cell
+      thrust::for_each(thrust::cuda::par.on(stream.cuda_stream()),
+                       points.begin(), points.end(),
+                       [=] __device__(const point_t& p) mutable {
+                         auto cell_renumbered_idx = d_grid.GetNonEmptyCellId(p);
+                         atomicAdd(&p_n_primitives[cell_renumbered_idx], 1);
+                       });
+
+      auto cost = thrust::transform_reduce(
+          thrust::cuda::par.on(stream.cuda_stream()), query_points.begin(),
+          query_points.end(),
+          [=] __device__(const point_t& p) -> uint32_t {
+            if (mbr.Contains(p)) {
+              return p_n_primitives[d_grid.GetNonEmptyCellId(p)];
+            }
+            return 0;
+          },
+          0ul, thrust::plus<uint64_t>());
+
+      LOG(INFO) << "Cost: " << cost << " points/cell " << n_points_per_cell;
+      min_cost = std::min(min_cost, cost);
+    }
+    LOG(INFO) << "Minimum cost " << min_cost;
+  }
+
   void Insert(const Stream& stream,
               const thrust::device_vector<point_t>& points,
               bool insert_point_ids = true) {
@@ -511,9 +588,9 @@ class UniformGrid {
     return mbrs;
   }
 
-  void GetTightCellMbrs(
-      const Stream& stream, const thrust::device_vector<point_t>& points,
-      thrust::device_vector<mbr_t>& mbrs) {
+  void GetTightCellMbrs(const Stream& stream,
+                        const thrust::device_vector<point_t>& points,
+                        thrust::device_vector<mbr_t>& mbrs) {
     auto n_cells = cell_ids_.size();
     mbrs.resize(n_cells);
     auto* p_mbrs = thrust::raw_pointer_cast(mbrs.data());

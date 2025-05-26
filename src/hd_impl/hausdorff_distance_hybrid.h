@@ -49,6 +49,9 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
   struct Config {
     const char* ptx_root;
     bool auto_tune = false;
+    bool auto_tune_eb_only_threshold = false;
+    bool auto_tune_n_points_cell = false;
+    bool auto_tune_max_hit = false;
     uint32_t hybrid_factor = 2048;
     int seed = 0;
     bool fast_build = false;
@@ -109,6 +112,11 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
 
     auto sample_rate = get_sample_rate();
     auto n_points_cell = get_n_points_cell();
+
+    grid_t grid;
+
+    auto union_mbr = mbr_a;
+    union_mbr.Expand(mbr_b);
 
     // Sampling to find a good starting point of cmax2
     COORD_T radius = hd_lb;
@@ -191,7 +199,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
       }
     }
 
-    grid_t grid;
+
     auto grid_size =
         grid_t::CalculateGridResolution(mbr_b, n_points_b, n_points_cell);
 
@@ -714,7 +722,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
   uint32_t get_eb_only_threshold() {
     auto eb_only_threshold = config_.eb_only_threshold;
 
-    if (config_.auto_tune) {
+    if (config_.auto_tune || config_.auto_tune_eb_only_threshold) {
       const auto& json_input = RunningStats::instance().Get("Input");
       Features features(N_DIMS);
 
@@ -734,7 +742,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
   uint32_t get_n_points_cell() {
     auto n_points_cell = config_.n_points_cell;
 
-    if (config_.auto_tune) {
+    if (config_.auto_tune || config_.auto_tune_n_points_cell) {
       const auto& json_input = RunningStats::instance().Get("Input");
       Features features(N_DIMS);
 
@@ -753,7 +761,7 @@ class HausdorffDistanceHybrid : public HausdorffDistance<COORD_T, N_DIMS> {
   uint32_t get_max_hit() {
     auto max_hit = config_.max_hit;
 
-    if (config_.auto_tune) {
+    if (config_.auto_tune || config_.auto_tune_max_hit) {
       const auto& json_input = RunningStats::instance().Get("Input");
       Features features(N_DIMS);
 

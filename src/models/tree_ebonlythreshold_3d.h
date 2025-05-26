@@ -12,41 +12,54 @@
 6 File_0_MBR_Dim_1_Upper
 7 File_0_MBR_Dim_2_Upper
 8 File_0_GINI
-9 File_0_CellP99Value
-10 File_0_CellP95Value
-11 File_0_CellP50Value
-12 File_0_CellP99Count
-13 File_0_CellP95Count
-14 File_0_CellP50Count
-15 File_0_Dim0_GridSize
-16 File_0_Dim1_GridSize
-17 File_0_Dim2_GridSize
-18 File_0_MedianPointsPerCell
-19 File_0_NonEmptyCells
-20 File_0_TotalCells
-21 File_1_Density
-22 File_1_NumPoints
-23 File_1_MBR_Dim_0_Lower
-24 File_1_MBR_Dim_1_Lower
-25 File_1_MBR_Dim_2_Lower
-26 File_1_MBR_Dim_0_Upper
-27 File_1_MBR_Dim_1_Upper
-28 File_1_MBR_Dim_2_Upper
-29 File_1_GINI
-30 File_1_CellP99Value
-31 File_1_CellP95Value
-32 File_1_CellP50Value
-33 File_1_CellP99Count
-34 File_1_CellP95Count
-35 File_1_CellP50Count
-36 File_1_Dim0_GridSize
-37 File_1_Dim1_GridSize
-38 File_1_Dim2_GridSize
-39 File_1_MedianPointsPerCell
-40 File_1_NonEmptyCells
-41 File_1_TotalCells
-42 HDLB
-43 HDUP
+9 File_0_Cell_P0.99_Value
+10 File_0_Cell_P0.95_Value
+11 File_0_Cell_P0.5_Value
+12 File_0_Cell_P0.1_Value
+13 File_0_Cell_P0.99_Count
+14 File_0_Cell_P0.95_Count
+15 File_0_Cell_P0.5_Count
+16 File_0_Cell_P0.1_Count
+17 File_0_Dim0_GridSize
+18 File_0_Dim1_GridSize
+19 File_0_Dim2_GridSize
+20 File_0_NonEmptyCells
+21 File_0_TotalCells
+22 File_1_Density
+23 File_1_NumPoints
+24 File_1_MBR_Dim_0_Lower
+25 File_1_MBR_Dim_1_Lower
+26 File_1_MBR_Dim_2_Lower
+27 File_1_MBR_Dim_0_Upper
+28 File_1_MBR_Dim_1_Upper
+29 File_1_MBR_Dim_2_Upper
+30 File_1_GINI
+31 File_1_Cell_P0.99_Value
+32 File_1_Cell_P0.95_Value
+33 File_1_Cell_P0.5_Value
+34 File_1_Cell_P0.1_Value
+35 File_1_Cell_P0.99_Count
+36 File_1_Cell_P0.95_Count
+37 File_1_Cell_P0.5_Count
+38 File_1_Cell_P0.1_Count
+39 File_1_Dim0_GridSize
+40 File_1_Dim1_GridSize
+41 File_1_Dim2_GridSize
+42 File_1_NonEmptyCells
+43 File_1_TotalCells
+44 Cell_P0.99_Value
+45 Cell_P0.95_Value
+46 Cell_P0.5_Value
+47 Cell_P0.1_Value
+48 Cell_P0.99_Count
+49 Cell_P0.95_Count
+50 Cell_P0.5_Count
+51 Cell_P0.1_Count
+52 Dim0_GridSize
+53 Dim1_GridSize
+54 Dim2_GridSize
+55 HDLB
+56 HDUP
 
 struct Input {
     double File_0_Density;
@@ -58,16 +71,17 @@ struct Input {
     double File_0_MBR_Dim_1_Upper;
     double File_0_MBR_Dim_2_Upper;
     double File_0_GINI;
-    double File_0_CellP99Value;
-    double File_0_CellP95Value;
-    double File_0_CellP50Value;
-    double File_0_CellP99Count;
-    double File_0_CellP95Count;
-    double File_0_CellP50Count;
+    double File_0_Cell_P0.99_Value;
+    double File_0_Cell_P0.95_Value;
+    double File_0_Cell_P0.5_Value;
+    double File_0_Cell_P0.1_Value;
+    double File_0_Cell_P0.99_Count;
+    double File_0_Cell_P0.95_Count;
+    double File_0_Cell_P0.5_Count;
+    double File_0_Cell_P0.1_Count;
     double File_0_Dim0_GridSize;
     double File_0_Dim1_GridSize;
     double File_0_Dim2_GridSize;
-    double File_0_MedianPointsPerCell;
     double File_0_NonEmptyCells;
     double File_0_TotalCells;
     double File_1_Density;
@@ -79,18 +93,30 @@ struct Input {
     double File_1_MBR_Dim_1_Upper;
     double File_1_MBR_Dim_2_Upper;
     double File_1_GINI;
-    double File_1_CellP99Value;
-    double File_1_CellP95Value;
-    double File_1_CellP50Value;
-    double File_1_CellP99Count;
-    double File_1_CellP95Count;
-    double File_1_CellP50Count;
+    double File_1_Cell_P0.99_Value;
+    double File_1_Cell_P0.95_Value;
+    double File_1_Cell_P0.5_Value;
+    double File_1_Cell_P0.1_Value;
+    double File_1_Cell_P0.99_Count;
+    double File_1_Cell_P0.95_Count;
+    double File_1_Cell_P0.5_Count;
+    double File_1_Cell_P0.1_Count;
     double File_1_Dim0_GridSize;
     double File_1_Dim1_GridSize;
     double File_1_Dim2_GridSize;
-    double File_1_MedianPointsPerCell;
     double File_1_NonEmptyCells;
     double File_1_TotalCells;
+    double Cell_P0.99_Value;
+    double Cell_P0.95_Value;
+    double Cell_P0.5_Value;
+    double Cell_P0.1_Value;
+    double Cell_P0.99_Count;
+    double Cell_P0.95_Count;
+    double Cell_P0.5_Count;
+    double Cell_P0.1_Count;
+    double Dim0_GridSize;
+    double Dim1_GridSize;
+    double Dim2_GridSize;
     double HDLB;
     double HDUP;
 };
@@ -98,232 +124,208 @@ struct Input {
 */
 inline double PredictEBOnlyThreshold_3D(double * input) {
     double var0;
-    if (input[22] < 210327.0) {
-        if (input[0] < 0.44433957) {
-            if (input[2] < 55.0) {
-                var0 = 53.844692;
-            } else {
-                var0 = 127.4297;
-            }
-        } else {
-            if (input[5] < 0.461435) {
-                var0 = 88.84322;
-            } else {
-                if (input[33] < 17.0) {
-                    var0 = 101.24708;
+    if (input[39] < 43.0) {
+        if (input[46] < 27.0) {
+            if (input[27] < 200.0) {
+                if (input[38] < 2.0) {
+                    var0 = 103.7973;
                 } else {
-                    if (input[35] >= 105.0) {
-                        if (input[35] < 185.0) {
-                            var0 = 68.95673;
-                        } else {
-                            if (input[26] < 179.0) {
-                                var0 = 176.1816;
-                            } else {
-                                var0 = 117.4697;
-                            }
-                        }
+                    if (input[17] < 52.0) {
+                        var0 = 180.0755;
                     } else {
-                        var0 = 185.92982;
+                        var0 = 103.357155;
                     }
                 }
+            } else {
+                var0 = 88.78581;
             }
+        } else {
+            var0 = 79.48559;
         }
     } else {
-        var0 = -163.65092;
+        var0 = -146.96712;
     }
     double var1;
-    if (input[36] < 43.0) {
-        if (input[34] < 5187.0) {
-            if (input[14] >= 71.0) {
-                if (input[43] < 204.71687) {
-                    if (input[36] < 18.0) {
-                        if (input[26] < 166.0) {
-                            if (input[0] < 118938.47) {
-                                var1 = 13.253548;
-                            } else {
-                                var1 = 71.44621;
-                            }
-                        } else {
-                            var1 = 109.13924;
-                        }
-                    } else {
-                        var1 = 7.8064537;
-                    }
+    if (input[39] < 43.0) {
+        if (input[8] < 0.6733632) {
+            if (input[22] < 0.22304402) {
+                if (input[39] < 18.0) {
+                    var1 = 104.37416;
                 } else {
-                    var1 = 104.40905;
+                    var1 = -5.14012;
                 }
             } else {
-                if (input[0] < 2693.0308) {
-                    var1 = 65.13973;
+                if (input[20] < 28.0) {
+                    var1 = 51.70161;
                 } else {
-                    if (input[18] < 31.0) {
-                        var1 = 129.85661;
+                    if (input[18] < 62.0) {
+                        if (input[56] < 1.339206) {
+                            var1 = 76.13973;
+                        } else {
+                            if (input[0] < 0.43537536) {
+                                var1 = 78.92199;
+                            } else {
+                                if (input[44] < 240.0) {
+                                    var1 = 137.52956;
+                                } else {
+                                    var1 = 96.98639;
+                                }
+                            }
+                        }
                     } else {
-                        var1 = 85.30836;
+                        var1 = 56.08604;
                     }
                 }
             }
         } else {
-            var1 = 131.0088;
+            var1 = 35.546356;
         }
     } else {
-        var1 = -98.5529;
+        var1 = -88.2794;
     }
     double var2;
-    if (input[22] < 966204.0) {
-        if (input[16] < 60.0) {
-            if (input[14] < 1853.0) {
-                if (input[33] >= 862.0) {
-                    var2 = -9.765835;
-                } else {
-                    if (input[9] < 200.0) {
-                        if (input[5] < 0.5904136) {
-                            if (input[42] < 0.40750378) {
-                                var2 = 64.822624;
-                            } else {
-                                var2 = 103.573;
-                            }
-                        } else {
-                            if (input[0] < 14018.713) {
-                                if (input[39] < 19.0) {
-                                    var2 = -6.3509645;
-                                } else {
-                                    var2 = 52.673553;
-                                }
-                            } else {
-                                var2 = 79.526306;
-                            }
-                        }
-                    } else {
-                        var2 = 19.578825;
-                    }
-                }
+    if (input[39] < 43.0) {
+        if (input[30] < 0.32161808) {
+            if (input[35] < 2243.0) {
+                var2 = 109.8979;
             } else {
-                if (input[29] < 0.28402486) {
-                    var2 = 62.688213;
+                if (input[36] < 3914.0) {
+                    var2 = 24.86481;
                 } else {
-                    var2 = 105.71228;
+                    if (input[40] < 28.0) {
+                        var2 = 97.67054;
+                    } else {
+                        var2 = 61.30899;
+                    }
                 }
             }
         } else {
-            if (input[12] < 77911.0) {
-                if (input[36] < 21.0) {
-                    var2 = -43.073746;
+            if (input[1] < 1377817.0) {
+                if (input[8] < 0.6733632) {
+                    if (input[38] < 3.0) {
+                        if (input[18] < 8.0) {
+                            var2 = 5.9048386;
+                        } else {
+                            var2 = 72.79105;
+                        }
+                    } else {
+                        if (input[45] < 112.0) {
+                            if (input[38] >= 45.0) {
+                                var2 = 58.36027;
+                            } else {
+                                var2 = 98.241936;
+                            }
+                        } else {
+                            var2 = 35.127872;
+                        }
+                    }
                 } else {
-                    var2 = 55.51368;
+                    var2 = 12.389528;
                 }
             } else {
-                var2 = 82.72406;
+                var2 = -18.794567;
             }
         }
     } else {
-        var2 = -59.756603;
+        var2 = -53.027187;
     }
     double var3;
-    if (input[37] < 35.0) {
-        if (input[34] < 5187.0) {
-            if (input[32] < 26.0) {
-                if (input[26] < 193.0) {
-                    if (input[43] < 1.2928859) {
-                        var3 = 0.7467739;
-                    } else {
-                        if (input[10] >= 57.0) {
-                            if (input[10] < 74.0) {
-                                var3 = -6.497351;
-                            } else {
-                                if (input[17] < 10.0) {
-                                    var3 = 21.657051;
-                                } else {
-                                    var3 = 55.666054;
-                                }
-                            }
+    if (input[39] < 43.0) {
+        if (input[41] < 24.0) {
+            if (input[33] >= 25.0) {
+                var3 = -18.644909;
+            } else {
+                if (input[30] < 0.58482856) {
+                    if (input[55] < 0.57107115) {
+                        if (input[22] < 8965.423) {
+                            var3 = 81.69094;
                         } else {
-                            if (input[43] < 1.5003477) {
-                                var3 = 77.33517;
+                            var3 = 38.874783;
+                        }
+                    } else {
+                        if (input[33] < 10.0) {
+                            var3 = -13.2566595;
+                        } else {
+                            if (input[44] < 53.0) {
+                                var3 = 72.96572;
                             } else {
-                                if (input[36] < 10.0) {
-                                    var3 = -11.312837;
+                                if (input[40] < 23.0) {
+                                    var3 = 2.2153862;
                                 } else {
-                                    if (input[32] < 24.0) {
-                                        if (input[26] < 166.0) {
-                                            var3 = 59.796326;
-                                        } else {
-                                            var3 = 91.985535;
-                                        }
+                                    if (input[1] < 1294182.0) {
+                                        var3 = 20.170395;
                                     } else {
-                                        var3 = 21.697313;
+                                        var3 = 66.17673;
                                     }
                                 }
                             }
                         }
                     }
                 } else {
-                    var3 = -1.662145;
+                    if (input[41] < 9.0) {
+                        var3 = 50.53018;
+                    } else {
+                        var3 = -15.118083;
+                    }
                 }
-            } else {
-                var3 = -20.90056;
             }
         } else {
-            var3 = 62.556606;
+            if (input[18] < 59.0) {
+                var3 = 84.37261;
+            } else {
+                var3 = 32.271606;
+            }
         }
     } else {
-        if (input[1] < 36221.0) {
-            var3 = -19.216583;
-        } else {
-            var3 = -36.13776;
-        }
+        var3 = -31.85208;
     }
     double var4;
-    if (input[33] >= 7505.0) {
-        if (input[33] < 14546.0) {
-            var4 = -14.039748;
-        } else {
-            var4 = -21.802986;
-        }
-    } else {
-        if (input[42] < 82.0) {
-            if (input[23] < 69.0) {
-                if (input[35] >= 135.0) {
-                    var4 = -24.098433;
-                } else {
-                    if (input[21] < 3804.131) {
-                        var4 = 49.293587;
-                    } else {
-                        if (input[21] < 6610.401) {
-                            var4 = -16.016613;
+    if (input[39] < 43.0) {
+        if (input[24] < 126.0) {
+            if (input[15] < 47832.0) {
+                if (input[30] < 0.58482856) {
+                    if (input[46] < 27.0) {
+                        if (input[46] < 12.0) {
+                            if (input[40] < 8.0) {
+                                var4 = 2.6868036;
+                            } else {
+                                var4 = 39.28924;
+                            }
                         } else {
-                            if (input[39] < 33.0) {
-                                if (input[11] < 10.0) {
-                                    var4 = 18.154234;
+                            if (input[0] < 0.46365568) {
+                                if (input[30] < 0.2988276) {
+                                    if (input[30] < 0.23783533) {
+                                        var4 = 36.823067;
+                                    } else {
+                                        var4 = -3.2998369;
+                                    }
                                 } else {
-                                    var4 = 50.86143;
+                                    var4 = 47.61289;
                                 }
                             } else {
-                                var4 = 12.657148;
+                                var4 = 58.941803;
                             }
                         }
+                    } else {
+                        var4 = 4.46165;
+                    }
+                } else {
+                    if (input[42] < 131.0) {
+                        var4 = -14.278162;
+                    } else {
+                        var4 = 28.986801;
                     }
                 }
             } else {
-                if (input[32] < 21.0) {
-                    var4 = 18.880766;
-                } else {
-                    if (input[2] < 52.0) {
-                        var4 = 30.14336;
-                    } else {
-                        var4 = 65.49698;
-                    }
-                }
+                var4 = -6.40086;
             }
         } else {
-            if (input[17] < 50.0) {
-                var4 = -28.351648;
-            } else {
-                var4 = 24.698889;
-            }
+            var4 = -13.2576475;
         }
+    } else {
+        var4 = -19.132734;
     }
-    return 412.0270916334661 + (var0 + var1 + var2 + var3 + var4);
+    return 368.0384341637011 + (var0 + var1 + var2 + var3 + var4);
 }
 
 #endif // DECISION_TREE_EBONLYTHRESHOLD_3D

@@ -22,7 +22,7 @@ import hashlib
 def load_df(dir, param_name):
     cache_file = hashlib.md5((dir + param_name).encode()).hexdigest()
     # If cache exists, load from pickle
-    if os.path.exists(cache_file) and False:
+    if os.path.exists(cache_file):
         df = pd.read_pickle(cache_file)
         print("Loaded DataFrame from cache.", cache_file)
     else:
@@ -135,7 +135,7 @@ def train_num_points_per_cell(best_params_df, n_dims):
     df_features = extract_stats(best_params_df, 3)
     df_labels = best_params_df['Running.NumPointsPerCell']
     base_score = df["Running.NumPointsPerCell"].mean()
-    base_score = 1
+    # base_score = 1
     regressor = XGBRegressor(objective='reg:squarederror', random_state=42, max_depth=10, learning_rate=0.2,
                              n_estimators=20, min_child_weight=10, gamma=1.0, max_leaves=4, reg_lambda=1.0
                              , base_score=base_score)
@@ -159,6 +159,10 @@ def train_max_hit(best_params_df, n_dims):
 
 def extract_stats(df, n_dims):
     ft_df = pd.DataFrame()
+    def extract_percentile(histo):
+        for bucket in reversed(histo):
+            if bucket['percentile'] < percentile:
+                return bucket[key]
     for i in range(2):
         ft_df[f'File_{i}_Density'] = df['Input.Files'].apply(lambda x: x[i]['Density'])
         ft_df[f'File_{i}_NumPoints'] = df['Input.Files'].apply(lambda x: x[i]['NumPoints'])
@@ -169,11 +173,6 @@ def extract_stats(df, n_dims):
             ft_df[f'File_{i}_MBR_Dim_{dim}_Upper'] = df['Input.Files'].apply(
                 lambda x: x[i]['MBR'][i]['Upper'] if i < len(x[i]['MBR']) else 0)
         ft_df[f'File_{i}_GINI'] = df['Input.Files'].apply(lambda x: x[i]['Grid']['GiniIndex'])
-
-        def extract_percentile(histo):
-            for bucket in reversed(histo):
-                if bucket['percentile'] < percentile:
-                    return bucket[key]
 
         percentiles = (0.99, 0.95, 0.5, 0.1)
         key = 'value'
@@ -186,20 +185,37 @@ def extract_stats(df, n_dims):
             ft_df[f'File_{i}_Cell_P{percentile}_Count'] = df['Input.Files'].apply(
                 lambda x: extract_percentile(x[i]['Grid']['Histogram']))
 
-
         for dim in range(n_dims):
             ft_df[f'File_{i}_Dim{dim}_GridSize'] = df['Input.Files'].apply(
                 lambda x: x[i]['Grid']['GridSize'][dim] if dim < len(x[i]['Grid']['GridSize']) else 0)
+
         ft_df[f'File_{i}_NonEmptyCells'] = df['Input.Files'].apply(lambda x: x[i]['Grid']['NonEmptyCells'])
         ft_df[f'File_{i}_TotalCells'] = df['Input.Files'].apply(lambda x: x[i]['Grid']['TotalCells'])
+
+    percentiles = (0.99, 0.95, 0.5, 0.1)
+    key = 'value'
+    for percentile in percentiles:
+        ft_df[f'Cell_P{percentile}_Value'] = df['Input.Grid.Histogram'].apply(
+            lambda x: extract_percentile(x))
+
+    key = 'count'
+    for percentile in percentiles:
+        ft_df[f'Cell_P{percentile}_Count'] = df['Input.Grid.Histogram'].apply(
+            lambda x: extract_percentile(x))
+
+    for dim in range(n_dims):
+        ft_df[f'Dim{dim}_GridSize'] = df['Input.Grid.GridSize'].apply(
+            lambda x: x[dim] if dim < len(x) else 0)
+
     ft_df["HDLB"] = df['Running.Repeats'].apply(lambda x: x[0]['HDLowerBound'])
     ft_df["HDUP"] = df['Running.Repeats'].apply(lambda x: x[0]['HDUpperBound'])
     return ft_df
 
 
 def get_best_params(df):
-    df['Dataset'] = df['Input.Files'].apply(lambda x: x[0]['Path'] + '-' + x[1]['Path'])
-    min_idx = df.groupby('Dataset')['Running.AvgTime'].idxmin()
+    df['RunID'] = df['Input.Files'].apply(
+        lambda x: x[0]['Path'] + '-' + x[1]['Path']) + '-' + df['Input.Translate'].astype(str)
+    min_idx = df.groupby('RunID')['Running.AvgTime'].idxmin()
     return df.loc[min_idx].reset_index(drop=True)
 
 
@@ -207,14 +223,14 @@ if __name__ == '__main__':
     # Set the path to the directory containing your JSON files
     directory_path = 'logs/train'  # <-- change this to your JSON directory
 
-    # df = load_df(directory_path, "eb_only_threshold")
-    # best_params_df = get_best_params(df)
-    # train_eb_only_threshold(best_params_df, 3)
+    df = load_df(directory_path, "eb_only_threshold")
+    best_params_df = get_best_params(df)
+    train_eb_only_threshold(best_params_df, 3)
 
     df = load_df(directory_path, "n_points_cell")
     best_params_df = get_best_params(df)
     train_num_points_per_cell(best_params_df, 3)
 
-    # df = load_df(directory_path, "max_hit")
-    # best_params_df = get_best_params(df)
-    # train_max_hit(best_params_df, 3)
+    df = load_df(directory_path, "max_hit")
+    best_params_df = get_best_params(df)
+    train_max_hit(best_params_df, 3)

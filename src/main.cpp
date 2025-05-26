@@ -115,6 +115,9 @@ int main(int argc, char* argv[]) {
   config.normalize = FLAGS_normalize;
   config.repeat = FLAGS_repeat;
   config.auto_tune = FLAGS_auto_tune;
+  config.auto_tune_eb_only_threshold = FLAGS_auto_tune_eb_only_threshold;
+  config.auto_tune_n_points_cell = FLAGS_auto_tune_n_points_cell;
+  config.auto_tune_max_hit = FLAGS_auto_tune_max_hit;
   config.fast_build_bvh = FLAGS_fast_build_bvh;
   config.rebuild_bvh = FLAGS_rebuild_bvh;
   config.rt_prune = FLAGS_rt_prune;

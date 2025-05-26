@@ -41,6 +41,9 @@ struct RunConfig {
   int repeat;
   // RT only
   bool auto_tune;
+  bool auto_tune_eb_only_threshold;
+  bool auto_tune_n_points_cell;
+  bool auto_tune_max_hit;
   bool fast_build_bvh;
   bool rebuild_bvh;
   bool rt_prune;

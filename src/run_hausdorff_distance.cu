@@ -145,7 +145,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     }
     printf("%d A %s B %s\n", i, sa, sb);
   }
-#if 1
   thrust::device_vector<point_t> d_points_a = points_a, d_points_b = points_b;
 
   // Calculate MBR of points
@@ -189,6 +188,12 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
 
   auto& json_input = stats.Log("Input");
 
+  {
+    pinned_vector<point_t> all_points = d_points_a;
+    all_points.insert(all_points.end(), d_points_b.begin(), d_points_b.end());
+    write_points_stats(json_input, all_points);
+  }
+
   json_input["Files"] = {json_file1, json_file2};
   json_input["Normalize"] = config.normalize;
   json_input["Translate"] = config.translate;
@@ -230,7 +235,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
             hd_config);
     break;
   }
-#if 0
+#if 1
   case Variant::kCompareMethods: {
     using hd_impl_t = HausdorffDistanceCompareMethods<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -239,8 +244,10 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hd_config.ptx_root = ptx_root.c_str();
     hd_config.fast_build = config.fast_build_bvh;
     hd_config.rebuild_bvh = config.rebuild_bvh;
-    hd_config.sample_rate = config.sample_rate;
     hd_config.n_points_cell = config.n_points_cell;
+    hd_config.max_hit = config.max_hit;
+    hd_config.prune = config.rt_prune;
+    hd_config.eb = config.rt_eb;
 
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
@@ -254,6 +261,9 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hd_config.seed = config.seed;
     hd_config.ptx_root = ptx_root.c_str();
     hd_config.auto_tune = config.auto_tune;
+    hd_config.auto_tune_eb_only_threshold = config.auto_tune_eb_only_threshold;
+    hd_config.auto_tune_n_points_cell = config.auto_tune_n_points_cell;
+    hd_config.auto_tune_max_hit = config.auto_tune_max_hit;
     hd_config.fast_build = config.fast_build_bvh;
     hd_config.rebuild_bvh = config.rebuild_bvh;
     hd_config.sample_rate = config.sample_rate;
@@ -270,11 +280,9 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     typename hd_impl_t::Config hd_config;
     std::string ptx_root = config.exec_path + "/ptx";
 
-    hd_config.seed = config.seed;
     hd_config.ptx_root = ptx_root.c_str();
     hd_config.fast_build = config.fast_build_bvh;
     hd_config.rebuild_bvh = config.rebuild_bvh;
-    hd_config.sample_rate = config.sample_rate;
     hd_config.n_points_cell = config.n_points_cell;
     hd_config.prune = config.rt_prune;
     hd_config.eb = config.rt_eb;
@@ -282,7 +290,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
-#if 0
   case Variant::kITK: {
     using hd_impl_t = HausdorffDistanceITK<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
@@ -294,6 +301,7 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
+#if 0
   case Variant::kBranchAndBound: {
     using hd_impl_t = HausdorffDistanceBranchNBound<COORD_T, N_DIMS>;
 
@@ -387,7 +395,6 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     }
   }
   return dist;
-#endif
 
   return 0;
 }

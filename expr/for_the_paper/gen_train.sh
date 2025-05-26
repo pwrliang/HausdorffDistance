@@ -189,7 +189,7 @@ function run_geo_datasets() {
   for file1 in "$root"/*.wkt; do
     for file2 in "$root"/*.wkt; do
       if [[ "$file1" != "$file2" ]]; then
-        for translate in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0; do
+        for translate in 0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0; do
           vary_variables "geo" "$file1" "$file2" $type $dims "false" $translate
         done
       fi

@@ -162,6 +162,12 @@ void AutoTuneHausdorffDistanceImpl(const RunConfig& config) {
 
   auto& json_input = stats.Log("Input");
 
+  {
+    pinned_vector<point_t> all_points = d_points_a;
+    all_points.insert(all_points.end(), d_points_b.begin(), d_points_b.end());
+    write_points_stats(json_input, all_points);
+  }
+
   json_input["Files"] = {json_file1, json_file2};
   json_input["Normalize"] = config.normalize;
   json_input["Translate"] = config.translate;

@@ -27,6 +27,9 @@ DECLARE_int32(repeat);
 DECLARE_int32(seed);
 // RT/Hybrid parameters
 DECLARE_bool(auto_tune);
+DECLARE_bool(auto_tune_eb_only_threshold);
+DECLARE_bool(auto_tune_n_points_cell);
+DECLARE_bool(auto_tune_max_hit);
 DECLARE_bool(fast_build_bvh);
 DECLARE_bool(rebuild_bvh);
 DECLARE_bool(rt_prune);

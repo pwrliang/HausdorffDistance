@@ -26,6 +26,9 @@ DEFINE_int32(repeat, 5, "Number of repeat to evaluate");
 DEFINE_int32(seed, 0, "Random number seed");
 // RT/Hybrid parameters
 DEFINE_bool(auto_tune, false, "Automatic tuning parameters");
+DEFINE_bool(auto_tune_eb_only_threshold, false, "");
+DEFINE_bool(auto_tune_n_points_cell, false, "");
+DEFINE_bool(auto_tune_max_hit, false, "");
 DEFINE_bool(fast_build_bvh, false, "Prefer fast build BVH");
 DEFINE_bool(rebuild_bvh, false, "rebuild BVH (RT only)");
 DEFINE_bool(rt_prune, true, "prune with UB and LB");
@@ -52,3 +55,4 @@ DEFINE_string(sample_rate_list, "0.01", "");
 DEFINE_string(eb_only_threshold_list, "0", "");
 DEFINE_string(max_hit_list, "256", "");
 DEFINE_string(n_points_cell_list, "8", "");
+
