@@ -24,11 +24,12 @@ function vary_variables() {
   input_type=$4
   n_dims=$5
   normalize=$6
+  translate=$7
 
   name1=$(basename $input1)
   name2=$(basename $input2)
 
-  log="${log_dir}/train/${out_prefix}/eb_only_threshold/${name1}_${name2}"
+  log="${log_dir}/train/${out_prefix}/eb_only_threshold/${name1}_${name2}_translate_${translate}"
   echo "${log}" | xargs dirname | xargs mkdir -p
 
   $PROG_ROOT/hd_exec \
@@ -41,11 +42,13 @@ function vary_variables() {
     -eb_only_threshold_list "1,100,200,300,400,500,600,700,800,900,1000" \
     -repeat 5 \
     -json "$log" \
-    -normalize="$normalize"
+    -normalize="$normalize" \
+    -translate="$translate"
 
-  log="${log_dir}/train/${out_prefix}/n_points_cell/${name1}_${name2}"
+  log="${log_dir}/train/${out_prefix}/n_points_cell/${name1}_${name2}_translate_${translate}"
   echo "${log}" | xargs dirname | xargs mkdir -p
-
+  # -n_points_cell_list "1,4,8,12,16,20,24,28,32,36,40,44,48,52,56,60,64,68,72,76,80" \
+  # -n_points_cell_list "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30" \
   $PROG_ROOT/hd_exec \
     -input1 $input1 \
     -input2 $input2 \
@@ -53,12 +56,13 @@ function vary_variables() {
     -n_dims $n_dims \
     -serialize $SERIALIZE_ROOT \
     -vary_params \
-    -n_points_cell_list "1,4,8,12,16,20,24,28,32,36,40,44,48,52,56,60,64,68,72,76,80" \
+    -n_points_cell_list "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30" \
     -repeat 5 \
     -json "$log" \
-    -normalize="$normalize"
+    -normalize="$normalize" \
+    -translate="$translate"
 
-  log="${log_dir}/train/${out_prefix}/max_hit/${name1}_${name2}"
+  log="${log_dir}/train/${out_prefix}/max_hit/${name1}_${name2}_translate_${translate}"
   echo "${log}" | xargs dirname | xargs mkdir -p
 
   $PROG_ROOT/hd_exec \
@@ -71,7 +75,8 @@ function vary_variables() {
     -max_hit_list "1,16,32,64,128,256,512" \
     -repeat 5 \
     -json "$log" \
-    -normalize="$normalize"
+    -normalize="$normalize" \
+    -translate="$translate"
 }
 
 function run_mri_datasets() {
@@ -113,7 +118,7 @@ function run_mri_datasets() {
       ((counter++))
 
       if [[ "$file1" != "$file2" ]]; then
-        vary_variables "$out_prefix" "$file1" "$file2" $type $dims "false"
+        vary_variables "$out_prefix" "$file1" "$file2" $type $dims "false" 0
       else
         ((counter -= 2))
       fi
@@ -165,7 +170,7 @@ function run_modelnet_datasets() {
       name2=$(basename $file2)
 
       if [[ "$file1" != "$file2" ]]; then
-        vary_variables "$out_prefix" "$file1" "$file2" $type $dims "true"
+        vary_variables "$out_prefix" "$file1" "$file2" $type $dims "true" 0
       else
         ((counter -= 2))
       fi
@@ -184,7 +189,9 @@ function run_geo_datasets() {
   for file1 in "$root"/*.wkt; do
     for file2 in "$root"/*.wkt; do
       if [[ "$file1" != "$file2" ]]; then
-        vary_variables "geo" "$file1" "$file2" $type $dims "false"
+        for translate in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0; do
+          vary_variables "geo" "$file1" "$file2" $type $dims "false" $translate
+        done
       fi
     done
   done
