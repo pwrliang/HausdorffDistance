@@ -25,71 +25,54 @@ def load_df(dir):
     return df
 
 
-def enabled_hybrid(df):
-    return df
-
-
-def get_avg_time(df):
-    time_columns = [col for col in df.columns if re.search(r'Running\.Repeat(\d+)\.ReportedTime', col)]
-    return df[time_columns].mean(axis=1)
-
-
 def draw_mri_modelnet():
-    variants = ("eb_gpu", "rt_gpu", "hybrid_gpu")
-    variant_labels = ("EB-GPU", "NN-RT", "Hybrid")
+    variants = ("n_points_cell_false_max_hit_false", "n_points_cell_true_max_hit_false", "n_points_cell_false_max_hit_true",  "n_points_cell_true_max_hit_true")
+    variant_labels = ("Fixed", "Autotune Grid", "Autotune Max Hit", "Autotune All")
 
-    datasets = ["BraTS2020_ValidationData", "ModelNet40"]
-    dataset_labels = ["(a) BraTS", "(b) ModelNet"]
+    geo_dataset_labels = {'USADetailedWaterBodies.wkt': 'USWater', 'USACensusBlockGroupBoundaries.wkt': 'USBlock',
+                          'lakes.bz2.wkt': 'OSMLakes', 'parks.bz2.wkt': 'OSMParks', 'dtl_cnty.wkt': 'USCounty',
+                          'uszipcode.wkt': 'USZipcode'}
+
+    graphics_dataset_labels = {'dragon.ply':'Dragon','asian_dragon.ply':'Asian Dragon',
+                               'thai_statuette.ply': 'Thai','happy_buddha.ply':'Buddha',}
     linestyles = ['dotted', 'dashed', 'solid', ]
 
     plt.rcParams.update({'font.size': 15})
     # plt.rcParams['hatch.linewidth'] = 4
-    fig, axes = plt.subplots(nrows=1, ncols=len(datasets), figsize=(9, 4))
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(9, 4))
 
-    for dataset_id in range(len(datasets)):
-        dataset = datasets[dataset_id]
-        ax = axes[dataset_id]
-        ax.set_xlabel("Percentile (%)")
-        ax.set_ylabel(ylabel='Running Time (ms)', labelpad=1)
-        ax.set_title(f"{dataset_labels[dataset_id]} dataset")
-        ax.set_yscale('log')
+    # df_tune_grid = load_df(f"logs/run_all/auto_tune/geo/eb_only_threshold_false_n_points_cell_true_max_hit_false")
+    # df_tune_maxhit = load_df(f"logs/run_all/auto_tune/geo/eb_only_threshold_false_n_points_cell_false_max_hit_true")
+    # df_tune_all = load_df(f"logs/run_all/auto_tune/geo/eb_only_threshold_true_n_points_cell_true_max_hit_true")
 
-        print("dataset", dataset, '\n')
+    def draw_subfig(dataset_name, dataset_labels, ax):
+        dfs = []
+        for i in range(len(variants)):
+            df = load_df(f"logs/run_all/auto_tune/{dataset_name}/{variants[i]}")
+            df_data = pd.DataFrame()
+            df_data['Dataset'] = df['Input.Files'].apply(
+                lambda x: dataset_labels[os.path.basename(x[0]['Path'])] + '-' + dataset_labels[
+                    os.path.basename(x[1]['Path'])])
+            df_data[variant_labels[i]] = df['Running.AvgTime']
+            df_data.set_index('Dataset', inplace=True)
+            dfs.append(df_data)
+        merged_df = reduce(lambda left, right: pd.merge(left, right, on='Dataset'), dfs)
+        merged_df.plot(kind='bar', ax=ax, )
 
-        df_rt = None
-        df_hybrid = None
+    draw_subfig("geo", geo_dataset_labels, axes[0])
+    draw_subfig("graphics", graphics_dataset_labels, axes[1])
 
-        for variant_idx in range(len(variants)):
-            variant = variants[variant_idx]
-            df = load_df(f"logs/run_all/{variant}/{dataset}")
-            if variant_idx == 1:
-                df_rt = df
-            elif variant_idx == 2:
-                df_hybrid = df
-            # x = pd.Series([i for i in range(1, len(df) + 1)])
-            y = df["Running.AvgTime"]
-            y = y.values
-            y.sort()
+    # draw_df(df_tune_grid, axes, "Autotune Grid")
+    # draw_df(df_tune_maxhit, axes, "Autotune MaxHit")
+    # draw_df(df_tune_all, axes, "Autotune All")
 
-            percentiles = np.linspace(0, 100, len(y))
-            ax.plot(percentiles, y, ls=linestyles[variant_idx], label=variant_labels[variant_idx], linewidth=2, )
-
-            mean = y.mean()  # or np.mean(arr)
-            std = y.std(ddof=0)  # population std‑dev; use ddof=1 for sample
-            median = np.median(y)
-            print("Variant", variant)
-            print(f"Mean   : {mean:.4f}")
-            print(f"Std dev: {std:.4f}")
-            print(f"Median : {median:.4f}")
-        # for i, line in enumerate(ax.get_lines()):
-        #     line.set_marker(markers[i])
-        ax.legend(loc='upper left', ncol=1, handletextpad=0.3,
-                  borderaxespad=0.2, frameon=False)
-        slow_rows = df_hybrid[df_hybrid['Running.AvgTime'] > df_rt['Running.AvgTime']]
-        # print(slow_rows)
+    axes[0].legend(loc='upper left', ncol=1, handletextpad=0.3,
+              borderaxespad=0.2, frameon=False)
+    #     slow_rows = df_hybrid[df_hybrid['Running.AvgTime'] > df_rt['Running.AvgTime']]
+    #     # print(slow_rows)
 
     fig.tight_layout(pad=0.1)
-    fig.savefig("hybrid_vs_all.pdf", format='pdf', bbox_inches='tight')
+    fig.savefig("auto-tune.pdf", format='pdf', bbox_inches='tight')
     plt.show()
 
 
@@ -104,8 +87,8 @@ def draw_spatial_graphics():
                           'lakes.bz2.wkt': 'OSMLakes', 'parks.bz2.wkt': 'OSMParks', 'dtl_cnty.wkt': 'USCounty',
                           'uszipcode.wkt': 'USZipcode'}
 
-    graphics_dataset_labels = {'dragon.ply':'Dragon','asian_dragon.ply':'Asian Dragon',
-                               'thai_statuette.ply': 'Thai','happy_buddha.ply':'Buddha',}
+    graphics_dataset_labels = {'dragon.ply': 'Dragon', 'asian_dragon.ply': 'Asian Dragon',
+                               'thai_statuette.ply': 'Thai', 'happy_buddha.ply': 'Buddha', }
 
     def draw_subfig(dataset_name, dataset_labels, ax):
         dfs = []
@@ -306,5 +289,5 @@ def draw_hybrid_analysis():
 
 
 # draw_hybrid_analysis()
-# draw_mri_modelnet()
-draw_spatial_graphics()
+draw_mri_modelnet()
+# draw_spatial_graphics()

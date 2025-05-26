@@ -214,7 +214,7 @@ function run_graphics() {
   done
 }
 
-run_mri
-run_modelnet
-run_geo
+#run_mri
+#run_modelnet
+#run_geo
 run_graphics

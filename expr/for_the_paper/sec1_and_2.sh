@@ -25,7 +25,6 @@ function run_hd() {
   n_dims=$5
   variant=$6
   execution=$7
-  grid_size=$8
 
   name1=$(basename $input1)
   name2=$(basename $input2)
@@ -50,11 +49,8 @@ function run_hd() {
         -execution $execution \
         -repeat 5 \
         -json "$log" \
-        -check=false \
-        -v=1 \
-        -bit_count $grid_size
+        -check=false
     fi
-
   fi
 }
 
@@ -65,13 +61,8 @@ function run_datasets() {
   variant=$4
   execution=$5
 
-  if [[ -f "$root/.list" ]]; then
-    list=$(cat "$root/.list")
-  else
-    list=$(find "$root" -type f)
-    list=$(echo "$list")
-    echo "$list" >"$root/.list"
-  fi
+  list=$(find "$root" -type f)
+  list=$(echo "$list")
 
   mapfile -t files <<<"$list"
 
@@ -161,12 +152,9 @@ function run_same_type_datasets() {
 }
 
 function compare_eb() {
-  #for variant in eb; do
-  #  run_datasets "/local/storage/shared/HDDatasets/BraTS2020_TrainingData" "image" 3 $variant "gpu"
-  #done
-  #run_datasets "/local/storage/shared/HDDatasets/BraTS2020_TrainingData" "image" 3 "itk" "cpu"
-  #run_datasets "/local/storage/shared/HDDatasets/BraTS2020_TrainingData" "image" 3 "monai" "gpu"
-  echo ""
+  run_datasets "/local/storage/shared/HDDatasets/BraTS2020_ValidationData" "image" 3 "eb" "gpu"
+  run_datasets "/local/storage/shared/HDDatasets/BraTS2020_ValidationData" "image" 3 "itk" "cpu"
+  run_datasets "/local/storage/shared/HDDatasets/BraTS2020_ValidationData" "image" 3 "monai" "cpu"
 }
 
 function compare_rt() {
@@ -181,24 +169,24 @@ function compare_rt() {
     input1="${dataset_root}/${name1}"
     input2="${dataset_root}/${name2}"
 
-    #    log="${log_dir}/run_all/compare_rt/rt_hdist/${name1}_${name2}.json"
-    #    echo "${log}" | xargs dirname | xargs mkdir -p
-    #
-    #    if [[ ! -f "$log" ]]; then
-    #      $PROG_ROOT/hd_exec \
-    #        -input1 $input1 \
-    #        -input2 $input2 \
-    #        -input_type ply \
-    #        -n_dims 3 \
-    #        -serialize $SERIALIZE_ROOT \
-    #        -variant rt-hdist \
-    #        -execution gpu \
-    #        -repeat 5 \
-    #        -json "$log" \
-    #        -check=false \
-    #        -v=1 \
-    #        -g
-    #    fi
+    log="${log_dir}/run_all/compare_rt/rt_hdist/${name1}_${name2}.json"
+    echo "${log}" | xargs dirname | xargs mkdir -p
+
+    if [[ ! -f "$log" ]]; then
+      $PROG_ROOT/hd_exec \
+        -input1 $input1 \
+        -input2 $input2 \
+        -input_type ply \
+        -n_dims 3 \
+        -serialize $SERIALIZE_ROOT \
+        -variant rt-hdist \
+        -execution gpu \
+        -repeat 5 \
+        -json "$log" \
+        -check=false \
+        -v=1 \
+        -bit_count=$bit_count
+    fi
 
     log="${log_dir}/run_all/compare_rt/rt_grid/${name1}_${name2}.json"
     echo "${log}" | xargs dirname | xargs mkdir -p
@@ -216,7 +204,6 @@ function compare_rt() {
         -json "$log" \
         -check=false \
         -v=1 \
-        -auto_tune \
         -rt_prune=false \
         -rt_eb=false
     fi
@@ -237,7 +224,6 @@ function compare_rt() {
         -json "$log" \
         -check=false \
         -v=1 \
-        -auto_tune \
         -rt_prune=true \
         -rt_eb=false
     fi
@@ -258,7 +244,6 @@ function compare_rt() {
         -json "$log" \
         -check=false \
         -v=1 \
-        -auto_tune \
         -rt_prune=false \
         -rt_eb=true
     fi
@@ -279,14 +264,14 @@ function compare_rt() {
         -json "$log" \
         -check=false \
         -v=1 \
-        -auto_tune \
         -rt_prune=true \
         -rt_eb=true
     fi
   done
 }
 
-compare_rt
+compare_eb
+#compare_rt
 
 #run_all_datasets "/local/storage/shared/HDDatasets" "wkt" 2
 
