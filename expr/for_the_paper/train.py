@@ -21,7 +21,8 @@ import hashlib
 
 def load_df(dir, param_name):
     cache_file = hashlib.md5((dir + param_name).encode()).hexdigest()
-    # If cache exists, load from pickle
+    print((dir + param_name).encode())
+	# If cache exists, load from pickle
     if os.path.exists(cache_file):
         df = pd.read_pickle(cache_file)
         print("Loaded DataFrame from cache.", cache_file)
@@ -134,10 +135,10 @@ def train_eb_only_threshold(best_params_df, n_dims):
 def train_num_points_per_cell(best_params_df, n_dims):
     df_features = extract_stats(best_params_df, 3)
     df_labels = best_params_df['Running.NumPointsPerCell']
-    base_score = df["Running.NumPointsPerCell"].mean()
-    # base_score = 1
+    base_score = df["Running.NumPointsPerCell"].median()
+    # base_score = 0
     regressor = XGBRegressor(objective='reg:squarederror', random_state=42, max_depth=10, learning_rate=0.2,
-                             n_estimators=20, min_child_weight=10, gamma=1.0, max_leaves=4, reg_lambda=1.0
+                             n_estimators=20, min_child_weight=4, gamma=2.0, max_leaves=200, reg_lambda=1.0, reg_alpha=0.5
                              , base_score=base_score)
     model, features = train_param(
         "NumPointsPerCell", df_features, df_labels, n_dims, regressor,
@@ -149,8 +150,9 @@ def train_max_hit(best_params_df, n_dims):
     df_features = extract_stats(best_params_df, 3)
     df_labels = best_params_df['Running.MaxHit']
     base_score = df["Running.MaxHit"].mean()
-    regressor = XGBRegressor(objective='reg:squarederror', random_state=42, max_depth=10, learning_rate=0.2,
-                             n_estimators=5, min_child_weight=10, gamma=0.0, base_score=base_score)
+    # base_score = 0
+    regressor = XGBRegressor(objective='reg:gamma', random_state=42, max_depth=5, learning_rate=0.2,
+                             n_estimators=20, min_child_weight=20, gamma=5.0, max_leaves=20, base_score=base_score, reg_lambda=2.0)
     model, features = train_param(
         "MaxHit", df_features, df_labels, n_dims, regressor,
         return_model=True, base_score=base_score  # , isPoisson=True
@@ -159,6 +161,7 @@ def train_max_hit(best_params_df, n_dims):
 
 def extract_stats(df, n_dims):
     ft_df = pd.DataFrame()
+    df_tmp = pd.DataFrame()
     def extract_percentile(histo):
         for bucket in reversed(histo):
             if bucket['percentile'] < percentile:
@@ -166,15 +169,18 @@ def extract_stats(df, n_dims):
     for i in range(2):
         ft_df[f'File_{i}_Density'] = df['Input.Files'].apply(lambda x: x[i]['Density'])
         ft_df[f'File_{i}_NumPoints'] = df['Input.Files'].apply(lambda x: x[i]['NumPoints'])
+        #for dim in range(n_dims):
+        #    ft_df[f'File_{i}_MBR_Dim_{dim}_Lower'] = df['Input.Files'].apply(
+        #        lambda x: x[i]['MBR'][dim]['Lower'] if dim < len(x[i]['MBR']) else 0)
+        #for dim in range(n_dims):
+        #    ft_df[f'File_{i}_MBR_Dim_{dim}_Upper'] = df['Input.Files'].apply(
+        #        lambda x: x[i]['MBR'][dim]['Upper'] if dim < len(x[i]['MBR']) else 0)
         for dim in range(n_dims):
-            ft_df[f'File_{i}_MBR_Dim_{dim}_Lower'] = df['Input.Files'].apply(
-                lambda x: x[i]['MBR'][i]['Lower'] if i < len(x[i]['MBR']) else 0)
-        for dim in range(n_dims):
-            ft_df[f'File_{i}_MBR_Dim_{dim}_Upper'] = df['Input.Files'].apply(
-                lambda x: x[i]['MBR'][i]['Upper'] if i < len(x[i]['MBR']) else 0)
+            ft_df[f'File_{i}_MBR_Dim_{dim}_Range'] = df['Input.Files'].apply(
+                lambda x: (x[i]['MBR'][dim]['Upper'] -  x[i]['MBR'][dim]["Lower"]) if dim < len(x[i]['MBR']) else 0)
         ft_df[f'File_{i}_GINI'] = df['Input.Files'].apply(lambda x: x[i]['Grid']['GiniIndex'])
 
-        percentiles = (0.99, 0.95, 0.5, 0.1)
+        percentiles = (0.99, 0.95, 0.75, 0.5, 0.25, 0.1)
         key = 'value'
         for percentile in percentiles:
             ft_df[f'File_{i}_Cell_P{percentile}_Value'] = df['Input.Files'].apply(
@@ -192,7 +198,7 @@ def extract_stats(df, n_dims):
         ft_df[f'File_{i}_NonEmptyCells'] = df['Input.Files'].apply(lambda x: x[i]['Grid']['NonEmptyCells'])
         ft_df[f'File_{i}_TotalCells'] = df['Input.Files'].apply(lambda x: x[i]['Grid']['TotalCells'])
 
-    percentiles = (0.99, 0.95, 0.5, 0.1)
+    percentiles = (0.99, 0.95, 0.75, 0.5, 0.25, 0.1)
     key = 'value'
     for percentile in percentiles:
         ft_df[f'Cell_P{percentile}_Value'] = df['Input.Grid.Histogram'].apply(
@@ -207,8 +213,16 @@ def extract_stats(df, n_dims):
         ft_df[f'Dim{dim}_GridSize'] = df['Input.Grid.GridSize'].apply(
             lambda x: x[dim] if dim < len(x) else 0)
 
-    ft_df["HDLB"] = df['Running.Repeats'].apply(lambda x: x[0]['HDLowerBound'])
-    ft_df["HDUP"] = df['Running.Repeats'].apply(lambda x: x[0]['HDUpperBound'])
+    df_tmp["HDLB"] = df['Running.Repeats'].apply(lambda x: x[0]['HDLowerBound'])
+    df_tmp["HDUB"] = df['Running.Repeats'].apply(lambda x: x[0]['HDUpperBound'])
+    #ft_df["HDLB"] = df['Running.Repeats'].apply(lambda x: x[0]['HDLowerBound'])
+    #ft_df["HDUB"] = df['Running.Repeats'].apply(lambda x: x[0]['HDUpperBound'])
+
+    file0_norm = np.sqrt(sum(ft_df[f'File_0_MBR_Dim_{d}_Range'] ** 2 for d in range(n_dims)))
+    file1_norm = np.sqrt(sum(ft_df[f'File_1_MBR_Dim_{d}_Range'] ** 2 for d in range(n_dims)))
+
+    ft_df["HDLBRatio"] = df_tmp["HDLB"] / ((file0_norm + file1_norm) / 2)
+    ft_df["HDUBRatio"] = df_tmp["HDUB"] / ((file0_norm + file1_norm) / 2)
     return ft_df
 
 
@@ -223,14 +237,14 @@ if __name__ == '__main__':
     # Set the path to the directory containing your JSON files
     directory_path = 'logs/train'  # <-- change this to your JSON directory
 
-    df = load_df(directory_path, "eb_only_threshold")
-    best_params_df = get_best_params(df)
-    train_eb_only_threshold(best_params_df, 3)
+    #df = load_df(directory_path, "eb_only_threshold")
+    #best_params_df = get_best_params(df)
+    #train_eb_only_threshold(best_params_df, 3)
 
     df = load_df(directory_path, "n_points_cell")
     best_params_df = get_best_params(df)
     train_num_points_per_cell(best_params_df, 3)
 
-    df = load_df(directory_path, "max_hit")
-    best_params_df = get_best_params(df)
-    train_max_hit(best_params_df, 3)
+    #df = load_df(directory_path, "max_hit")
+    #best_params_df = get_best_params(df)
+    #train_max_hit(best_params_df, 3)
