@@ -65,10 +65,12 @@ def draw_eb_effectiveness():
         std = y.std(ddof=0)  # population std‑dev; use ddof=1 for sample
         median = np.median(y)
         print("Variant", variant)
+        print("Min", y.min())
+        print("Max", y.max())
         print(f"Mean   : {mean:.4f}")
         print(f"Std dev: {std:.4f}")
         print(f"Median : {median:.4f}")
-
+        print()
         ax.legend(loc='upper left', handletextpad=0.3,
                   borderaxespad=0.2, frameon=False)
     fig.tight_layout(pad=0.1)

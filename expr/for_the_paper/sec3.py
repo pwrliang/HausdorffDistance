@@ -78,9 +78,12 @@ def draw_mri_modelnet():
             std = y.std(ddof=0)  # population std‑dev; use ddof=1 for sample
             median = np.median(y)
             print("Variant", variant)
+            print("Min", y.min())
+            print("Max", y.max())
             print(f"Mean   : {mean:.4f}")
             print(f"Std dev: {std:.4f}")
             print(f"Median : {median:.4f}")
+            print()
         # for i, line in enumerate(ax.get_lines()):
         #     line.set_marker(markers[i])
         ax.legend(loc='upper left', ncol=1, handletextpad=0.3,
@@ -104,8 +107,8 @@ def draw_spatial_graphics():
                           'lakes.bz2.wkt': 'OSMLakes', 'parks.bz2.wkt': 'OSMParks', 'dtl_cnty.wkt': 'USCounty',
                           'uszipcode.wkt': 'USZipcode'}
 
-    graphics_dataset_labels = {'dragon.ply':'Dragon','asian_dragon.ply':'Asian Dragon',
-                               'thai_statuette.ply': 'Thai','happy_buddha.ply':'Buddha',}
+    graphics_dataset_labels = {'dragon.ply': 'Dragon', 'asian_dragon.ply': 'Asian Dragon',
+                               'thai_statuette.ply': 'Thai', 'happy_buddha.ply': 'Buddha', }
 
     def draw_subfig(dataset_name, dataset_labels, ax):
         dfs = []
@@ -306,5 +309,5 @@ def draw_hybrid_analysis():
 
 
 # draw_hybrid_analysis()
-# draw_mri_modelnet()
-draw_spatial_graphics()
+draw_mri_modelnet()
+# draw_spatial_graphics()

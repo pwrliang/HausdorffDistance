@@ -102,7 +102,7 @@ class HausdorffDistanceNearestNeighborSearch
     stats["ComparedPairs"] = points_a.size();
     stats["BuildIndexTime"] = build_time;
     stats["ComputeTime"] = compute_time;
-    stats["ReportedTime"] = compute_time;
+    stats["ReportedTime"] = build_time + compute_time;
 
     return sqrt(cmax2);
   }
@@ -110,6 +110,8 @@ class HausdorffDistanceNearestNeighborSearch
   coord_t CalculateDistance(const Stream& stream,
                             thrust::device_vector<point_t>& points_a,
                             thrust::device_vector<point_t>& points_b) override {
+    double build_time, compute_time;
+
     kdtree_t tree_b;
     ArrayView<point_t> v_points_a(points_a);
     ArrayView<point_t> v_points_b(points_b);
@@ -125,7 +127,7 @@ class HausdorffDistanceNearestNeighborSearch
 
     stream.Sync();
     sw.stop();
-    stats["BuildKdTreeTime"] = sw.ms();
+    build_time = sw.ms();
 
     sw.start();
     auto max2 = thrust::transform_reduce(
@@ -141,11 +143,13 @@ class HausdorffDistanceNearestNeighborSearch
     cudaFreeAsync(d_bounds, stream.cuda_stream());
     stream.Sync();
     sw.stop();
-    stats["SearchTreeTime"] = sw.ms();
+    compute_time = sw.ms();
 
     stats["Algorithm"] = "Nearest Neighbor Search";
     stats["Execution"] = "GPU";
-    stats["ComparedPairs"] = points_a.size();
+    stats["BuildIndexTime"] = build_time;
+    stats["ComputeTime"] = compute_time;
+    stats["ReportedTime"] = build_time + compute_time;
 
     return sqrt(max2);
   }

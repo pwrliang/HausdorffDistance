@@ -5,7 +5,7 @@
 #include <vector>
 
 #ifndef PROFILING
-#define PROFILING
+// #define PROFILING
 #endif
 
 #include "hd_impl/hausdorff_distance_early_break.h"
@@ -63,7 +63,7 @@ class HausdorffDistanceCompareMethods
     sw.stop();
     LOG(INFO) << "RT Time " << sw.ms();
     // sw.start();
-    // auto hd_eb = early_break_->CalculateDistance(stream, points_a, points_b);
+    auto hd_eb = early_break_->CalculateDistance(stream, points_a, points_b);
     // sw.stop();
     // LOG(INFO) << "EB Time " << sw.ms();
 
@@ -71,17 +71,20 @@ class HausdorffDistanceCompareMethods
 
     // thrust::host_vector<uint32_t> rt_point_counters =
     //     ray_tracing_->get_point_counters();
-    thrust::host_vector<uint32_t> rt_hit_counters =
-    ray_tracing_->get_hit_counters();
-    // thrust::host_vector<uint32_t> eb_point_counters =
-        // early_break_->get_point_counters();
+    auto hit_counters = ray_tracing_->get_hit_counters();
+    thrust::host_vector<uint32_t> rt_hit_counters = hit_counters;
+    thrust::host_vector<uint32_t> eb_point_counters =
+        early_break_->get_point_counters();
 
-
-
-    // stats["Early Break"] = early_break_->get_stats();
+    stats["Early Break"] = early_break_->get_stats();
     auto json_stats = ray_tracing_->get_stats();
+    json_stats["EBCompareNumberHisto"] = PrintHistogram(eb_point_counters, 2);
     json_stats["HitHisto"] = PrintHistogram(rt_hit_counters, 2);
+    json_stats["TotalHits"] =
+        thrust::reduce(hit_counters.begin(), hit_counters.end(), 0ul,
+                       thrust::plus<uint64_t>());
 
+    stats["HDProgress"] = hd_rt / hd_eb;
     stats["Ray Tracing"] = json_stats;
     stats["Algorithm"] = "Compare Methods";
     stats["Execution"] = "GPU";
@@ -94,7 +97,7 @@ class HausdorffDistanceCompareMethods
   std::unique_ptr<eb_impl_t> early_break_;
 
   nlohmann::json PrintHistogram(const thrust::host_vector<uint32_t>& vec,
-                      int ticks_per_half_distance) {
+                                int ticks_per_half_distance) {
     hdr_histogram* histogram;
     // Initialise the histogram
     hdr_init(1,                     // Minimum value
@@ -108,10 +111,10 @@ class HausdorffDistanceCompareMethods
                          val);       // Value to record
     }
 
-    auto json = DumpHistogram(histogram);
+    auto json = DumpHistogram(histogram, 5);
 
     // hdr_percentiles_print(histogram, stdout, ticks_per_half_distance, 1.0,
-                          // CLASSIC);
+    // CLASSIC);
     hdr_close(histogram);
     return json;
   }

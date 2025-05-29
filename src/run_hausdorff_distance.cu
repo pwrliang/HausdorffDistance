@@ -301,19 +301,19 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
     break;
   }
-#if 0
-  case Variant::kBranchAndBound: {
-    using hd_impl_t = HausdorffDistanceBranchNBound<COORD_T, N_DIMS>;
-
-    hausdorff_distance = std::make_unique<hd_impl_t>();
-    break;
-  }
   case Variant::kNearestNeighborSearch: {
     using hd_impl_t = HausdorffDistanceNearestNeighborSearch<COORD_T, N_DIMS>;
     typename hd_impl_t::Config hd_config;
 
     hd_config.n_threads = config.parallelism;
     hausdorff_distance = std::make_unique<hd_impl_t>(hd_config);
+    break;
+  }
+#if 0
+  case Variant::kBranchAndBound: {
+    using hd_impl_t = HausdorffDistanceBranchNBound<COORD_T, N_DIMS>;
+
+    hausdorff_distance = std::make_unique<hd_impl_t>();
     break;
   }
   case Variant::kRT_HDIST: {

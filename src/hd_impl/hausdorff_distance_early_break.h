@@ -145,8 +145,7 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
     stats["Profiling"] = false;
 #endif
 
-
-    LaunchKernel(stream, [=] __device__ () {
+    LaunchKernel(stream, [=] __device__() {
       using BlockReduce = cub::BlockReduce<coord_t, MAX_BLOCK_SIZE>;
       __shared__ typename BlockReduce::TempStorage temp_storage;
       __shared__ bool early_break;
@@ -207,7 +206,11 @@ class HausdorffDistanceEarlyBreak : public HausdorffDistance<COORD_T, N_DIMS> {
 
     stream.Sync();
     sw.stop();
-
+#ifdef PROFILING
+    stats["ComparedPairs"] = thrust::reduce(
+        thrust::cuda::par.on(stream.cuda_stream()), point_counters_.begin(),
+        point_counters_.end(), 0ul, thrust::plus<uint64_t>());
+#endif
     stats["Algorithm"] = "Early Break";
     stats["Execution"] = "GPU";
     stats["ReportedTime"] = sw.ms();

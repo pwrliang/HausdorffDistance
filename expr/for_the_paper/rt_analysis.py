@@ -10,15 +10,16 @@ from pathlib import Path
 from functools import reduce
 
 
-def load_df(dir):
+def load_df(dir, kw):
     folder_path = Path(dir)
     json_files = list(folder_path.rglob("*.json"))
 
     # Otherwise, load from JSON files and serialize
     json_records = []
     for file in json_files:
-        with open(file) as f:
-            json_records.append(json.load(f))
+        if kw in str(file):
+            with open(file) as f:
+                json_records.append(json.load(f))
 
     df = pd.json_normalize(json_records)
 
@@ -26,15 +27,16 @@ def load_df(dir):
 
 
 def draw_mri_modelnet():
-    variants = ("n_points_cell_false_max_hit_false", "n_points_cell_true_max_hit_false", "n_points_cell_false_max_hit_true",  "n_points_cell_true_max_hit_true")
+    variants = ("n_points_cell_false_max_hit_false", "n_points_cell_true_max_hit_false",
+                "n_points_cell_false_max_hit_true", "n_points_cell_true_max_hit_true")
     variant_labels = ("Fixed", "Autotune Grid", "Autotune Max Hit", "Autotune All")
 
     geo_dataset_labels = {'USADetailedWaterBodies.wkt': 'USWater', 'USACensusBlockGroupBoundaries.wkt': 'USBlock',
                           'lakes.bz2.wkt': 'OSMLakes', 'parks.bz2.wkt': 'OSMParks', 'dtl_cnty.wkt': 'USCounty',
                           'uszipcode.wkt': 'USZipcode'}
 
-    graphics_dataset_labels = {'dragon.ply':'Dragon','asian_dragon.ply':'Asian Dragon',
-                               'thai_statuette.ply': 'Thai','happy_buddha.ply':'Buddha',}
+    graphics_dataset_labels = {'dragon.ply': 'Dragon', 'asian_dragon.ply': 'Asian Dragon',
+                               'thai_statuette.ply': 'Thai', 'happy_buddha.ply': 'Buddha', }
     linestyles = ['dotted', 'dashed', 'solid', ]
 
     plt.rcParams.update({'font.size': 15})
@@ -67,7 +69,7 @@ def draw_mri_modelnet():
     # draw_df(df_tune_all, axes, "Autotune All")
 
     axes[0].legend(loc='upper left', ncol=1, handletextpad=0.3,
-              borderaxespad=0.2, frameon=False)
+                   borderaxespad=0.2, frameon=False)
     #     slow_rows = df_hybrid[df_hybrid['Running.AvgTime'] > df_rt['Running.AvgTime']]
     #     # print(slow_rows)
 
@@ -289,5 +291,41 @@ def draw_hybrid_analysis():
 
 
 # draw_hybrid_analysis()
-draw_mri_modelnet()
+# draw_mri_modelnet()
 # draw_spatial_graphics()
+# df['Running.Repeats'][0][0]['Ray Tracing']['HitHisto']
+
+plt.rcParams.update({'font.size': 14})
+fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 4))
+linestyles = ['dotted', 'dashed', 'solid', 'dashdot']
+labels = ('MRI', 'CAD', 'Geospatial', 'Graphics')
+for i in range(len(labels)):
+    label = labels[i]
+    df = load_df("logs/run_all/rt_analysis/hit_count", label)
+    df_draw = pd.DataFrame(df['Running.Repeats'].iloc[0][0]['Ray Tracing']['HitHisto'])
+    axes[0].plot(df_draw['percentile'], df_draw['value'], label=label, ls=linestyles[i])
+# Labeling
+axes[0].legend(loc='upper left', ncol=1, handletextpad=0.3,
+               borderaxespad=0.2, frameon=False)
+axes[0].set_xlabel('Percentile')
+axes[0].set_ylabel('Number of Hits')
+axes[0].set_title('(a) Histogram of Intersections')
+
+for i in range(len(labels)):
+    label = labels[i]
+    df = load_df("logs/run_all/rt_analysis/max_hit", label)
+    df = df[df['Running.MaxHit'] > 0]
+    df_draw = pd.DataFrame()
+    df_draw['MaxHit'] = df['Running.MaxHit']
+    df_draw['Progress'] = df['Running.Repeats'].apply(lambda x: x[0]['HDProgress'])
+    df_draw.sort_values('MaxHit', ascending=True, inplace=True)
+    axes[1].plot(df_draw['MaxHit'], df_draw['Progress'], label=label, ls=linestyles[i])
+axes[1].legend(loc='lower right', ncol=1, handletextpad=0.3,
+               borderaxespad=0.2, frameon=False)
+axes[1].set_xlabel('Hit Limit')
+axes[1].set_ylabel('HD Progress')
+axes[1].set_title('(b) Convergence Progress of HD')
+
+fig.savefig("rt_analysis.pdf", format='pdf', bbox_inches='tight')
+fig.tight_layout(pad=0.1)
+plt.show()
