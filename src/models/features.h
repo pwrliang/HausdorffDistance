@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <nlohmann/json.hpp>
 #include <vector>
+#include <cmath>
 
 namespace hd {
 
@@ -10,11 +11,15 @@ class Features {
   struct GridHisto {
     double P99Value;
     double P95Value;
+    double P75Value;
     double P50Value;
+    double P25Value;
     double P10Value;
     double P99Count;
     double P95Count;
+    double P75Count;
     double P50Count;
+    double P25Count;
     double P10Count;
     double GridSize[3];
   };
@@ -24,8 +29,9 @@ class Features {
   struct StaticFeatures {
     double Density;
     double NumPoints;
-    double MBR_Lower[3];
-    double MBR_Upper[3];
+    //double MBR_Lower[3];
+    //double MBR_Upper[3];
+	double MBR_Range[3];
     double GiniIndex;
     GridHisto grid_histo;
     double NonEmptyCells;
@@ -33,8 +39,8 @@ class Features {
   };
 
   struct RuntimeFeatures {
-    double HDLB;
-    double HDUP;
+    double HDLBRatio;
+    double HDUBRatio;
   };
 
   struct AllFeatures {
@@ -62,8 +68,11 @@ class Features {
       input.NumPoints = json_file.at("NumPoints").get<uint32_t>();
 
       for (int dim = 0; dim < n_dims_; dim++) {
-        input.MBR_Lower[dim] = json_file.at("MBR")[dim].at("Lower");
-        input.MBR_Upper[dim] = json_file.at("MBR")[dim].at("Upper");
+        double lb = json_file.at("MBR")[dim].at("Lower");
+        double ub = json_file.at("MBR")[dim].at("Upper");
+        input.MBR_Range[dim] = ub - lb;
+        //input.MBR_Lower[dim] = lb;
+        //input.MBR_Upper[dim] = ub;
       }
 
       auto& json_grid = json_file.at("Grid");
@@ -75,7 +84,10 @@ class Features {
 
       grid_histo.P99Value = -1;
       grid_histo.P95Value = -1;
+      grid_histo.P75Value = -1;
       grid_histo.P50Value = -1;
+      grid_histo.P25Value = -1;
+      grid_histo.P10Value = -1;
 
       for (int bucket = json_histo.size() - 1; bucket >= 0; bucket--) {
         double count = json_histo[bucket].at("count");
@@ -88,9 +100,15 @@ class Features {
         } else if (grid_histo.P95Value == -1 && percentile < 0.95) {
           grid_histo.P95Value = value;
           grid_histo.P95Count = count;
+        } else if (grid_histo.P75Value == -1 && percentile < 0.75) {
+          grid_histo.P75Value = value;
+          grid_histo.P75Count = count;
         } else if (grid_histo.P50Value == -1 && percentile < 0.50) {
           grid_histo.P50Value = value;
           grid_histo.P50Count = count;
+        } else if (grid_histo.P25Value == -1 && percentile < 0.25) {
+          grid_histo.P25Value = value;
+          grid_histo.P25Count = count;
         } else if (grid_histo.P10Value == -1 && percentile < 0.10) {
           grid_histo.P10Value = value;
           grid_histo.P10Count = count;
@@ -108,9 +126,12 @@ class Features {
     const auto& json_histo = json_grid.at("Histogram");
     auto& grid_histo = features_.combined_grid_histo;
 
-    grid_histo.P99Value = -1;
-    grid_histo.P95Value = -1;
-    grid_histo.P50Value = -1;
+      grid_histo.P99Value = -1;
+      grid_histo.P95Value = -1;
+      grid_histo.P75Value = -1;
+      grid_histo.P50Value = -1;
+      grid_histo.P25Value = -1;
+      grid_histo.P10Value = -1;
 
     for (int bucket = json_histo.size() - 1; bucket >= 0; bucket--) {
       double count = json_histo[bucket].at("count");
@@ -123,9 +144,15 @@ class Features {
       } else if (grid_histo.P95Value == -1 && percentile < 0.95) {
         grid_histo.P95Value = value;
         grid_histo.P95Count = count;
+      } else if (grid_histo.P75Value == -1 && percentile < 0.75) {
+        grid_histo.P75Value = value;
+        grid_histo.P75Count = count;
       } else if (grid_histo.P50Value == -1 && percentile < 0.50) {
         grid_histo.P50Value = value;
         grid_histo.P50Count = count;
+      } else if (grid_histo.P25Value == -1 && percentile < 0.25) {
+        grid_histo.P25Value = value;
+        grid_histo.P25Count = count;
       } else if (grid_histo.P10Value == -1 && percentile < 0.10) {
         grid_histo.P10Value = value;
         grid_histo.P10Count = count;
@@ -138,10 +165,16 @@ class Features {
   }
 
   void SetRuntimeFeatures(const nlohmann::json& json_repeat) {
-    features_.runtime_features.HDLB =
-        json_repeat.at("HDLowerBound").get<double>();
-    features_.runtime_features.HDUP =
-        json_repeat.at("HDUpperBound").get<double>();
+	double avgDag = 0.0;
+    for (int dim = 0; dim < n_dims_; dim++){
+		avgDag += features_.static_features[0].MBR_Range[dim] * features_.static_features[0].MBR_Range[dim];
+		avgDag += features_.static_features[1].MBR_Range[dim] * features_.static_features[1].MBR_Range[dim];
+	}
+	avgDag = std::sqrt(avgDag) / 2;
+    features_.runtime_features.HDLBRatio =
+        json_repeat.at("HDLowerBound").get<double>() / avgDag;
+    features_.runtime_features.HDUBRatio =
+        json_repeat.at("HDUpperBound").get<double>() / avgDag;
   }
 
   std::vector<double> Serialize() const {

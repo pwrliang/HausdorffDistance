@@ -23,7 +23,7 @@
 #include "loaders/translate_points.h"
 #include "models/features.h"
 #include "models/tree_numpointspercell_3d.h"
-#include "models/tree_samplerate_3d.h"
+//#include "models/tree_samplerate_3d.h"
 #include "run_config.h"
 #include "run_hausdorff_distance.cuh"
 #include "running_stats.h"

@@ -367,7 +367,7 @@ class UniformGrid {
         occupied_cells_.GetPositiveCount(stream.cuda_stream());
 
     stats_["TotalCells"] = get_grid_size();
-    stats_["NonEmptyCells"] = non_empty_cells;
+    stats_["NonEmptyCells"] = non_empty_cells/get_grid_size();
 
     cell_ids_.resize(non_empty_cells);
     n_primitives.resize(non_empty_cells, 0);

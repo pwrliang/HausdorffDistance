@@ -1,5 +1,5 @@
 {
-    "DateTime": "2025-05-25 23:03:02",
+    "DateTime": "2025-05-26 19:46:07",
     "GPU": {
         "Device": 0,
         "name": "NVIDIA GeForce RTX 3090"
@@ -11,7 +11,7 @@
             {
                 "Density": 0.4420970678329468,
                 "Grid": {
-                    "BuildTime": 2.362,
+                    "BuildTime": 2.292,
                     "CellDiagonalLength": 4.867738246917725,
                     "GiniIndex": 0.1747923195362091,
                     "GridSize": [
@@ -53,7 +53,7 @@
                     ],
                     "MaxPoints": 27,
                     "MedianPointsPerCell": 18,
-                    "NonEmptyCells": 76736,
+                    "NonEmptyCells": 0,
                     "TotalCells": 161200
                 },
                 "MBR": [
@@ -77,7 +77,7 @@
             {
                 "Density": 0.4282534420490265,
                 "Grid": {
-                    "BuildTime": 1.756,
+                    "BuildTime": 1.738,
                     "CellDiagonalLength": 4.910833358764648,
                     "GiniIndex": 0.16681666672229767,
                     "GridSize": [
@@ -119,7 +119,7 @@
                     ],
                     "MaxPoints": 27,
                     "MedianPointsPerCell": 25,
-                    "NonEmptyCells": 59374,
+                    "NonEmptyCells": 0,
                     "TotalCells": 128592
                 },
                 "MBR": [
@@ -142,7 +142,7 @@
             }
         ],
         "Grid": {
-            "BuildTime": 2.028,
+            "BuildTime": 2.016,
             "CellDiagonalLength": 3.9927854537963867,
             "GiniIndex": 0.26219940185546875,
             "GridSize": [
@@ -254,7 +254,7 @@
             ],
             "MaxPoints": 54,
             "MedianPointsPerCell": 18,
-            "NonEmptyCells": 138355,
+            "NonEmptyCells": 0,
             "TotalCells": 292068
         },
         "Limit": 2147483647,
@@ -280,19 +280,19 @@
         "Type": "Float"
     },
     "Running": {
-        "AvgTime": 11.6268,
+        "AvgTime": 11.3946,
         "EBOnlyThreshold": 0,
         "MaxHit": 256,
         "NumPointsPerCell": 23,
         "Repeats": [
             {
                 "Algorithm": "Hybrid",
-                "BVHBuildTime": 0.361,
+                "BVHBuildTime": 0.401,
                 "BVHMemoryKB": 3149,
-                "EBTime": 1.667,
+                "EBTime": 0.42,
                 "Execution": "GPU",
                 "Grid": {
-                    "BuildTime": 2.041,
+                    "BuildTime": 2.275,
                     "CellDiagonalLength": 6.489303112030029,
                     "GiniIndex": 0.18337051570415497,
                     "GridSize": [
@@ -302,7 +302,7 @@
                     ],
                     "MaxPoints": 64,
                     "MedianPointsPerCell": 48,
-                    "NonEmptyCells": 26633,
+                    "NonEmptyCells": 0,
                     "TotalCells": 55728
                 },
                 "HDLowerBound": 8.0,
@@ -310,13 +310,71 @@
                 "InitRadius": 8.0,
                 "Iterations": [
                     {
-                        "AdjustBVHTime": 0.064,
+                        "AdjustBVHTime": 0.068,
                         "CMax2": 64.0,
                         "Iteration": 1,
                         "NumInputPoints": 1581768,
                         "NumOutputPoints": 34403,
                         "NumTermPoints": 0,
-                        "RTTime": 3.722,
+                        "RTTime": 3.82,
+                        "Radius": 8.0
+                    },
+                    {
+                        "AdjustBVHTime": 0.064,
+                        "CMax2": 209.0,
+                        "Iteration": 2,
+                        "NumInputPoints": 34403,
+                        "NumOutputPoints": 150,
+                        "NumTermPoints": 102,
+                        "RTTime": 1.301,
+                        "Radius": 14.489303588867188
+                    },
+                    {
+                        "CMax2": 298.0,
+                        "Iteration": 3,
+                        "NumInputPoints": 150,
+                        "NumOutputPoints": 0,
+                        "NumTermPoints": 102,
+                        "RTTime": 1.579,
+                        "Radius": 20.978607177734375
+                    }
+                ],
+                "Profiling": false,
+                "ReportedTime": 11.114,
+                "SampleThreshold": 500000
+            },
+            {
+                "Algorithm": "Hybrid",
+                "BVHBuildTime": 0.351,
+                "BVHMemoryKB": 3149,
+                "EBTime": 0.376,
+                "Execution": "GPU",
+                "Grid": {
+                    "BuildTime": 2.142,
+                    "CellDiagonalLength": 6.489303112030029,
+                    "GiniIndex": 0.18337051570415497,
+                    "GridSize": [
+                        36,
+                        43,
+                        36
+                    ],
+                    "MaxPoints": 64,
+                    "MedianPointsPerCell": 48,
+                    "NonEmptyCells": 0,
+                    "TotalCells": 55728
+                },
+                "HDLowerBound": 8.0,
+                "HDUpperBound": 259.0308837890625,
+                "InitRadius": 8.0,
+                "Iterations": [
+                    {
+                        "AdjustBVHTime": 0.073,
+                        "CMax2": 64.0,
+                        "Iteration": 1,
+                        "NumInputPoints": 1581768,
+                        "NumOutputPoints": 34403,
+                        "NumTermPoints": 0,
+                        "RTTime": 3.793,
                         "Radius": 8.0
                     },
                     {
@@ -325,8 +383,8 @@
                         "Iteration": 2,
                         "NumInputPoints": 34403,
                         "NumOutputPoints": 150,
-                        "NumTermPoints": 59,
-                        "RTTime": 1.315,
+                        "NumTermPoints": 87,
+                        "RTTime": 1.432,
                         "Radius": 14.489303588867188
                     },
                     {
@@ -334,20 +392,136 @@
                         "Iteration": 3,
                         "NumInputPoints": 150,
                         "NumOutputPoints": 0,
-                        "NumTermPoints": 59,
-                        "RTTime": 1.61,
+                        "NumTermPoints": 87,
+                        "RTTime": 1.66,
                         "Radius": 20.978607177734375
                     }
                 ],
                 "Profiling": false,
-                "ReportedTime": 12.039,
+                "ReportedTime": 11.074,
                 "SampleThreshold": 500000
             },
             {
                 "Algorithm": "Hybrid",
-                "BVHBuildTime": 0.354,
+                "BVHBuildTime": 0.358,
                 "BVHMemoryKB": 3149,
-                "EBTime": 1.485,
+                "EBTime": 2.11,
+                "Execution": "GPU",
+                "Grid": {
+                    "BuildTime": 2.194,
+                    "CellDiagonalLength": 6.489303112030029,
+                    "GiniIndex": 0.18337051570415497,
+                    "GridSize": [
+                        36,
+                        43,
+                        36
+                    ],
+                    "MaxPoints": 64,
+                    "MedianPointsPerCell": 48,
+                    "NonEmptyCells": 0,
+                    "TotalCells": 55728
+                },
+                "HDLowerBound": 8.0,
+                "HDUpperBound": 259.0308837890625,
+                "InitRadius": 8.0,
+                "Iterations": [
+                    {
+                        "AdjustBVHTime": 0.073,
+                        "CMax2": 64.0,
+                        "Iteration": 1,
+                        "NumInputPoints": 1581768,
+                        "NumOutputPoints": 34403,
+                        "NumTermPoints": 0,
+                        "RTTime": 3.836,
+                        "Radius": 8.0
+                    },
+                    {
+                        "AdjustBVHTime": 0.064,
+                        "CMax2": 209.0,
+                        "Iteration": 2,
+                        "NumInputPoints": 34403,
+                        "NumOutputPoints": 150,
+                        "NumTermPoints": 80,
+                        "RTTime": 1.342,
+                        "Radius": 14.489303588867188
+                    },
+                    {
+                        "CMax2": 298.0,
+                        "Iteration": 3,
+                        "NumInputPoints": 150,
+                        "NumOutputPoints": 0,
+                        "NumTermPoints": 80,
+                        "RTTime": 1.545,
+                        "Radius": 20.978607177734375
+                    }
+                ],
+                "Profiling": false,
+                "ReportedTime": 12.622,
+                "SampleThreshold": 500000
+            },
+            {
+                "Algorithm": "Hybrid",
+                "BVHBuildTime": 0.371,
+                "BVHMemoryKB": 3149,
+                "EBTime": 0.367,
+                "Execution": "GPU",
+                "Grid": {
+                    "BuildTime": 2.173,
+                    "CellDiagonalLength": 6.489303112030029,
+                    "GiniIndex": 0.18337051570415497,
+                    "GridSize": [
+                        36,
+                        43,
+                        36
+                    ],
+                    "MaxPoints": 64,
+                    "MedianPointsPerCell": 48,
+                    "NonEmptyCells": 0,
+                    "TotalCells": 55728
+                },
+                "HDLowerBound": 8.0,
+                "HDUpperBound": 259.0308837890625,
+                "InitRadius": 8.0,
+                "Iterations": [
+                    {
+                        "AdjustBVHTime": 0.073,
+                        "CMax2": 64.0,
+                        "Iteration": 1,
+                        "NumInputPoints": 1581768,
+                        "NumOutputPoints": 34403,
+                        "NumTermPoints": 0,
+                        "RTTime": 3.81,
+                        "Radius": 8.0
+                    },
+                    {
+                        "AdjustBVHTime": 0.064,
+                        "CMax2": 209.0,
+                        "Iteration": 2,
+                        "NumInputPoints": 34403,
+                        "NumOutputPoints": 150,
+                        "NumTermPoints": 102,
+                        "RTTime": 1.211,
+                        "Radius": 14.489303588867188
+                    },
+                    {
+                        "CMax2": 298.0,
+                        "Iteration": 3,
+                        "NumInputPoints": 150,
+                        "NumOutputPoints": 0,
+                        "NumTermPoints": 102,
+                        "RTTime": 1.628,
+                        "Radius": 20.978607177734375
+                    }
+                ],
+                "Profiling": false,
+                "ReportedTime": 10.94,
+                "SampleThreshold": 500000
+            },
+            {
+                "Algorithm": "Hybrid",
+                "BVHBuildTime": 0.349,
+                "BVHMemoryKB": 3149,
+                "EBTime": 0.361,
                 "Execution": "GPU",
                 "Grid": {
                     "BuildTime": 2.164,
@@ -360,7 +534,7 @@
                     ],
                     "MaxPoints": 64,
                     "MedianPointsPerCell": 48,
-                    "NonEmptyCells": 26633,
+                    "NonEmptyCells": 0,
                     "TotalCells": 55728
                 },
                 "HDLowerBound": 8.0,
@@ -368,23 +542,23 @@
                 "InitRadius": 8.0,
                 "Iterations": [
                     {
-                        "AdjustBVHTime": 0.064,
+                        "AdjustBVHTime": 0.065,
                         "CMax2": 64.0,
                         "Iteration": 1,
                         "NumInputPoints": 1581768,
                         "NumOutputPoints": 34403,
                         "NumTermPoints": 0,
-                        "RTTime": 3.719,
+                        "RTTime": 3.821,
                         "Radius": 8.0
                     },
                     {
-                        "AdjustBVHTime": 0.064,
+                        "AdjustBVHTime": 0.065,
                         "CMax2": 209.0,
                         "Iteration": 2,
                         "NumInputPoints": 34403,
                         "NumOutputPoints": 150,
-                        "NumTermPoints": 52,
-                        "RTTime": 1.161,
+                        "NumTermPoints": 107,
+                        "RTTime": 1.399,
                         "Radius": 14.489303588867188
                     },
                     {
@@ -392,187 +566,13 @@
                         "Iteration": 3,
                         "NumInputPoints": 150,
                         "NumOutputPoints": 0,
-                        "NumTermPoints": 52,
-                        "RTTime": 1.57,
+                        "NumTermPoints": 107,
+                        "RTTime": 1.759,
                         "Radius": 20.978607177734375
                     }
                 ],
                 "Profiling": false,
-                "ReportedTime": 11.663,
-                "SampleThreshold": 500000
-            },
-            {
-                "Algorithm": "Hybrid",
-                "BVHBuildTime": 0.33,
-                "BVHMemoryKB": 3149,
-                "EBTime": 1.51,
-                "Execution": "GPU",
-                "Grid": {
-                    "BuildTime": 2.133,
-                    "CellDiagonalLength": 6.489303112030029,
-                    "GiniIndex": 0.18337051570415497,
-                    "GridSize": [
-                        36,
-                        43,
-                        36
-                    ],
-                    "MaxPoints": 64,
-                    "MedianPointsPerCell": 48,
-                    "NonEmptyCells": 26633,
-                    "TotalCells": 55728
-                },
-                "HDLowerBound": 8.0,
-                "HDUpperBound": 259.0308837890625,
-                "InitRadius": 8.0,
-                "Iterations": [
-                    {
-                        "AdjustBVHTime": 0.063,
-                        "CMax2": 64.0,
-                        "Iteration": 1,
-                        "NumInputPoints": 1581768,
-                        "NumOutputPoints": 34403,
-                        "NumTermPoints": 0,
-                        "RTTime": 3.721,
-                        "Radius": 8.0
-                    },
-                    {
-                        "AdjustBVHTime": 0.061,
-                        "CMax2": 209.0,
-                        "Iteration": 2,
-                        "NumInputPoints": 34403,
-                        "NumOutputPoints": 150,
-                        "NumTermPoints": 53,
-                        "RTTime": 1.283,
-                        "Radius": 14.489303588867188
-                    },
-                    {
-                        "CMax2": 298.0,
-                        "Iteration": 3,
-                        "NumInputPoints": 150,
-                        "NumOutputPoints": 0,
-                        "NumTermPoints": 53,
-                        "RTTime": 1.552,
-                        "Radius": 20.978607177734375
-                    }
-                ],
-                "Profiling": false,
-                "ReportedTime": 11.775,
-                "SampleThreshold": 500000
-            },
-            {
-                "Algorithm": "Hybrid",
-                "BVHBuildTime": 0.344,
-                "BVHMemoryKB": 3149,
-                "EBTime": 1.947,
-                "Execution": "GPU",
-                "Grid": {
-                    "BuildTime": 2.057,
-                    "CellDiagonalLength": 6.489303112030029,
-                    "GiniIndex": 0.18337051570415497,
-                    "GridSize": [
-                        36,
-                        43,
-                        36
-                    ],
-                    "MaxPoints": 64,
-                    "MedianPointsPerCell": 48,
-                    "NonEmptyCells": 26633,
-                    "TotalCells": 55728
-                },
-                "HDLowerBound": 8.0,
-                "HDUpperBound": 259.0308837890625,
-                "InitRadius": 8.0,
-                "Iterations": [
-                    {
-                        "AdjustBVHTime": 0.064,
-                        "CMax2": 64.0,
-                        "Iteration": 1,
-                        "NumInputPoints": 1581768,
-                        "NumOutputPoints": 34403,
-                        "NumTermPoints": 0,
-                        "RTTime": 3.685,
-                        "Radius": 8.0
-                    },
-                    {
-                        "AdjustBVHTime": 0.061,
-                        "CMax2": 209.0,
-                        "Iteration": 2,
-                        "NumInputPoints": 34403,
-                        "NumOutputPoints": 150,
-                        "NumTermPoints": 74,
-                        "RTTime": 1.359,
-                        "Radius": 14.489303588867188
-                    },
-                    {
-                        "CMax2": 298.0,
-                        "Iteration": 3,
-                        "NumInputPoints": 150,
-                        "NumOutputPoints": 0,
-                        "NumTermPoints": 74,
-                        "RTTime": 1.504,
-                        "Radius": 20.978607177734375
-                    }
-                ],
-                "Profiling": false,
-                "ReportedTime": 12.114,
-                "SampleThreshold": 500000
-            },
-            {
-                "Algorithm": "Hybrid",
-                "BVHBuildTime": 0.346,
-                "BVHMemoryKB": 3149,
-                "EBTime": 0.354,
-                "Execution": "GPU",
-                "Grid": {
-                    "BuildTime": 2.088,
-                    "CellDiagonalLength": 6.489303112030029,
-                    "GiniIndex": 0.18337051570415497,
-                    "GridSize": [
-                        36,
-                        43,
-                        36
-                    ],
-                    "MaxPoints": 64,
-                    "MedianPointsPerCell": 48,
-                    "NonEmptyCells": 26633,
-                    "TotalCells": 55728
-                },
-                "HDLowerBound": 8.0,
-                "HDUpperBound": 259.0308837890625,
-                "InitRadius": 8.0,
-                "Iterations": [
-                    {
-                        "AdjustBVHTime": 0.064,
-                        "CMax2": 64.0,
-                        "Iteration": 1,
-                        "NumInputPoints": 1581768,
-                        "NumOutputPoints": 34403,
-                        "NumTermPoints": 0,
-                        "RTTime": 3.683,
-                        "Radius": 8.0
-                    },
-                    {
-                        "AdjustBVHTime": 0.063,
-                        "CMax2": 209.0,
-                        "Iteration": 2,
-                        "NumInputPoints": 34403,
-                        "NumOutputPoints": 150,
-                        "NumTermPoints": 95,
-                        "RTTime": 1.308,
-                        "Radius": 14.489303588867188
-                    },
-                    {
-                        "CMax2": 298.0,
-                        "Iteration": 3,
-                        "NumInputPoints": 150,
-                        "NumOutputPoints": 0,
-                        "NumTermPoints": 95,
-                        "RTTime": 1.536,
-                        "Radius": 20.978607177734375
-                    }
-                ],
-                "Profiling": false,
-                "ReportedTime": 10.543,
+                "ReportedTime": 11.223,
                 "SampleThreshold": 500000
             }
         ],
