@@ -5,83 +5,74 @@
 /*
 0 File_0_Density
 1 File_0_NumPoints
-2 File_0_MBR_Dim_0_Lower
-3 File_0_MBR_Dim_1_Lower
-4 File_0_MBR_Dim_2_Lower
-5 File_0_MBR_Dim_0_Upper
-6 File_0_MBR_Dim_1_Upper
-7 File_0_MBR_Dim_2_Upper
-8 File_0_GINI
-9 File_0_Cell_P0.99_Value
-10 File_0_Cell_P0.95_Value
-11 File_0_Cell_P0.75_Value
-12 File_0_Cell_P0.5_Value
-13 File_0_Cell_P0.25_Value
-14 File_0_Cell_P0.1_Value
-15 File_0_Cell_P0.99_Count
-16 File_0_Cell_P0.95_Count
-17 File_0_Cell_P0.75_Count
-18 File_0_Cell_P0.5_Count
-19 File_0_Cell_P0.25_Count
-20 File_0_Cell_P0.1_Count
-21 File_0_Dim0_GridSize
-22 File_0_Dim1_GridSize
-23 File_0_Dim2_GridSize
-24 File_0_NonEmptyCells
-25 File_0_TotalCells
-26 File_1_Density
-27 File_1_NumPoints
-28 File_1_MBR_Dim_0_Lower
-29 File_1_MBR_Dim_1_Lower
-30 File_1_MBR_Dim_2_Lower
-31 File_1_MBR_Dim_0_Upper
-32 File_1_MBR_Dim_1_Upper
-33 File_1_MBR_Dim_2_Upper
-34 File_1_GINI
-35 File_1_Cell_P0.99_Value
-36 File_1_Cell_P0.95_Value
-37 File_1_Cell_P0.75_Value
-38 File_1_Cell_P0.5_Value
-39 File_1_Cell_P0.25_Value
-40 File_1_Cell_P0.1_Value
-41 File_1_Cell_P0.99_Count
-42 File_1_Cell_P0.95_Count
-43 File_1_Cell_P0.75_Count
-44 File_1_Cell_P0.5_Count
-45 File_1_Cell_P0.25_Count
-46 File_1_Cell_P0.1_Count
-47 File_1_Dim0_GridSize
-48 File_1_Dim1_GridSize
-49 File_1_Dim2_GridSize
-50 File_1_NonEmptyCells
-51 File_1_TotalCells
-52 Cell_P0.99_Value
-53 Cell_P0.95_Value
-54 Cell_P0.75_Value
-55 Cell_P0.5_Value
-56 Cell_P0.25_Value
-57 Cell_P0.1_Value
-58 Cell_P0.99_Count
-59 Cell_P0.95_Count
-60 Cell_P0.75_Count
-61 Cell_P0.5_Count
-62 Cell_P0.25_Count
-63 Cell_P0.1_Count
-64 Dim0_GridSize
-65 Dim1_GridSize
-66 Dim2_GridSize
-67 HDLB
-68 HDUP
+2 File_0_MBR_Dim_0_Range
+3 File_0_MBR_Dim_1_Range
+4 File_0_MBR_Dim_2_Range
+5 File_0_GINI
+6 File_0_Cell_P0.99_Value
+7 File_0_Cell_P0.95_Value
+8 File_0_Cell_P0.75_Value
+9 File_0_Cell_P0.5_Value
+10 File_0_Cell_P0.25_Value
+11 File_0_Cell_P0.1_Value
+12 File_0_Cell_P0.99_Count
+13 File_0_Cell_P0.95_Count
+14 File_0_Cell_P0.75_Count
+15 File_0_Cell_P0.5_Count
+16 File_0_Cell_P0.25_Count
+17 File_0_Cell_P0.1_Count
+18 File_0_Dim0_GridSize
+19 File_0_Dim1_GridSize
+20 File_0_Dim2_GridSize
+21 File_0_NonEmptyCells
+22 File_0_TotalCells
+23 File_1_Density
+24 File_1_NumPoints
+25 File_1_MBR_Dim_0_Range
+26 File_1_MBR_Dim_1_Range
+27 File_1_MBR_Dim_2_Range
+28 File_1_GINI
+29 File_1_Cell_P0.99_Value
+30 File_1_Cell_P0.95_Value
+31 File_1_Cell_P0.75_Value
+32 File_1_Cell_P0.5_Value
+33 File_1_Cell_P0.25_Value
+34 File_1_Cell_P0.1_Value
+35 File_1_Cell_P0.99_Count
+36 File_1_Cell_P0.95_Count
+37 File_1_Cell_P0.75_Count
+38 File_1_Cell_P0.5_Count
+39 File_1_Cell_P0.25_Count
+40 File_1_Cell_P0.1_Count
+41 File_1_Dim0_GridSize
+42 File_1_Dim1_GridSize
+43 File_1_Dim2_GridSize
+44 File_1_NonEmptyCells
+45 File_1_TotalCells
+46 Cell_P0.99_Value
+47 Cell_P0.95_Value
+48 Cell_P0.75_Value
+49 Cell_P0.5_Value
+50 Cell_P0.25_Value
+51 Cell_P0.1_Value
+52 Cell_P0.99_Count
+53 Cell_P0.95_Count
+54 Cell_P0.75_Count
+55 Cell_P0.5_Count
+56 Cell_P0.25_Count
+57 Cell_P0.1_Count
+58 Dim0_GridSize
+59 Dim1_GridSize
+60 Dim2_GridSize
+61 HDLBRatio
+62 HDUBRatio
 
 struct Input {
     double File_0_Density;
     double File_0_NumPoints;
-    double File_0_MBR_Dim_0_Lower;
-    double File_0_MBR_Dim_1_Lower;
-    double File_0_MBR_Dim_2_Lower;
-    double File_0_MBR_Dim_0_Upper;
-    double File_0_MBR_Dim_1_Upper;
-    double File_0_MBR_Dim_2_Upper;
+    double File_0_MBR_Dim_0_Range;
+    double File_0_MBR_Dim_1_Range;
+    double File_0_MBR_Dim_2_Range;
     double File_0_GINI;
     double File_0_Cell_P0.99_Value;
     double File_0_Cell_P0.95_Value;
@@ -102,12 +93,9 @@ struct Input {
     double File_0_TotalCells;
     double File_1_Density;
     double File_1_NumPoints;
-    double File_1_MBR_Dim_0_Lower;
-    double File_1_MBR_Dim_1_Lower;
-    double File_1_MBR_Dim_2_Lower;
-    double File_1_MBR_Dim_0_Upper;
-    double File_1_MBR_Dim_1_Upper;
-    double File_1_MBR_Dim_2_Upper;
+    double File_1_MBR_Dim_0_Range;
+    double File_1_MBR_Dim_1_Range;
+    double File_1_MBR_Dim_2_Range;
     double File_1_GINI;
     double File_1_Cell_P0.99_Value;
     double File_1_Cell_P0.95_Value;
@@ -141,18 +129,18 @@ struct Input {
     double Dim0_GridSize;
     double Dim1_GridSize;
     double Dim2_GridSize;
-    double HDLB;
-    double HDUP;
+    double HDLBRatio;
+    double HDUBRatio;
 };
 
 */
 inline double PredictEBOnlyThreshold_3D(double * input) {
     double var0;
-    if (input[47] < 38.0) {
-        if (input[27] < 13212.0) {
-            if (input[15] >= 22.0) {
-                if (input[35] < 65.0) {
-                    if (input[65] < 11.0) {
+    if (input[41] < 38.0) {
+        if (input[24] < 13212.0) {
+            if (input[12] >= 22.0) {
+                if (input[29] < 65.0) {
+                    if (input[59] < 11.0) {
                         var0 = -60.067677;
                     } else {
                         var0 = -88.04284;
@@ -164,238 +152,246 @@ inline double PredictEBOnlyThreshold_3D(double * input) {
                 var0 = 58.741035;
             }
         } else {
-            if (input[58] < 937.0) {
-                var0 = 38.59899;
-            } else {
-                if (input[47] < 18.0) {
-                    if (input[63] < 683.0) {
-                        if (input[2] < 51.0) {
-                            var0 = 199.4935;
-                        } else {
-                            var0 = 108.38592;
-                        }
-                    } else {
-                        var0 = 86.15716;
-                    }
+            if (input[25] < 84.0) {
+                if (input[52] < 937.0) {
+                    var0 = 38.59899;
                 } else {
-                    if (input[34] < 0.2988276) {
-                        if (input[67] < 71.7491) {
-                            var0 = 124.1454;
+                    if (input[5] < 0.18508628) {
+                        if (input[5] < 0.17880093) {
+                            var0 = 126.59899;
                         } else {
-                            var0 = 48.022392;
+                            var0 = 11.785911;
                         }
                     } else {
-                        var0 = 20.500013;
+                        if (input[6] < 49.0) {
+                            if (input[17] < 680.0) {
+                                var0 = 170.1454;
+                            } else {
+                                var0 = 111.71924;
+                            }
+                        } else {
+                            var0 = 102.53149;
+                        }
                     }
                 }
+            } else {
+                var0 = 34.757156;
             }
         }
     } else {
         var0 = -146.83286;
     }
     double var1;
-    if (input[47] < 43.0) {
-        if (input[27] < 26672.0) {
-            if (input[19] < 71.0) {
-                if (input[19] < 5.0) {
-                    var1 = 29.053516;
+    if (input[41] < 43.0) {
+        if (input[59] < 17.0) {
+            if (input[8] >= 16.0) {
+                if (input[9] < 10.0) {
+                    var1 = -5.7463565;
                 } else {
-                    if (input[45] >= 35.0) {
-                        var1 = -9.340312;
+                    if (input[25] < 0.45042732) {
+                        var1 = -32.14217;
                     } else {
-                        if (input[68] < 1.4768549) {
-                            var1 = -42.46235;
-                        } else {
-                            var1 = -66.21763;
-                        }
+                        var1 = -59.8061;
                     }
                 }
             } else {
-                if (input[34] < 0.3723396) {
-                    var1 = -23.969307;
+                if (input[34] < 3.0) {
+                    var1 = 97.302635;
                 } else {
-                    var1 = 83.916534;
+                    var1 = -33.708927;
                 }
             }
         } else {
-            if (input[8] < 0.18825471) {
-                if (input[5] < 186.0) {
-                    var1 = -26.418768;
-                } else {
-                    if (input[0] < 0.45568952) {
-                        var1 = 95.52427;
+            if (input[61] < 0.5411409) {
+                if (input[12] < 69932.0) {
+                    if (input[20] < 49.0) {
+                        if (input[30] < 55.0) {
+                            var1 = 35.844784;
+                        } else {
+                            if (input[31] < 55.0) {
+                                var1 = 152.7424;
+                            } else {
+                                var1 = 72.09062;
+                            }
+                        }
                     } else {
-                        var1 = 41.461105;
+                        var1 = -22.145359;
+                    }
+                } else {
+                    if (input[28] < 0.28919795) {
+                        var1 = 129.05742;
+                    } else {
+                        var1 = 67.288216;
                     }
                 }
             } else {
-                if (input[8] < 0.29900962) {
-                    if (input[31] < 179.0) {
-                        var1 = 144.09291;
-                    } else {
-                        var1 = 75.377846;
-                    }
-                } else {
-                    var1 = 61.101723;
-                }
+                var1 = -0.027120268;
             }
         }
     } else {
         var1 = -88.333015;
     }
     double var2;
-    if (input[47] < 27.0) {
-        if (input[41] >= 230.0) {
-            if (input[28] < 126.0) {
-                if (input[56] < 10.0) {
-                    var2 = 91.76711;
+    if (input[41] < 27.0) {
+        if (input[35] >= 230.0) {
+            if (input[3] < 168.62482) {
+                if (input[35] < 389.0) {
+                    var2 = 97.6616;
                 } else {
-                    if (input[67] < 51.0) {
-                        var2 = -16.643118;
+                    if (input[57] < 150.0) {
+                        var2 = 10.506769;
                     } else {
-                        if (input[15] < 69932.0) {
-                            if (input[19] < 11139.0) {
-                                var2 = 72.67171;
-                            } else {
-                                var2 = -8.333812;
-                            }
+                        if (input[57] < 699.0) {
+                            var2 = 83.8223;
                         } else {
-                            if (input[62] < 19251.0) {
-                                var2 = 37.478893;
+                            if (input[14] < 69527.0) {
+                                var2 = 13.447975;
                             } else {
-                                var2 = 97.899055;
+                                var2 = 72.94889;
                             }
                         }
                     }
                 }
             } else {
-                var2 = -16.299658;
+                if (input[59] < 64.0) {
+                    var2 = -54.05954;
+                } else {
+                    var2 = 65.37541;
+                }
             }
         } else {
-            if (input[20] >= 4.0) {
-                if (input[63] < 4.0) {
-                    var2 = -14.224726;
+            if (input[16] < 71.0) {
+                if (input[47] < 49.0) {
+                    var2 = 19.762602;
                 } else {
-                    var2 = -53.088905;
+                    if (input[3] < 0.5833333) {
+                        var2 = -13.415964;
+                    } else {
+                        if (input[30] < 59.0) {
+                            var2 = -33.37046;
+                        } else {
+                            var2 = -68.85897;
+                        }
+                    }
                 }
             } else {
-                if (input[12] >= 7.0) {
-                    var2 = -18.111364;
-                } else {
-                    var2 = 85.1145;
-                }
+                var2 = 39.39915;
             }
         }
     } else {
-        if (input[27] < 1108239.0) {
-            var2 = -33.543175;
+        if (input[24] < 1108239.0) {
+            var2 = -29.48056;
         } else {
             var2 = -53.05879;
         }
     }
     double var3;
-    if (input[47] < 27.0) {
-        if (input[27] < 26672.0) {
-            if (input[53] < 112.0) {
-                if (input[35] >= 98.0) {
-                    var3 = 68.73663;
+    if (input[25] < 92.0) {
+        if (input[45] < 1287.0) {
+            if (input[17] >= 4.0) {
+                if (input[57] < 4.0) {
+                    var3 = -8.671168;
                 } else {
-                    if (input[38] >= 8.0) {
-                        if (input[15] < 73.0) {
-                            var3 = -47.57995;
-                        } else {
-                            var3 = -13.741836;
-                        }
-                    } else {
-                        if (input[12] >= 8.0) {
-                            var3 = -15.34872;
-                        } else {
-                            var3 = 59.28909;
-                        }
-                    }
+                    var3 = -54.52247;
                 }
             } else {
-                if (input[0] < 52142.832) {
-                    var3 = -52.98451;
+                if (input[48] < 27.0) {
+                    var3 = 68.8396;
                 } else {
-                    var3 = -14.39198;
+                    var3 = -30.547468;
                 }
             }
         } else {
-            if (input[51] < 4968.0) {
-                var3 = 70.38247;
-            } else {
-                if (input[46] < 80.0) {
-                    var3 = -25.972385;
-                } else {
-                    if (input[63] < 743.0) {
-                        if (input[43] < 3793.0) {
-                            var3 = 29.313807;
+            if (input[18] < 52.0) {
+                if (input[16] < 11279.0) {
+                    if (input[48] < 28.0) {
+                        var3 = 70.14331;
+                    } else {
+                        if (input[30] < 62.0) {
+                            var3 = -10.323909;
                         } else {
-                            var3 = 78.25291;
+                            var3 = 37.90133;
+                        }
+                    }
+                } else {
+                    if (input[56] < 20096.0) {
+                        if (input[55] < 42832.0) {
+                            var3 = -42.45442;
+                        } else {
+                            var3 = 2.4814742;
                         }
                     } else {
-                        var3 = 12.736502;
+                        var3 = 44.422283;
                     }
                 }
+            } else {
+                var3 = 74.88711;
             }
         }
     } else {
-        if (input[47] < 45.0) {
-            var3 = -18.641928;
+        if (input[58] < 52.0) {
+            if (input[57] < 765.0) {
+                var3 = -31.991882;
+            } else {
+                var3 = -6.587064;
+            }
         } else {
-            var3 = -31.924316;
+            if (input[24] < 1169456.0) {
+                var3 = -44.642223;
+            } else {
+                var3 = -31.867035;
+            }
         }
     }
     double var4;
-    if (input[48] < 35.0) {
-        if (input[21] < 53.0) {
-            if (input[55] < 10.0) {
-                if (input[47] < 13.0) {
-                    if (input[41] < 66.0) {
-                        var4 = -2.5843809;
-                    } else {
-                        var4 = -57.840607;
-                    }
+    if (input[41] < 27.0) {
+        if (input[37] >= 3914.0) {
+            var4 = 49.56683;
+        } else {
+            if (input[34] >= 3.0) {
+                if (input[43] < 8.0) {
+                    var4 = -46.49889;
                 } else {
-                    var4 = 19.962227;
+                    var4 = 15.127875;
                 }
             } else {
-                if (input[56] < 10.0) {
-                    if (input[5] < 0.618559) {
-                        var4 = 72.31167;
-                    } else {
-                        if (input[26] < 6159.1934) {
-                            var4 = 40.001537;
+                if (input[61] < 0.5411409) {
+                    if (input[31] < 27.0) {
+                        if (input[19] < 9.0) {
+                            var4 = 93.816086;
                         } else {
-                            var4 = -9.457642;
+                            var4 = 10.20737;
+                        }
+                    } else {
+                        if (input[56] < 182.0) {
+                            var4 = -29.898407;
+                        } else {
+                            if (input[45] < 8800.0) {
+                                if (input[61] < 0.38381433) {
+                                    var4 = 61.019836;
+                                } else {
+                                    var4 = 15.8533125;
+                                }
+                            } else {
+                                var4 = -13.282119;
+                            }
                         }
                     }
                 } else {
-                    if (input[26] < 0.37985972) {
-                        if (input[46] < 80.0) {
-                            var4 = -11.618526;
-                        } else {
-                            if (input[64] < 50.0) {
-                                var4 = 3.5183914;
-                            } else {
-                                if (input[46] < 137.0) {
-                                    var4 = 55.11268;
-                                } else {
-                                    var4 = 27.461176;
-                                }
-                            }
-                        }
-                    } else {
-                        var4 = -33.76881;
-                    }
+                    var4 = -26.190292;
                 }
             }
-        } else {
-            var4 = 62.07685;
         }
     } else {
-        var4 = -19.234512;
+        if (input[25] < 92.45553) {
+            if (input[55] < 29431.0) {
+                var4 = -8.213611;
+            } else {
+                var4 = -22.404097;
+            }
+        } else {
+            var4 = -19.318113;
+        }
     }
     return 368.0384341637011 + (var0 + var1 + var2 + var3 + var4);
 }
