@@ -109,7 +109,7 @@ def draw_mri_modelnet():
         # print(slow_rows)
 
     fig.tight_layout(pad=0.1)
-    fig.savefig("hybrid_vs_all.pdf", format='pdf', bbox_inches='tight')
+    fig.savefig("hybrid_vs_all_1.pdf", format='pdf', bbox_inches='tight')
     plt.show()
 
 
@@ -168,7 +168,7 @@ def draw_spatial_graphics():
     draw_subfig("graphics", graphics_dataset_labels, axes[1], "(d) Graphics datasets")
 
     fig.tight_layout(pad=0.5)
-    fig.savefig("hybrid_vs_all.pdf", format='pdf', bbox_inches='tight')
+    fig.savefig("hybrid_vs_all_2.pdf", format='pdf', bbox_inches='tight')
     plt.show()
 
 
