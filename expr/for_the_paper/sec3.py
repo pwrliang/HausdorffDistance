@@ -36,7 +36,7 @@ def get_avg_time(df):
 
 def draw_mri_modelnet():
     variants = ("eb_gpu", "rt_gpu", "hybrid_gpu")
-    variant_labels = ("EB-GPU", "NN-RT", "Hybrid")
+    variant_labels = ("EB-GPU", "NN-RT", "X-HD")
 
     datasets = ["BraTS2020_ValidationData", "ModelNet40"]
     dataset_labels = ["(a) BraTS", "(b) ModelNet"]
@@ -59,9 +59,12 @@ def draw_mri_modelnet():
         df_rt = None
         df_hybrid = None
 
+        values = []
+
         for variant_idx in range(len(variants)):
             variant = variants[variant_idx]
             df = load_df(f"logs/run_all/{variant}/{dataset}")
+            # print(len(df))
             if variant_idx == 1:
                 df_rt = df
             elif variant_idx == 2:
@@ -69,6 +72,7 @@ def draw_mri_modelnet():
             # x = pd.Series([i for i in range(1, len(df) + 1)])
             y = df["Running.AvgTime"]
             y = y.values
+            values.append(y)
             y.sort()
 
             percentiles = np.linspace(0, 100, len(y))
@@ -81,6 +85,22 @@ def draw_mri_modelnet():
             print(f"Mean   : {mean:.4f}")
             print(f"Std dev: {std:.4f}")
             print(f"Median : {median:.4f}")
+
+        better = 0
+        notWorseTooMuch = 0
+        total = 0
+        best = 1.0
+        for i in range(len(values[0])):
+            a = min(values[0][i], values[1][i])
+            b = values[2][i]
+            c = a/b
+            best = max(best, c)
+            total += 1
+            if c > 1:
+                better += 1
+            if c > 0.8:
+                notWorseTooMuch += 1
+        print(best, notWorseTooMuch, better, total)
         # for i, line in enumerate(ax.get_lines()):
         #     line.set_marker(markers[i])
         ax.legend(loc='upper left', ncol=1, handletextpad=0.3,
@@ -96,10 +116,10 @@ def draw_mri_modelnet():
 def draw_spatial_graphics():
     # plt.rcParams.update({'font.size': 15})
     # plt.rcParams['hatch.linewidth'] = 4
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(9, 4))
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(8, 3.6), gridspec_kw={'width_ratios': [3, 4]})
 
     variants = ("eb_gpu", "rt_gpu", "hybrid_gpu")
-    variant_labels = ("EB-GPU", "NN-RT", "Hybrid")
+    variant_labels = ("EB-GPU", "NN-RT", "X-HD")
     geo_dataset_labels = {'USADetailedWaterBodies.wkt': 'USWater', 'USACensusBlockGroupBoundaries.wkt': 'USBlock',
                           'lakes.bz2.wkt': 'OSMLakes', 'parks.bz2.wkt': 'OSMParks', 'dtl_cnty.wkt': 'USCounty',
                           'uszipcode.wkt': 'USZipcode'}
@@ -107,24 +127,47 @@ def draw_spatial_graphics():
     graphics_dataset_labels = {'dragon.ply':'Dragon','asian_dragon.ply':'Asian Dragon',
                                'thai_statuette.ply': 'Thai','happy_buddha.ply':'Buddha',}
 
-    def draw_subfig(dataset_name, dataset_labels, ax):
+    def draw_subfig(dataset_name, dataset_labels, ax, title):
         dfs = []
         for i in range(len(variants)):
             df = load_df(f"logs/run_all/{variants[i]}/{dataset_name}")
             df_data = pd.DataFrame()
             df_data['Dataset'] = df['Input.Files'].apply(
-                lambda x: dataset_labels[os.path.basename(x[0]['Path'])] + '-' + dataset_labels[
+                lambda x: dataset_labels[os.path.basename(x[0]['Path'])] + '-\n' + dataset_labels[
                     os.path.basename(x[1]['Path'])])
             df_data[variant_labels[i]] = df['Running.AvgTime']
             df_data.set_index('Dataset', inplace=True)
             dfs.append(df_data)
         merged_df = reduce(lambda left, right: pd.merge(left, right, on='Dataset'), dfs)
+        print(merged_df)
         merged_df.plot(kind='bar', ax=ax, )
+        ax.set_xticklabels(df_data.index, rotation=0)
+        ax.set_xlabel('Dataset Pairs', fontsize=14)
+        ax.set_ylabel('Running Time (ms)', fontsize=14)
+        ax.set_ylim(bottom=0)
+        ax.set_title(title, fontsize=16)
+        ax.tick_params(axis='x', labelsize=10)
+        ax.tick_params(axis='y', labelsize=10)
 
-    draw_subfig("geo", geo_dataset_labels, axes[0])
-    draw_subfig("graphics", graphics_dataset_labels, axes[1])
+        hatch_patterns = ['\\\\', '//', '']
+        for bar_container, hatch in zip(ax.containers, hatch_patterns):
+            for patch in bar_container:
+                patch.set_hatch(hatch)
 
-    fig.tight_layout(pad=0.1)
+        handles, labels = ax.get_legend_handles_labels()
+        for handle, hatch in zip(handles, hatch_patterns):
+            if hasattr(handle, 'patches') and len(handle.patches) > 0:
+                patch = handle.patches[0]
+                patch.set_hatch(hatch)
+        ax.legend(handles=handles, labels=labels)
+
+        for label in ax.get_xticklabels():
+            label.set_fontweight('bold')
+
+    draw_subfig("geo", geo_dataset_labels, axes[0], "(c) Geospatial datasets")
+    draw_subfig("graphics", graphics_dataset_labels, axes[1], "(d) Graphics datasets")
+
+    fig.tight_layout(pad=0.5)
     fig.savefig("hybrid_vs_all.pdf", format='pdf', bbox_inches='tight')
     plt.show()
 
@@ -152,7 +195,7 @@ def draw_hybrid_analysis():
     iterations_rt = run_rt["Iterations"]
     iterations_hybrid = run_hybrid["Iterations"]
 
-    iterations = [i for i in range(0, len(iterations_rt), 1)]
+    iterations = [i for i in range(1, len(iterations_rt), 1)]
     rt_time_per_iter = [iterations_rt[i]['RTTime'] for i in iterations]
     hybrid_time_per_iter = [iterations_hybrid[i]['RTTime'] for i in iterations]
     iterations = [x + 1 for x in iterations]
@@ -183,16 +226,16 @@ def draw_hybrid_analysis():
 
     fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(8, 4.,), gridspec_kw={'width_ratios': [6, 6]})
 
-    df_hybrid.plot(kind='line', ax=axes[0], alpha=0.7, linewidth=2, color=['orange', 'green'])
+    df_hybrid.plot(kind='line', ax=axes[0], alpha=0.7, linewidth=2, color=['orange', 'green'], style=['--', '-'])
     axes[0].set_xlabel('Iteration', fontsize=14)
-    axes[0].set_ylabel('Time (ms)', fontsize=14)
+    axes[0].set_ylabel('Running Time (ms)', fontsize=14)
     axes[0].set_ylim(bottom=0)
     axes[0].set_xlim(left=0)
-    axes[0].set_title("(a) Running time of NN-RT and Hybrid\nin each iteration", fontsize=16)
+    axes[0].set_title("(a) Running time in each iteration", fontsize=16)
     axes[0].tick_params(axis='x', labelsize=12)
     axes[0].tick_params(axis='y', labelsize=12)
 
-    breakdown = {'Methods': ['EB-GPU', 'NN-RT', 'Hybrid'],
+    breakdown = {'Methods': ['EB-GPU', 'NN-RT', 'X-HD'],
                  'GridConst.': [0, run_rt['Grid']['BuildTime'], run_hybrid['Grid']['BuildTime']],
                  'BVHConst.': [0, run_rt['BVHBuildTime'], run_hybrid['BVHBuildTime']],
                  'EB-GPU': [run_eb['ReportedTime'], 0, run_hybrid['EBTime']],
@@ -201,9 +244,9 @@ def draw_hybrid_analysis():
                  }
     df_breakdown = pd.DataFrame(breakdown)
     df_breakdown.set_index('Methods', inplace=True)
-    df_breakdown.plot(kind='bar', stacked=True, ax=axes[1])
+    bars = df_breakdown.plot(kind='bar', stacked=True, ax=axes[1])
     axes[1].set_title('(b) Running Time Breakdown', fontsize=16)
-    axes[1].set_ylabel('Time (ms)', fontsize=14)
+    axes[1].set_ylabel('Running Time (ms)', fontsize=14)
     axes[1].set_xlabel("Method", fontsize=14)
     axes[1].set_xticklabels(df_breakdown.index, rotation=0)
     axes[1].tick_params(axis='x', labelsize=12)
@@ -211,6 +254,11 @@ def draw_hybrid_analysis():
 
     for label in axes[1].get_xticklabels():
         label.set_fontweight('bold')
+
+    hatch_patterns = ['\\\\', '//', '', 'oo']
+    for bar_container, hatch in zip(bars.containers, hatch_patterns):
+        for patch in bar_container:
+            patch.set_hatch(hatch)
 
     # Add labels and title for clarity
     # plt.title('Stacked Bar Chart Example')
