@@ -361,6 +361,8 @@ COORD_T RunHausdorffDistanceImpl(RunConfig config) {
 
   stats.Log("HDResult", dist);
 
+  printf("Time: %f ms\n",  (sw.ms() - loading_time_ms) / config.repeat);
+
   if (config.check) {
     using hd_reference_impl = HausdorffDistanceEarlyBreak<COORD_T, N_DIMS>;
     auto& json_check = stats.Log("Check");
