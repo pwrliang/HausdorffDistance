@@ -21,7 +21,7 @@ function vary_dist() {
   variant=$1
   execution=$2
 
-  for translate in 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.10; do
+  for translate in 0.01 0.02 0.04 0.08 0.16 0.32; do
     log="${log_dir}/intro/${variant}_${execution}_translate_${translate}.json"
 
     if [[ ! -f "${log}" ]]; then
@@ -43,7 +43,6 @@ function vary_dist() {
     fi
   done
 }
-
 
 vary_dist "eb" "cpu"
 vary_dist "nn" "cpu"

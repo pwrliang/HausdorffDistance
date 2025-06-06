@@ -25,12 +25,13 @@ function run_hd() {
   n_dims=$5
   variant=$6
   execution=$7
-  normalize=$8
+  limit=$8
+  translate=$9
 
   name1=$(basename $input1)
   name2=$(basename $input2)
 
-  log="${log_dir}/run_all/${variant}_${execution}/${out_prefix}/${name1}_${name2}.json"
+  log="${log_dir}/run_all/${variant}_${execution}/${out_prefix}/${name1}_${name2}_limit_${limit}_translate_${translate}.json"
 
   echo "${log}" | xargs dirname | xargs mkdir -p
 
@@ -45,21 +46,25 @@ function run_hd() {
       -serialize $SERIALIZE_ROOT \
       -variant $variant \
       -execution $execution \
-      -repeat 5 \
+      -repeat 1 \
       -json "$log" \
       -check=false \
-      -normalize="$normalize" \
-      -translate=0.1 \
-      -max_hit=1
+      -translate=$translate \
+      -limit $limit \
+      -auto_tune
   fi
 }
 
-for dist in uniform gaussian; do
-  for size in 10000000 20000000 30000000 40000000 50000000 60000000; do
-    dataset1="$DATASET_ROOT/synthetic/${dist}_seed_1_n_${size}.wkt"
-    dataset2="$DATASET_ROOT/synthetic/${dist}_seed_2_n_${size}.wkt"
-    for variant in eb rt hybrid; do
-      run_hd "scalability" "$dataset1" "$dataset2" "wkt" 3 $variant "gpu" "false"
-    done
+for size in 10000000 12000000 14000000 16000000 18000000 20000000; do
+  dataset="$DATASET_ROOT/geo/all_nodes.wkt"
+  for variant in eb rt hybrid; do
+    run_hd "scal_vary_size" "$dataset" "$dataset" "wkt" 3 $variant "gpu" $size "0.005"
+  done
+done
+
+for translate in 0.002 0.004 0.006 0.008 0.01; do
+  dataset="$DATASET_ROOT/geo/all_nodes.wkt"
+  for variant in eb rt hybrid; do
+    run_hd "scal_vary_translate" "$dataset" "$dataset" "wkt" 3 $variant "gpu" 10000000 $translate
   done
 done

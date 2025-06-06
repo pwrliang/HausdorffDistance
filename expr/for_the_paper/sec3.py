@@ -309,5 +309,5 @@ def draw_hybrid_analysis():
 
 
 # draw_hybrid_analysis()
-draw_mri_modelnet()
-# draw_spatial_graphics()
+# draw_mri_modelnet()
+draw_spatial_graphics()

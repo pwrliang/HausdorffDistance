@@ -177,13 +177,13 @@ function run_modelnet_datasets() {
 }
 
 function run_mri() {
-  for variant in nn eb rt hybrid; do
+  for variant in eb rt hybrid; do
     run_mri_datasets "$DATASET_ROOT/BraTS2020_ValidationData" "image" 3 $variant "gpu"
   done
 }
 
 function run_modelnet() {
-  for variant in nn eb rt hybrid; do
+  for variant in eb rt hybrid; do
     run_modelnet_datasets "$DATASET_ROOT/ModelNet40" $variant "gpu"
   done
 }
@@ -195,7 +195,7 @@ function run_geo() {
   for ((i = 0; i < ${#datasets1[@]}; i++)); do
     dataset1=${datasets1[i]}
     dataset2=${datasets2[i]}
-    for variant in nn eb rt hybrid; do
+    for variant in eb rt hybrid; do
       run_hd "geo" "$root/$dataset1" "$root/$dataset2" "wkt" 2 $variant "gpu" "false"
     done
   done
@@ -208,7 +208,7 @@ function run_graphics() {
   for ((i = 0; i < ${#datasets1[@]}; i++)); do
     dataset1=${datasets1[i]}
     dataset2=${datasets2[i]}
-    for variant in nn eb rt hybrid; do
+    for variant in eb rt hybrid; do
       run_hd "graphics" "$root/$dataset1" "$root/$dataset2" "ply" 3 $variant "gpu" "false"
     done
   done

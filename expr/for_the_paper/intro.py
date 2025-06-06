@@ -2,6 +2,7 @@ import glob
 import json
 
 import open3d as o3d
+import matplotlib.ticker as ticker
 from matplotlib import pyplot as plt, image as mpimg
 from scipy.spatial import cKDTree
 import numpy as np
@@ -114,37 +115,37 @@ def draw_model():
 
 def draw_time():
     def load_df(files, cache_file):
-        # If cache exists, load from pickle
-        if os.path.exists(cache_file):
-            df = pd.read_pickle(cache_file)
-            print("Loaded DataFrame from cache.")
-        else:
-            # Otherwise, load from JSON files and serialize
-            json_records = []
-            for file in files:
-                with open(file) as f:
-                    json_records.append(json.load(f))
+        # Otherwise, load from JSON files and serialize
+        json_records = []
+        for file in files:
+            with open(file) as f:
+                json_records.append(json.load(f))
 
-            df = pd.json_normalize(json_records)
+        df = pd.json_normalize(json_records)
 
-            # Serialize to pickle
-            df.to_pickle(cache_file)
-            print("Loaded DataFrame from JSON and saved to cache.")
+        # Serialize to pickle
+        df.to_pickle(cache_file)
+        print("Loaded DataFrame from JSON and saved to cache.")
         return df
 
     all_files = glob.glob(os.path.join("logs/intro", '*.json'))
     df = load_df(all_files, "intro.pkl")
-    df_eb = df[df["Running.Repeat0.Algorithm"] == "Early Break"]
-    df_eb = df_eb[["Input.Translate", "Running.Repeat0.ComputeTime"]].sort_values(by="Input.Translate")
-    df_eb['Input.Translate'] = df_eb['Input.Translate'] * 100
-    df_eb.set_index('Input.Translate', inplace=True)
-    df_eb.rename(columns={'Running.Repeat0.ComputeTime': 'Early Break'}, inplace=True)
 
-    df_nn = df[df["Running.Repeat0.Algorithm"] == "Nearest Neighbor Search"]
-    df_nn = df_nn[["Input.Translate", "Running.Repeat0.ComputeTime"]].sort_values(by="Input.Translate")
+    df_eb = df[df['Running.Repeats'].apply(lambda x: x[0]['Algorithm'] == 'Early Break')]
+    df_eb = df_eb.sort_values(by="Input.Translate")
+    df_eb['Early Break'] = df['Running.AvgTime']
+    df_eb['Input.Translate'] = df_eb['Input.Translate'] * 100
+    df_eb = df_eb[['Early Break', 'Input.Translate']]
+    df_eb.set_index('Input.Translate', inplace=True)
+
+
+    df_nn = df[df['Running.Repeats'].apply(lambda x: x[0]['Algorithm'] == 'Nearest Neighbor Search')]
+    df_nn = df_nn.sort_values(by="Input.Translate")
     df_nn['Input.Translate'] = df_nn['Input.Translate'] * 100
+    df_nn['NN Search'] = df['Running.AvgTime']
+    df_nn = df_nn[['NN Search', 'Input.Translate']]
     df_nn.set_index('Input.Translate', inplace=True)
-    df_nn.rename(columns={'Running.Repeat0.ComputeTime': 'NN Search'}, inplace=True)
+
 
     fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(9, 4))
     img = mpimg.imread('rendered.png')  # or use PIL.Image.open if preferred
@@ -152,17 +153,27 @@ def draw_time():
     axes[0].axis('off')  # Hide axes
     axes[0].set_title('(a) Two same chair models and its HD', y=-0.25)
     axes[0].text(0.1, 0.08, "Hausdorff\nDistance", transform=axes[0].transAxes, fontsize=10, )
-
+    # axes[1].set_xticks([1, 2, 4, 8, 16, 32])
     df_eb.plot(kind='line', marker='o', ax=axes[1])
-    df_nn.plot(kind='line', marker='o', ax=axes[1])
+    df_nn.plot(kind='line', marker='o', ax=axes[1], ls='dashed')
+
+    # Set x-axis ticks to be the same as the 'X_Coordinate' data points
+    # axes[1].set_xticks(df['Input.Translate'])
 
     axes[1].margins(x=0.05, y=0.25)
     axes[1].set_xlabel('Translate x-axis proportionally to model size (%)')
     axes[1].set_ylabel('Running Time (ms)')
     axes[1].set_title("(b) Running time by moving the blue model", y=-0.25)
-    axes[1].legend(loc='upper left', ncol=3, handletextpad=0.3,
+    axes[1].legend(loc='upper left', ncol=2, handletextpad=0.3,
                    fontsize=11, borderaxespad=0.2, frameon=False)
-    axes[1].set_yscale('log')
+    #
+    axes[1].set_xscale('log', base=2)
+    def format_power_of_2(value, pos):
+        return f'{int(value)}'
+
+    # Apply formatter to x-axis
+    axes[1].xaxis.set_major_formatter(ticker.FuncFormatter(format_power_of_2))
+
     plt.tight_layout()
     fig.savefig('intro.pdf', format='pdf', bbox_inches='tight')
     plt.show()

@@ -12,7 +12,8 @@ set(HD_VERSION_STRING
         "${HD_VERSION_MAJOR}.${HD_VERSION_MINOR}")
 set(HD_LIB_VERSION "1.0")
 
-set(ENABLED_ARCHS "75")
+
+set(ENABLED_ARCHS "86")
 
 if (NOT WIN32)
     # visual studio doesn't like these (not need them):
